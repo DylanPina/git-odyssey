@@ -2,10 +2,11 @@
 
 import "./App.css";
 import { Routes, Route } from "react-router-dom";
-import { Home } from "./pages/Home";
+import { Home } from "@/pages/Home";
+import { Repo } from "@/pages/Repo";
+import { Commit } from "@/pages/Commit";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { Repo } from "./pages/Repo";
 
 function App() {
 	return (
@@ -13,6 +14,10 @@ function App() {
 			<Routes>
 				<Route path="/" element={<Home />} />
 				<Route path="/repo/:owner/:repo_name" element={<Repo />} />
+				<Route
+					path="/repo/:owner/:repo_name/commit/:commitSha"
+					element={<Commit />}
+				/>
 			</Routes>
 			<ToastContainer
 				theme="dark"

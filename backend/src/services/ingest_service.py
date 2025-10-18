@@ -11,7 +11,8 @@ class IngestService:
         self.embedder = Embedder()
 
     def ingest_repo(self, request):
-        repo_path = os.path.join(os.path.dirname(__file__), "..", "api", "repo.git")
+        repo_path = os.path.join(os.path.dirname(
+            __file__), "..", "api", "repo.git")
         delete_dir_if_exists(repo_path)
 
         repo = Repo(
@@ -19,7 +20,7 @@ class IngestService:
             context_lines=request.context_lines,
             max_commits=request.max_commits,
         )
-        self.embedder.embed_repo(repo)
+        # self.embedder.embed_repo(repo)
 
         self.db.create(repo.to_sql())
         repo.rm()
