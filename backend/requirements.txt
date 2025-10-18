@@ -1,0 +1,35 @@
+
+# Core framework
+fastapi
+uvicorn[standard]
+
+# Data validation
+pydantic==2.11.9
+pydantic-core==2.33.2
+
+typing-extensions==4.15.0
+typing-inspection==0.4.1
+annotated-types==0.7.0
+typing-extensions==4.15.0
+typing-inspection==0.4.1
+
+# Git
+pygit2==1.18.2
+PyGithub==2.1.1
+
+# Database
+sqlalchemy
+psycopg2-binary
+pgvector
+
+# AI/LangChain
+langchain-core
+langchain-openai
+
+# Low-level dependencies
+cffi==2.0.0
+pycparser==2.22
+
+# Utilities
+python-dotenv
+pydantic-settings
