@@ -1,8 +1,26 @@
 import os
-import uvicorn
-import dotenv
+import sys
+from dotenv import load_dotenv
 
-dotenv.load_dotenv()
+src_dir = os.path.dirname(os.path.abspath(__file__))
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+
+
+load_dotenv(override=True)
+os.environ["PYTHONPATH"] = src_dir
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    import uvicorn
+    try:
+        uvicorn.run(
+            "app:app",
+            host="0.0.0.0",
+            port=8000,
+            reload=True,
+            log_level="info",
+        )
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception:
+        sys.exit(1)
