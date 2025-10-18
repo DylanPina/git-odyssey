@@ -3,9 +3,9 @@ from typing import Optional, List, Dict, Any
 from data.data_model import Branch, Commit
 
 class IngestRequest(BaseModel):
-  url: str
-  max_commits: Optional[int] = None
-  context_lines: Optional[int] = None
+  url: str = ""
+  max_commits: Optional[int] = 50
+  context_lines: Optional[int] = 3
 
 class RepoResponse(BaseModel):
   repo_url: str
