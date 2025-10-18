@@ -20,8 +20,8 @@ class DiffHunk(BaseModel):
     diff_embedding: Optional[List[float]] = Field(None, description="Embedding of the diff of the hunk")
 
     # FKs
-    file_change_id: Optional[int] = Field(None, description="DB ID of the file change that contains this hunk")
-    commit_sha: Optional[str] = Field(None, description="SHA of the commit that contains this hunk")
+    file_change_id: int = Field(None, description="DB ID of the file change that contains this hunk")
+    commit_sha: str = Field(None, description="SHA of the commit that contains this hunk")
 
 
 class FileSnapshot(BaseModel):
@@ -29,8 +29,7 @@ class FileSnapshot(BaseModel):
 
     id: Optional[int] = Field(None, description="Database ID (populated after insertion)")
 
-    commit_sha: Optional[str] = Field(None, description="SHA of the commit this file snapshot belongs to")
-
+    commit_sha: str = Field(None, description="SHA of the commit this file snapshot belongs to")
 
     path: str = Field(..., description="File path")
     content: str = Field(..., description="Full file content snapshot")
@@ -52,7 +51,7 @@ class FileChange(BaseModel):
     snapshot: Optional[FileSnapshot] = Field(None, description="File snapshot of the new version of the file. New version for existing files; old version for deletions.")
 
     summary: Optional[str] = Field(None, description="Summary of the changes made to the file (AI Generated)")
-    commit_sha: Optional[str] = Field(None, description="SHA of the commit this file change belongs to")
+    commit_sha: str = Field(None, description="SHA of the commit this file change belongs to")
     embedding: Optional[List[float]] = Field(None, description="Embedding of the file change summary")
 
 
