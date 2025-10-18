@@ -13,8 +13,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { FlipHorizontal } from "lucide-react";
+import Search from "@/components/ui/custom/Search";
 import type { LayoutDirection } from "@/lib/graph/layout";
-import { Input } from "@/components/ui/input";
 
 type GraphViewProps = {
 	nodes: Node[];
@@ -110,10 +110,9 @@ export function GraphView({
 					right: "max(80px, 10px)",
 				}}
 			>
-				<Input
-					placeholder="Search commits"
-					onChange={(e) => onSearchResults([e.target.value])}
-				/>
+				<div className="w-full max-w-2xl px-2">
+					<Search repoUrl={repoUrl} onSearchResults={onSearchResults} />
+				</div>
 			</div>
 		</ReactFlow>
 	);
