@@ -1,6 +1,8 @@
 import { useParams, useNavigate } from "react-router-dom";
 import CommitNode from "@/components/ui/custom/CommitNode";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { RepoSidebar } from "@/components/ui/custom/RepoSidebar";
+import { useChat } from "@/hooks/useChat";
 import { useRepoData } from "@/hooks/useRepoData";
 import { useCommitGraph } from "@/hooks/useCommitGraph";
 import { GraphView } from "@/components/ui/custom/GraphView";
@@ -38,8 +40,26 @@ export function Repo() {
 		reactFlowInstanceRef,
 	} = useCommitGraph({ commits, branches });
 
+	// Chat functionality
+	const { chatMessages, isChatLoading, chatError, sendMessage } = useChat({
+		owner,
+		repoName: repo_name,
+		filteredCommits,
+	});
+
 	return (
 		<SidebarProvider>
+			<RepoSidebar
+				filteredCommits={filteredCommits}
+				filteredBranches={branches}
+				lastSearchQuery={lastSearchQuery}
+				onFiltersChange={handleFiltersChange}
+				onCommitClick={handleCommitClick}
+				chatMessages={chatMessages}
+				isChatLoading={isChatLoading}
+				chatError={chatError}
+				onSendChatMessage={sendMessage}
+			/>
 			<SidebarInset className="w-screen h-screen relative">
 				<GraphView
 					nodes={nodes}
