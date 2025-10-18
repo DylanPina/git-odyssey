@@ -1,20 +1,4 @@
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_DB: git_odyssey
-      POSTGRES_USER: git_odyssey_user
-      POSTGRES_PASSWORD: git_odyssey_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U git_odyssey_user -d git_odyssey"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   app:
     build:
       context: .
