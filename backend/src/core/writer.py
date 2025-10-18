@@ -20,16 +20,27 @@ class Writer:
         self._recursive_collect_updates(git_object, updates)
 
         # **Update git object embeddings with embeddings of summaries (better than commit message or hunk patch)**
-        embeddings = self.embedder.get_batch_embeddings(
-            [update["summary"] for update in updates]
-        )
+        # Filter out None summaries before creating embeddings
+        valid_updates = [update for update in updates if update["summary"] is not None]
+        if valid_updates:
+            embeddings = self.embedder.get_batch_embeddings(
+                [update["summary"] for update in valid_updates]
+            )
+        else:
+            embeddings = []
 
         with self.db.get_session() as session:
-            for update, embedding in zip(updates, embeddings):
-                update["embedding"] = embedding
+            # Create a mapping of valid updates to their embeddings
+            valid_embedding_map = {}
+            for update, embedding in zip(valid_updates, embeddings):
+                valid_embedding_map[update["id"]] = embedding
+            
+            for update in updates:
                 db_object = session.get(update["type"], update["id"])
                 db_object.summary = update["summary"]
-                db_object.embedding = embedding
+                # Only set embedding if we have one for this update
+                if update["id"] in valid_embedding_map:
+                    db_object.embedding = valid_embedding_map[update["id"]]
             session.commit()
         print(f"Summaries saved for {type(git_object).__name__}...")
 
