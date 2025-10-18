@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     print("Commits:")
     for commit in repo.commits:
-        print(commit.sha)
+        print(commit)
 
     print("To SQL:")
     print(repo.to_sql())
