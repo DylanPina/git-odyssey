@@ -1,10 +1,9 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useRepoData } from "../hooks/useRepoData";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { SidebarInset } from "@/components/ui/sidebar";
+import CommitNode from "@/components/ui/custom/CommitNode";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { useRepoData } from "@/hooks/useRepoData";
 import { useCommitGraph } from "@/hooks/useCommitGraph";
 import { GraphView } from "@/components/ui/custom/GraphView";
-import CommitNode from "@/components/ui/custom/CommitNode";
 
 const nodeTypes = {
 	commit: CommitNode,
@@ -12,6 +11,7 @@ const nodeTypes = {
 
 export function Repo() {
 	const { owner, repo_name } = useParams();
+	const navigate = useNavigate();
 
 	// Data layer
 	const { commits, branches, isLoading, isIngesting, ingestStatus } =
