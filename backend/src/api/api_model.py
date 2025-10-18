@@ -1,36 +1,50 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from data.data_model import Branch, Commit
+from typing import List, Dict, Any
+from data import Commit, Branch
 
-class IngestRequest(BaseModel):
-  url: str = ""
-  max_commits: Optional[int] = 50
-  context_lines: Optional[int] = 3
 
 class RepoResponse(BaseModel):
-  repo_url: str
-  branches: List[Branch] = Field(default_factory=list)
-  commits: List[Commit] = Field(default_factory=list)
+    repo_url: str
+    branches: List[Branch]
+    commits: List[Commit]
+
 
 class FilterRequest(BaseModel):
-  query: str
-  filters: Optional[Dict[str, Any]] = None
-  repo_url: str
-  max_results: Optional[int] = None 
+    query: str = ""
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    repo_url: str = ""
+    max_results: int = 15
+
 
 class FilterResponse(BaseModel):
-  commit_shas: List[str] = Field(default_factory=list)
+    commit_shas: List[str] = Field(default_factory=list)
+
 
 class ChatbotRequest(BaseModel):
-  query: str
-  context_shas: List[str] = Field(default_factory=list)
+    query: str = ""
+    context_shas: List[str] = Field(default_factory=list)
+
+
+class CitedCommit(BaseModel):
+    sha: str
+    similarity: float
+    message: str
+
 
 class ChatbotResponse(BaseModel):
-  response: str
-  cited_commits: List[str] = Field(default_factory=list)
+    response: str = ""
+    cited_commits: List[CitedCommit] = Field(default_factory=list)
 
-class CommitResponse(BaseModel):
-  commit: Commit  
+
+class IngestRequest(BaseModel):
+    url: str = ""
+    max_commits: int = 3
+    context_lines: int = 3
+
 
 class CommitsResponse(BaseModel):
-  commits: List[CommitResponse] = Field(default_factory=list)
+    commits: List[Commit] = Field(default_factory=list)
+
+
+class CommitResponse(BaseModel):
+    commit: Commit = Field(default_factory=Commit)

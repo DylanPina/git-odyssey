@@ -11,7 +11,8 @@ class IngestService:
         self.embedder = OpenAIEmbedder()
 
     def ingest_repo(self, request):
-        repo_path = os.path.join(os.path.dirname(__file__), "..", "api", "repo.git")
+        repo_path = os.path.join(os.path.dirname(
+            __file__), "..", "api", "repo.git")
         delete_dir_if_exists(repo_path)
 
         repo = Repo(
