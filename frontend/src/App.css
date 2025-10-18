@@ -196,3 +196,184 @@ input:focus-visible {
 .rdp-button_previous {
   background: var(--color-white) !important;
 }
+
+/* Custom React Flow Controls Dark Theme */
+.react-flow {
+  background: var(--color-neutral-900) !important;
+}
+
+.react-flow__node {
+  border-radius: 12px;
+  display: flex;
+  min-height: 90px;
+  height: auto;
+  width: 350px;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
+  z-index: 1;
+}
+
+.react-flow__node.selected {
+  border: none !important;
+  box-shadow:
+    10px 0 15px rgba(42, 138, 246, 0.3),
+    -10px 0 15px rgba(233, 42, 103, 0.3);
+}
+
+.react-flow__node .wrapper {
+  overflow: hidden;
+  display: flex;
+  padding: 2px;
+  position: relative;
+  border-radius: inherit;
+  flex-grow: 1;
+}
+
+.sparkle.gradient:before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    from -160deg at 50% 50%,
+    #e92a67 0deg,
+    #a853ba 120deg,
+    #2a8af6 240deg,
+    #e92a67 360deg
+  );
+  border-radius: 100%;
+  z-index: -1;
+}
+
+.react-flow__node.selected .wrapper.gradient:before {
+  content: "";
+  position: absolute;
+  padding-bottom: calc(100% * 1.41421356237);
+  width: calc(100% * 1.41421356237);
+  background: conic-gradient(
+    from -160deg at 50% 50%,
+    #e92a67 0deg,
+    #a853ba 120deg,
+    #2a8af6 240deg,
+    rgba(42, 138, 246, 0) 360deg
+  );
+  left: 50%;
+  top: 50%;
+  border-radius: 100%;
+  animation: spinner 4s linear infinite;
+  transform: translate(-50%, -50%) rotate(0deg);
+  z-index: -1;
+}
+
+@keyframes spinner {
+  100% {
+    transform: translate(-50%, -50%) rotate(-360deg);
+  }
+}
+
+.react-flow__node .inner {
+  background: var(--color-neutral-900);
+  padding: 16px 20px;
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex-grow: 1;
+  position: relative;
+}
+
+.react-flow__node .sparkle {
+  border-radius: 100%;
+  width: 35px;
+  height: 35px;
+  right: 0;
+  position: absolute;
+  top: 0;
+  transform: translate(50%, -50%);
+  display: flex;
+  transform-origin: center center;
+  padding: 2px;
+  overflow: hidden;
+  box-shadow:
+    10px 0 15px rgba(42, 138, 246, 0.3),
+    -10px 0 15px rgba(233, 42, 103, 0.3);
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out;
+  cursor: pointer;
+}
+
+.react-flow__node:hover .sparkle,
+.react-flow__node.selected .sparkle {
+  opacity: 1;
+}
+
+.react-flow__node .sparkle div {
+  background-color: var(--color-neutral-900);
+  flex-grow: 1;
+  border-radius: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+.react-flow__controls-dark {
+  background: rgba(26, 26, 26, 0.9) !important;
+  --node-box-shadow: 10px 0 15px rgba(42, 138, 246, 0.3), -10px 0 15px rgba(233, 42, 103, 0.3);
+}
+
+.react-flow__controls-dark button {
+  background: rgba(26, 26, 26, 0.9) !important;
+  border: 1px solid #404040 !important;
+  color: white !important;
+  fill: white !important;
+  stroke: white !important;
+}
+
+.react-flow__controls-dark button:hover {
+  background: rgba(40, 40, 40, 0.9) !important;
+  border-color: #666666 !important;
+}
+
+.react-flow__controls-dark button:disabled {
+  background: rgba(20, 20, 20, 0.9) !important;
+  color: #666666 !important;
+  fill: #666666 !important;
+  stroke: #666666 !important;
+}
+
+/* Custom React Flow MiniMap Dark Theme */
+.react-flow__minimap-dark {
+  background: rgba(0, 0, 0, 0.75) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.9) !important;
+  border-radius: 12px !important;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2) !important;
+}
+
+.react-flow__minimap-dark .react-flow__minimap-mask {
+  fill: rgba(255, 255, 255, 0.1) !important;
+}
+
+.react-flow__minimap-dark .react-flow__minimap-node {
+  fill: #ffffff !important;
+  stroke: #ffffff !important;
+  stroke-width: 1.5px !important;
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.1)) !important;
+}
+
+.react-flow__minimap-dark .react-flow__minimap-node.secondary {
+  fill: #cccccc !important;
+  stroke: #cccccc !important;
+  stroke-width: 1.5px !important;
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.05)) !important;
+}
+
+.react-flow__minimap-dark svg {
+  border-radius: 10px !important;
+  overflow: hidden !important;
+}
