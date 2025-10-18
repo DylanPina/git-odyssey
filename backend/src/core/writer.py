@@ -1,12 +1,12 @@
 from data.database import Database
-from core.embedder import Embedder
 from data.data_model import Commit, FileChange, DiffHunk
 from data.schema import SQLCommit, SQLFileChange, SQLDiffHunk
 from typing import Union, List, Tuple
+from core.embedder import OpenAIEmbedder
 
 
 class Writer:
-    def __init__(self, db: Database, embedder: Embedder):
+    def __init__(self, db: Database, embedder: OpenAIEmbedder):
         self.db = db
         self.embedder = embedder
 
