@@ -1,5 +1,5 @@
 from core.retriever import Retriever
-from core.embedder import Embedder
+from core.embedder import OpenAIEmbedder
 from data.database import Database
 from api.api_model import FilterRequest, FilterResponse
 
@@ -7,7 +7,7 @@ from api.api_model import FilterRequest, FilterResponse
 class FilterService:
     def __init__(self):
         self.db = Database()
-        self.embedder = Embedder()
+        self.embedder = OpenAIEmbedder()
         self.retriever = Retriever(self.db, self.embedder)
 
     def filter(self, request: FilterRequest) -> FilterResponse:

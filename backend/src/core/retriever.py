@@ -1,6 +1,6 @@
 from data.database import Database
 from data.schema import SQLCommit, SQLFileChange, SQLDiffHunk
-from core.embedder import Embedder
+from core.embedder import OpenAIEmbedder
 from typing import Dict, Any, List, Optional
 from utils.logger import logger
 from sqlalchemy import or_, func, union_all, select, distinct, case, literal
@@ -52,7 +52,7 @@ class Retriever:
         ".avif",
     ]
 
-    def __init__(self, db: Database, embedder: Embedder):
+    def __init__(self, db: Database, embedder: OpenAIEmbedder):
         self.db = db
         self.embedder = embedder
         self.filter_actions = {
