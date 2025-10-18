@@ -1,13 +1,14 @@
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, JSON, Integer, ForeignKey, Text, Enum as SQLEnum
+from sqlalchemy import String, JSON, Integer, ForeignKey, Text, Enum as SQLEnum, Table, Column
 from typing import List
 from pgvector.sqlalchemy import Vector
 from typing import Optional
+from enum import Enum
 
 class Base(DeclarativeBase):
   pass
 
-class FileChangeStatus(SQLEnum):
+class FileChangeStatus(str,Enum):
     ADDED = "added"
     DELETED = "deleted"
     MODIFIED = "modified"
@@ -67,7 +68,7 @@ class SQLFileChange(Base):
   id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
   old_path: Mapped[str]
   new_path: Mapped[str]
-  status: Mapped[FileChangeStatus] = mapped_column(SQLEnum(FileChangeStatus))
+  status: Mapped[str] = mapped_column(SQLEnum(FileChangeStatus))
   summary: Mapped[Optional[str]] = mapped_column(Text)
   embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536))
 
@@ -96,7 +97,9 @@ class SQLRepo(Base):
   commits: Mapped[List[SQLCommit]] = relationship("SQLCommit", back_populates="repo")
   branches: Mapped[List[SQLBranch]] = relationship("SQLBranch", back_populates="repo")
 
-class commits_branches(Base):
-  __tablename__ = "commits_branches"
-  commit_sha: Mapped[str] = mapped_column(String(40), ForeignKey("commits.sha"), primary_key=True)
-  branch_id: Mapped[int] = mapped_column(Integer, ForeignKey("branches.id"), primary_key=True)
+commits_branches = Table(
+    "commits_branches",
+    Base.metadata,
+    Column("commit_sha", String(40), ForeignKey("commits.sha"), primary_key=True),
+    Column("branch_id", Integer, ForeignKey("branches.id"), primary_key=True),
+)

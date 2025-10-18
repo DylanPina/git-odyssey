@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from schema import FileChangeStatus
+from data.schema import FileChangeStatus
 
 
 class DiffHunk(BaseModel):
@@ -10,7 +10,7 @@ class DiffHunk(BaseModel):
     id: Optional[int] = Field(None, description="DB ID (populated after insertion)")
 
     old_start: int = Field(..., description="Starting line number in the old file")
-    old_end: int = Field(..., description="Ending line number in the old file")
+    old_lines: int = Field(..., description="Number of lines in the old file")
     new_start: int = Field(..., description="Starting line number in the new file")
     new_lines: int = Field(..., description="Number of lines in the new file")
 

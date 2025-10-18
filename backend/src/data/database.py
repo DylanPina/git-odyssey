@@ -1,13 +1,17 @@
 from ast import Pass
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, contextmanager
+from sqlalchemy.orm import sessionmaker
+from contextlib import contextmanager
 from infrastructure.settings import settings
 from data.schema import Base
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 class Database:
   def __init__(self):
-    self.engine = create_engine(settings.database_url)
+    self.engine = create_engine(os.getenv("DATABASE_URL"))
     self.session = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
 
   def init(self):
