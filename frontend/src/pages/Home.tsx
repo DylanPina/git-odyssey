@@ -8,7 +8,7 @@ import {
   Bot,
   Github,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { RepoInput } from "@/components/ui/RepoInput";
 
 export function Home() {
   return (
@@ -35,7 +35,7 @@ export function Home() {
           </p>
 
           <div className="max-w-xl md:max-w-2xl mx-auto px-4">
-            <Button onClick={() => {}}>Get Started</Button>
+            <RepoInput />
           </div>
         </div>
 
