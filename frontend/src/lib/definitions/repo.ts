@@ -28,7 +28,8 @@ export type FileChange = {
 	commit_sha: string;
 	embedding?: number[] | null;
 	hunks: FileHunk[];
-	path: string;
+	new_path: string;
+	old_path?: string | null;
 	status: string;
 	snapshot?: FileSnapshot | null;
 	summary?: string;
