@@ -5,6 +5,7 @@ import { RepoSidebar } from "@/components/ui/custom/RepoSidebar";
 import { useChat } from "@/hooks/useChat";
 import { useRepoData } from "@/hooks/useRepoData";
 import { useCommitGraph } from "@/hooks/useCommitGraph";
+import { RepoToolbar } from "@/components/ui/custom/RepoToolbar";
 import { GraphView } from "@/components/ui/custom/GraphView";
 
 const nodeTypes = {
@@ -61,6 +62,15 @@ export function Repo() {
 				onSendChatMessage={sendMessage}
 			/>
 			<SidebarInset className="w-screen h-screen relative">
+				<RepoToolbar
+					owner={owner}
+					repoName={repo_name}
+					isLoading={isLoading}
+					isIngesting={isIngesting}
+					ingestStatus={ingestStatus}
+					onExit={() => navigate("/")}
+					onClearFilters={handleClearFilters}
+				/>
 				<GraphView
 					nodes={nodes}
 					edges={edges}
