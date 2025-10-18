@@ -25,6 +25,7 @@ pgvector
 # AI/LangChain
 langchain-core
 langchain-openai
+langchain-google-genai
 google-genai
 
 # Low-level dependencies
