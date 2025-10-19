@@ -4,7 +4,15 @@ import pygit2
 from core.branch import Branch
 from utils.logger import logger
 from utils.utils import delete_dir_if_exists, parse_github_url
-from data.schema import SQLBranch, SQLCommit, SQLFileChange, SQLDiffHunk, SQLRepo, SQLFileSnapshot, FileChangeStatus
+from data.schema import (
+    SQLBranch,
+    SQLCommit,
+    SQLFileChange,
+    SQLDiffHunk,
+    SQLRepo,
+    SQLFileSnapshot,
+    FileChangeStatus,
+)
 
 
 class Repo:
@@ -51,8 +59,7 @@ class Repo:
         logger.info(f"HEAD is tracking: {head_ref.raw_target.decode('utf-8')}")
 
         self.main_branch = (
-            pygit_repo.references.get("HEAD").raw_target.decode(
-                "utf-8").split("/")[-1]
+            pygit_repo.references.get("HEAD").raw_target.decode("utf-8").split("/")[-1]
         )
         logger.info(f"Main branch is: {self.main_branch}")
 
@@ -103,18 +110,17 @@ class Repo:
                     # For renames or copies, the previous snapshot should be looked up by old_path
                     previous_key = (
                         file_change.old_path
-                        if file_change.status in {FileChangeStatus.RENAMED, FileChangeStatus.COPIED}
+                        if file_change.status
+                        in {FileChangeStatus.RENAMED, FileChangeStatus.COPIED}
                         else snapshot_path
                     )
                     sql_snapshot = SQLFileSnapshot(
                         path=snapshot_path,
                         content=sanitized_snapshot_text,
-                        previous_snapshot=last_snapshot_by_path.get(
-                            previous_key),
+                        previous_snapshot=last_snapshot_by_path.get(previous_key),
                     )
                     sql_fc.snapshot = sql_snapshot
-                    last_snapshot_by_path[snapshot_path] = deepcopy(
-                        sql_snapshot)
+                    last_snapshot_by_path[snapshot_path] = deepcopy(sql_snapshot)
 
                 # Process hunks for this file change
                 sql_hunks = []
@@ -155,8 +161,7 @@ class Repo:
 
         # Create the final SQLAlchemy repo
         sql_repo = SQLRepo(
-            url=self.url, branches=sql_branches, commits=list(
-                sql_commits.values())
+            url=self.url, branches=sql_branches, commits=list(sql_commits.values())
         )
 
         logger.info(

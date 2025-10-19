@@ -16,16 +16,7 @@ class RepoService:
         )
         branches = branches_query.all()
 
-        commits_query = (
-            self.session.query(SQLCommit)
-            .filter(SQLCommit.repo_url == url)
-            .options(
-                selectinload(SQLCommit.file_changes).selectinload(SQLFileChange.hunks),
-                selectinload(SQLCommit.file_changes)
-                .selectinload(SQLFileChange.snapshot)
-                .selectinload(SQLFileSnapshot.previous_snapshot),
-            )
-        )
+        commits_query = self.session.query(SQLCommit).filter(SQLCommit.repo_url == url)
         commits = commits_query.all()
 
         db_adapter = Database()
@@ -37,15 +28,7 @@ class RepoService:
 
     def get_commits(self, url: str) -> CommitsResponse:
         commits_query = (
-            self.session.query(SQLCommit)
-            .filter(SQLCommit.repo_url == url)
-            .options(
-                selectinload(SQLCommit.file_changes).selectinload(SQLFileChange.hunks),
-                selectinload(SQLCommit.file_changes)
-                .selectinload(SQLFileChange.snapshot)
-                .selectinload(SQLFileSnapshot.previous_snapshot),
-            )
-            .all()
+            self.session.query(SQLCommit).filter(SQLCommit.repo_url == url).all()
         )
 
         db_adapter = Database()

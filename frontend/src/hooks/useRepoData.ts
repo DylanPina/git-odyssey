@@ -42,7 +42,7 @@ export function useRepoData({ owner, repoName }: UseRepoDataArgs): UseRepoData {
     const data = await ingestRepo(
       `https://github.com/${owner}/${repoName}`,
       MAX_COMMITS,
-      MAX_BRANCHES,
+      MAX_BRANCHES
     );
 
     const fetchedCommits = (data?.commits ?? []) as Commit[];
@@ -64,21 +64,21 @@ export function useRepoData({ owner, repoName }: UseRepoDataArgs): UseRepoData {
     setIsIngesting(false);
     return fetchedCommits.length > 0;
   }, [owner, repoName, cacheKey]);
-  
+
   const getRepository = useCallback(async (): Promise<boolean> => {
     if (!cacheKey || !owner || !repoName) return false;
     setIsLoading(true);
     try {
-    const response = await getRepo(owner!, repoName!);
-    const fetchedCommits = response.commits as Commit[];
-    const fetchedBranches = response.branches as Branch[];
+      const response = await getRepo(owner!, repoName!);
+      const fetchedCommits = response.commits as Commit[];
+      const fetchedBranches = response.branches as Branch[];
 
-    if (fetchedCommits && fetchedCommits.length > 0) {
-      repoCache.set(cacheKey, {
-        commits: fetchedCommits,
-        branches: fetchedBranches,
-        timestamp: Date.now(),
-      });
+      if (fetchedCommits && fetchedCommits.length > 0) {
+        repoCache.set(cacheKey, {
+          commits: fetchedCommits,
+          branches: fetchedBranches,
+          timestamp: Date.now(),
+        });
       }
       setCommits(fetchedCommits);
       setBranches(fetchedBranches);
@@ -141,5 +141,3 @@ export function useRepoData({ owner, repoName }: UseRepoDataArgs): UseRepoData {
     refresh,
   };
 }
-
-
