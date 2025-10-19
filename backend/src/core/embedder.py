@@ -58,8 +58,8 @@ class BaseEmbedder(ABC):
                             total_repo_objects += len(repo_objects)
                             repo_objects = []
                             num_tokens = 0
-                            repo_objects.append((hunk, hunk.content, "embedding"))
-                            num_tokens += content_tokens
+                        repo_objects.append((hunk, hunk.content, "embedding"))
+                        num_tokens += content_tokens
 
         if repo_objects:
             self.embed_batch(repo_objects)
