@@ -57,6 +57,7 @@ export function useCommitGraph({
     new Set()
   );
   const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("TB");
+  const [hasAnimated, setHasAnimated] = useState<boolean>(false);
 
   // Convert commits to nodes/edges, memoized to avoid re-creating on unrelated changes
   const graphFromCommits = useMemo(() => {
@@ -108,7 +109,44 @@ export function useCommitGraph({
     setNodes(layoutedNodes);
     setEdges(layoutedEdges);
     setFilteredCommits(commits);
-  }, [graphFromCommits, layoutDirection, commits]);
+
+    // Trigger initial zoom animation on first load
+    if (!hasAnimated && commits.length > 0) {
+      setHasAnimated(true);
+      setTimeout(() => {
+        const instance = reactFlowInstanceRef.current;
+        if (instance) {
+          // First, fit the entire graph to show the whole structure and get centered position
+          instance.fitView({ padding: 0.1, duration: 0 });
+          
+          // Then zoom out while keeping the centered position
+          setTimeout(() => {
+            const currentViewport = instance.getViewport();
+            instance.setViewport({ 
+              x: currentViewport.x, 
+              y: currentViewport.y, 
+              zoom: 0.1 
+            }, { duration: 0 });
+            
+            // Find the 3 most recent commits by timestamp
+            const sortedCommits = [...commits].sort((a, b) => (b.time || 0) - (a.time || 0));
+            const mostRecentCommits = sortedCommits.slice(0, 5);
+            
+            if (mostRecentCommits.length > 0) {
+              // Animate to focus on the most recent commits
+              setTimeout(() => {
+                instance.fitView({
+                  nodes: mostRecentCommits.map(commit => ({ id: commit.sha })),
+                  padding: 0.3,
+                  duration: 2000,
+                });
+              }, 100);
+            }
+          }, 50);
+        }
+      }, 300); // Small delay to ensure the graph is rendered
+    }
+  }, [graphFromCommits, layoutDirection, commits, hasAnimated]);
 
   const updateNodeSelection = useCallback((selectedShas: Set<string>) => {
     setFilterSelectedNodes(selectedShas);
