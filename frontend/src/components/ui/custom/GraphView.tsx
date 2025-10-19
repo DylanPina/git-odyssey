@@ -41,31 +41,30 @@ import {
 	onNodesChange,
 	onEdgesChange,
 	onConnect,
-	onInit,
-	isLoading,
-	isIngesting,
-	ingestStatus,
-	layoutDirection,
-	toggleLayoutDirection,
-	repoUrl,
-	onSearchResults,
-  }: GraphViewProps) {
-	return (
-	  <ReactFlow
-		nodes={nodes}
-		edges={edges}
-		nodeTypes={nodeTypes}
-		onNodesChange={onNodesChange}
-		onEdgesChange={onEdgesChange}
-		onConnect={onConnect}
-		onInit={onInit}
-		fitView
-		fitViewOptions={{ padding: 0.3 }}
-		className="w-full h-full relative"
-		defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-		minZoom={0.1}
-		maxZoom={2}
-	  >
+  onInit,
+  isLoading,
+  isIngesting,
+  ingestStatus,
+  layoutDirection,
+  toggleLayoutDirection,
+  repoUrl,
+  onSearchResults,
+}: GraphViewProps) {
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
+      onInit={onInit}
+      fitView={false}
+      className="w-full h-full relative"
+      defaultViewport={{ x: 0, y: 0, zoom: 0.1 }}
+      minZoom={0.05}
+      maxZoom={2}
+    >
 		<Background />
 		<LoadingOverlay
 		  isVisible={isLoading || isIngesting}
