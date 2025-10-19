@@ -11,6 +11,7 @@ export interface CompressedCachedData {
   commits: Array<{
     sha: string;
     message: string;
+    author: string | null;
     time: number;
     parents: string[];
   }>;
@@ -45,7 +46,6 @@ class RepoCache {
           timestamp: parsed.timestamp,
           commits: parsed.commits.map((c) => ({
             ...c,
-            author: null,
             file_changes: [] as FileChange[],
             embedding: null,
             summary: null,
@@ -79,6 +79,7 @@ class RepoCache {
         commits: data.commits.map((commit) => ({
           sha: commit.sha,
           message: commit.message,
+          author: commit.author,
           time: commit.time,
           parents: commit.parents,
           // Remove other fields that might not be essential for caching

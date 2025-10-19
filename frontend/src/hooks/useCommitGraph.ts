@@ -67,6 +67,7 @@ export function useCommitGraph({
       data: {
         sha: commit.sha,
         message: commit.message,
+        author: commit.author,
         time: commit.time,
         summary: commit.summary || null,
         onUpdateSummary: (sha: string, summary: string) => {
