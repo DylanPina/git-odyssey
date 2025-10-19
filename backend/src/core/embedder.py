@@ -43,7 +43,8 @@ class BaseEmbedder(ABC):
 
         for commit in repo.commits.values():
             if commit.message is not None and commit.embedding is None:
-                repo_objects.append((commit, commit.message, "embedding"))
+                commit_info = "Commit Summary: " + commit.summary + ", Commit Message: " + commit.message
+                repo_objects.append((commit, commit_info, "embedding"))
                 num_tokens += len(commit.message) // self.token_chars
 
             for file_change in commit.file_changes:
