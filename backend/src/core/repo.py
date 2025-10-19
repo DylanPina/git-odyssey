@@ -120,7 +120,7 @@ class Repo:
                         previous_snapshot=last_snapshot_by_path.get(previous_key),
                     )
                     sql_fc.snapshot = sql_snapshot
-                    last_snapshot_by_path[snapshot_path] = deepcopy(sql_snapshot)
+                    last_snapshot_by_path[snapshot_path] = sql_snapshot
 
                 # Process hunks for this file change
                 sql_hunks = []
