@@ -9,7 +9,7 @@ GitOdyssey transforms a Git repository into an interactive, AI-powered knowledge
 - Understand *why* code changed not just *what* changed.
 
 ## How we built it
-- **Backend:** Python + FastAPI, powered by **PyGit2** for commit graph traversal, **Gemini 2.5 Flash** for AI analysis, and **SQLAlchemy** for structured metadata storage
+- **Backend:** Python + FastAPI + **Gemini 2.5 Flash**
 - **Indexing:** We combined keyword search and vector embeddings via **Google Gemini** for hybrid retrieval.
 - **Frontend:** React + Tailwind + Vite for a clean and fast developer experience, featuring an interactive commit visualization and semantic query interface.
 - **Infrastructure:** Supabase for hosting our Postgres database and Renderer for hosting our backend server and frontend
