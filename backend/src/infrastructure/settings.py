@@ -4,7 +4,10 @@ from typing import List
 
 class Settings(BaseSettings):
     database_url: str
-    cors_allow_origins: List[str] = ["*", "https://git-odyssey-1.onrender.com"]
+    cors_allow_origins: List[str] = [
+        "https://git-odyssey-1.onrender.com",
+        "http://localhost:8000",
+    ]
 
     model_config = SettingsConfigDict(
         env_file=".env",
