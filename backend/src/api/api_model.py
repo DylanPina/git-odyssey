@@ -13,7 +13,7 @@ class FilterRequest(BaseModel):
     query: str = ""
     filters: Dict[str, Any] = Field(default_factory=dict)
     repo_url: str = ""
-    max_results: int = 15
+    max_results: int = 8
 
 
 class FilterResponse(BaseModel):

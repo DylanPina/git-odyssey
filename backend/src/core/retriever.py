@@ -11,9 +11,9 @@ from data.data_model import Commit, FileChange, DiffHunk
 class Retriever:
     # Similarity thresholds (lower = more similar, 0 = identical, 2 = opposite)
     SIMILARITY_THRESHOLDS = {
-        "commit": 0.55,  # Very loose - commit messages are often poor quality
-        "file_change": 0.7,  # Moderate - file change summaries are better
-        "hunk": 0.7,  # Moderate - hunk content/diffs are specific but noisy
+        "commit": 0.5,  # Very loose - commit messages are often poor quality
+        "file_change": 0.6,  # Moderate - file change summaries are better
+        "hunk": 0.6,  # Moderate - hunk content/diffs are specific but noisy
     }
 
     # File patterns to exclude from semantic search (config/generated files)
