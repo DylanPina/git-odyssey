@@ -43,7 +43,7 @@ class BaseEmbedder(ABC):
 
         for commit in repo.commits.values():
             if commit.message is not None and commit.embedding is None:
-                commit_info = "Commit Summary: " + commit.summary + ", Commit Message: " + commit.message
+                commit_info = f"Commit Author: {commit.author}, Commit Message: {commit.message}"
                 repo_objects.append((commit, commit_info, "embedding"))
                 num_tokens += len(commit.message) // self.token_chars
 
@@ -81,7 +81,8 @@ class GeminiEmbedder(BaseEmbedder):
         embeddings = self.embedder.models.embed_content(
             model=self.model,
             contents=[text for obj, text, _ in repo_objects],
-            config=types.EmbedContentConfig(output_dimensionality=self.embedding_dim),
+            config=types.EmbedContentConfig(
+                output_dimensionality=self.embedding_dim),
         ).embeddings
         for (obj, _, field_name), embedding in zip(repo_objects, embeddings):
             setattr(obj, field_name, embedding.values)
@@ -91,7 +92,8 @@ class GeminiEmbedder(BaseEmbedder):
         result = self.embedder.models.embed_content(
             model=self.model,
             contents=query,
-            config=types.EmbedContentConfig(output_dimensionality=self.embedding_dim),
+            config=types.EmbedContentConfig(
+                output_dimensionality=self.embedding_dim),
         )
         return result.embeddings[0].values
 
@@ -100,7 +102,8 @@ class GeminiEmbedder(BaseEmbedder):
         result = self.embedder.models.embed_content(
             model=self.model,
             contents=texts,
-            config=types.EmbedContentConfig(output_dimensionality=self.embedding_dim),
+            config=types.EmbedContentConfig(
+                output_dimensionality=self.embedding_dim),
         )
         return [embedding.values for embedding in result.embeddings]
 

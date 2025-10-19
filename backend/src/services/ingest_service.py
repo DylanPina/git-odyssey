@@ -3,6 +3,7 @@ from utils.utils import delete_dir_if_exists
 from core.repo import Repo
 from data.database import Database
 from core.embedder import OpenAIEmbedder
+from utils.logger import logger
 
 
 class IngestService:
@@ -15,11 +16,13 @@ class IngestService:
             __file__), "..", "api", "repo.git")
         delete_dir_if_exists(repo_path)
 
+        logger.info(f"Ingesting repo: {request.url}")
         repo = Repo(
             url=request.url,
             context_lines=request.context_lines,
             max_commits=request.max_commits,
         )
+        logger.info(f"Created repo object")
         self.embedder.embed_repo(repo)
 
         self.db.create(repo.to_sql())

@@ -127,19 +127,14 @@ export function RepoInput() {
 
 				<div className="mt-4 text-center">
 					<p className="text-sm text-white/50">
-						Try:{" "}
+						Try it out on{" "}
 						<span
 							className="text-blue-400 cursor-pointer hover:text-blue-300"
-							onClick={() => form.setValue("githubUrl", "facebook/react")}
+							onClick={() =>
+								form.setValue("githubUrl", "DylanPina/git-odyssey")
+							}
 						>
-							facebook/react
-						</span>{" "}
-						or{" "}
-						<span
-							className="text-blue-400 cursor-pointer hover:text-blue-300"
-							onClick={() => form.setValue("githubUrl", "microsoft/vscode")}
-						>
-							microsoft/vscode
+							DylanPina/git-odyssey{" "}
 						</span>
 					</p>
 				</div>
