@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     database_url: str
     cors_allow_origins: List[str] = [
         "https://git-odyssey-1.onrender.com",
-        "http://localhost:8000",
+        "http://localhost:5173",
     ]
 
     model_config = SettingsConfigDict(

@@ -20,16 +20,28 @@ function CommitNode(props: {
   data: {
     sha: string;
     message: string;
+    author?: string | null;
     time?: number;
     summary?: string | null;
     onUpdateSummary?: (sha: string, summary: string) => void;
   };
   selected?: boolean;
 }) {
-  const { sha, message, time, summary, onUpdateSummary } = props.data;
+  const { sha, message, author, time, summary, onUpdateSummary } = props.data;
   const selected = props.selected;
   const [isSummarizing, setIsSummarizing] = useState(false);
   const navigate = useNavigate();
+
+  // Calculate dynamic text size based on message length
+  const getMessageStyles = useCallback(() => {
+    if (!author) return { textSize: "text-sm" };
+    
+    // Shrink text for longer messages to fit better
+    if (message.length > 100) {
+      return { textSize: "text-xs" }; // Smaller text for long messages
+    }
+    return { textSize: "text-sm" }; // Normal text for shorter messages
+  }, [message, author]);
 
   const copyToClipboard = useCallback(async (text: string, type: "SHA" | "Message" | "Summary") => {
     try {
@@ -194,13 +206,18 @@ function CommitNode(props: {
                 )}
               </span>
               <span
-                className={`text-sm font-medium cursor-pointer rounded transition-colors mt-3 break-words  ${selected ? "" : "line-clamp-2"}`}
+                className={`font-medium cursor-pointer rounded transition-colors mt-3 break-words ${getMessageStyles().textSize} ${author ? "pb-6" : ""} ${selected ? "" : "line-clamp-2"}`}
                 data-tooltip-id={`msg-${sha}`}
                 data-tooltip-content={message}
                 onClick={handleMessageClick}
               >
                 {message}
               </span>
+              {author && (
+                <div className="absolute bottom-2 right-4 text-[10px] text-white font-medium bg-black/50 px-1 py-0.5 rounded">
+                  {author}
+                </div>
+              )}
               <Handle type="source" position={Position.Bottom} />
               <Handle type="target" position={Position.Top} />
             </div>
