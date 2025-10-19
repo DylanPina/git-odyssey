@@ -17,5 +17,7 @@ class FilterService:
             request.repo_url,
             request.max_results,
         )"""
-        commit_shas = self.retriever.get_context(request.query, request.context_shas)
+        commit_shas = self.retriever.get_context_with_citations(
+            request.query, request.context_shas
+        )
         return FilterResponse(commit_shas=commit_shas)
