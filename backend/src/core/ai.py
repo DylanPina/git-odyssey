@@ -11,7 +11,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 
 class AIEngine:
-    def __init__(self, model: str = "gemini-2.5-flash", temperature: float = 0.2):
+    def __init__(self, model: str = "gemini-2.0-flash-lite", temperature: float = 0.2):
         self.llm = ChatGoogleGenerativeAI(model=model, temperature=temperature)
 
     def answer_question(self, question: str, context: str) -> str:
