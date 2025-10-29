@@ -8,7 +8,12 @@ class Settings(BaseSettings):
         "https://git-odyssey-1.onrender.com",
         "http://localhost:5173",
     ]
-
+    secret_key: str
+    github_client_id: str
+    github_client_secret: str
+    webhook_secret: str
+    app_id: str
+    app_secret_key: str
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="",

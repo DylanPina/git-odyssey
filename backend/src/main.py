@@ -7,11 +7,11 @@ if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
 
 
-load_dotenv(override=True)
 os.environ["PYTHONPATH"] = src_dir
 
 if __name__ == "__main__":
     import uvicorn
+
     port = os.getenv("PORT", 8000)
     try:
         uvicorn.run(

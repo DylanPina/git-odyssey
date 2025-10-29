@@ -35,3 +35,6 @@ pycparser==2.22
 # Utilities
 python-dotenv
 pydantic-settings
+
+# OAuth
+authlib[starlette]
