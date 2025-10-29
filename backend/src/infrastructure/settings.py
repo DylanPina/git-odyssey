@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     webhook_secret: str
     app_id: str
     app_secret_key: str
+    private_key: str
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="",

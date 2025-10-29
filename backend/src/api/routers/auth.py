@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
 from infrastructure.settings import settings
+from starlette.responses import RedirectResponse, Response
 from app import oauth
-from services.auth_service import generate_session_jwt
+from services.auth_service import handle_github_callback
+from services.security_service import get_current_user
 
 router = APIRouter()
 
@@ -29,7 +31,31 @@ async def github_auth_callback(request: Request):
     if not installation_id:
         raise HTTPException(status_code=400, detail="Installation ID is required")
 
-    session_jwt = await generate_session_jwt(github_user["id"], installation_id)
-    return RedirectResponse(
-        url=f"{settings.frontend_url}/auth/callback?session_jwt={session_jwt}"
+    session_jwt = await handle_github_callback(github_user, token, installation_id)
+
+    frontend_dashboard_url = "/"
+    response = RedirectResponse(url=frontend_dashboard_url)
+
+    response.set_cookie(
+        key="session_token",
+        value=session_jwt,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,
     )
+
+    return response
+
+
+@router.get("/me")
+async def get_current_user(current_user: dict = Depends(get_current_user)):
+    return current_user
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie(
+        key="session_token", httponly=True, secure=True, samesite="lax"
+    )
+    return {"message": "Logged out successfully"}
