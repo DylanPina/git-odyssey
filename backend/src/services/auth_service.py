@@ -4,13 +4,13 @@ from infrastructure.settings import settings
 
 
 async def handle_github_callback(
-    github_user: dict, github_access_token: dict, installation_id: str
+    github_user: dict, github_access_token: dict, installation_id: str | None = None
 ) -> str:
     github_id = github_user["id"]
     username = github_user["login"]
     email = github_user["email"]
 
-    # TODO: Check if user already exists in database and create if not
+    # TODO: Check if user already exists in database and create if not. If user exists, pass
 
     # placeholder until db is implemented
     user = {"id": github_id, "username": username, "email": email}
@@ -25,4 +25,4 @@ def create_session_jwt(user_id: int) -> str:
         "iat": datetime.utcnow(),
         "exp": datetime.utcnow() + timedelta(days=7),
     }
-    return jwt.encode(payload, settings.app_secret_key, algorithm="HS256")
+    return jwt.encode(payload, settings.secret_key, algorithm="HS256")

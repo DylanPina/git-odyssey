@@ -21,31 +21,34 @@ class Repo:
         url: str,
         context_lines: int = 0,
         max_commits: int = None,
+        local_path: str = None,
     ):
         self.url = url
         self.context_lines = context_lines
         self.max_commits = max_commits
-        self.repo = self.clone_repo(url)
+        self.repo = self.clone_repo(url, local_path)
         self.commits = {}
         self.branches = self._get_branches()
 
-    def clone_repo(self, url: str) -> pygit2.Repository:
+    def clone_repo(self, url: str, local_path: str) -> pygit2.Repository:
         """
         Clones the repository into a local directory and returns the pygit2.Repository object.
         Sets the owner, name, repo_dir, repo_path, main_branch attributes.
         """
         self.owner, self.name = parse_github_url(url)
-        self.repo_dir = os.path.join(os.path.dirname(__file__), "repos")
-        self.repo_path = os.path.join(self.repo_dir, self.owner, self.name)
-        delete_dir_if_exists(self.repo_dir)
+        self.repo_path = local_path
 
         logger.info(f"Cloning repository {url} into {self.repo_path}")
-        pygit_repo = pygit2.clone_repository(
-            url,
-            self.repo_path + "/main",
-            depth=self.max_commits,
-            bare=True,
-        )
+        try:
+            pygit_repo = pygit2.clone_repository(
+                url,
+                self.repo_path,
+                depth=self.max_commits,
+                bare=True,
+            )
+        except Exception as e:
+            raise Exception(f"Failed to clone repository: {e}")
+
         logger.info(f"Cloned repository {url} into {self.repo_path}/main")
 
         self.branch_names = [

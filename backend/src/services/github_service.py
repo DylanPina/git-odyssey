@@ -24,5 +24,5 @@ async def get_installation_access_token(installation_id: int):
             f"https://api.github.com/app/installations/{installation_id}/access_tokens",
             headers=headers,
         )
-    response.raise_for_status()
-    return response.json()["token"]
+        response.raise_for_status()
+        return response.json()["token"]

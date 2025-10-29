@@ -1,21 +1,25 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
 from infrastructure.settings import settings
 from starlette.responses import RedirectResponse, Response
-from app import oauth
 from services.auth_service import handle_github_callback
 from services.security_service import get_current_user
 
 router = APIRouter()
 
 
+def get_oauth(request: Request):
+    """Get oauth instance from app state"""
+    return request.app.state.oauth
+
+
 @router.get("/login")
-async def github_login(request: Request):
+async def github_login(request: Request, oauth=Depends(get_oauth)):
     redirect_uri = request.url_for("github_auth_callback")
     return oauth.github.authorize_redirect(request, redirect_uri)
 
 
 @router.get("/callback")
-async def github_auth_callback(request: Request):
+async def github_auth_callback(request: Request, oauth=Depends(get_oauth)):
     try:
         token = oauth.github.authorize_access_token(request)
     except Exception as e:

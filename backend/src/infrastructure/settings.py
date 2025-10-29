@@ -11,9 +11,8 @@ class Settings(BaseSettings):
     secret_key: str
     github_client_id: str
     github_client_secret: str
-    webhook_secret: str
+    github_webhook_secret: str
     app_id: str
-    app_secret_key: str
     private_key: str
 
     model_config = SettingsConfigDict(

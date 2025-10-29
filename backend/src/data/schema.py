@@ -58,8 +58,7 @@ class SQLDiffHunk(Base):
 
     # Foreign Keys
     file_change_id: Mapped[int] = mapped_column(ForeignKey("file_changes.id"))
-    commit_sha: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("commits.sha"))
+    commit_sha: Mapped[Optional[str]] = mapped_column(ForeignKey("commits.sha"))
 
     # Relationships
     file_change: Mapped["SQLFileChange"] = relationship(
@@ -79,7 +78,8 @@ class SQLFileSnapshot(Base):
     path: Mapped[str]
     content: Mapped[str] = mapped_column(Text)
     previous_snapshot_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("file_snapshots.id"))
+        ForeignKey("file_snapshots.id")
+    )
 
     # Relationships
     previous_snapshot: Mapped[Optional["SQLFileSnapshot"]] = relationship(
@@ -102,10 +102,8 @@ class SQLFileChange(Base):
     )  # OpenAI embedding size
 
     # Foreign Keys
-    commit_sha: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("commits.sha"))
-    snapshot_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("file_snapshots.id"))
+    commit_sha: Mapped[Optional[str]] = mapped_column(ForeignKey("commits.sha"))
+    snapshot_id: Mapped[Optional[int]] = mapped_column(ForeignKey("file_snapshots.id"))
 
     # Relationships
     commit: Mapped[Optional["SQLCommit"]] = relationship(
@@ -189,7 +187,6 @@ class SQLRepo(Base):
 commits_branches = Table(
     "commits_branches",
     Base.metadata,
-    Column("commit_sha", String(40), ForeignKey(
-        "commits.sha"), primary_key=True),
+    Column("commit_sha", String(40), ForeignKey("commits.sha"), primary_key=True),
     Column("branch_id", Integer, ForeignKey("branches.id"), primary_key=True),
 )

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Header, HTTPException, BackgroundTasks, Depends, Request
-import hashlib, hmac
+import hashlib, hmac, json
+from pydantic import ValidationError
 from api.api_model import GitHubPushRequest
 from infrastructure.settings import settings
 
@@ -7,18 +8,26 @@ from infrastructure.settings import settings
 router = APIRouter()
 
 
-def verify_webhook_signature(payload: bytes, x_hub_signature_256: str = Header(None)):
+async def verify_webhook_signature(
+    request: Request, x_hub_signature_256: str = Header(None)
+):
     if x_hub_signature_256 is None:
         raise HTTPException(status_code=403, detail="X-Hub Signature is Missing")
+    body = await request.body()
     expected_signature = (
         "sha256="
         + hmac.new(
-            settings.webhook_secret.encode("utf-8"), payload, hashlib.sha256
+            settings.github_webhook_secret.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
     )
     if not hmac.compare_digest(x_hub_signature_256, expected_signature):
         raise HTTPException(status_code=403, detail="X-Hub Signature is Invalid")
-    return x_hub_signature_256
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+        return payload
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
 
 def process_push_webhook(request: GitHubPushRequest):
@@ -27,13 +36,12 @@ def process_push_webhook(request: GitHubPushRequest):
 
 @router.post("/")
 async def webhook(
-    request: Request,
     background_tasks: BackgroundTasks,
-    x_hub_signature_256: str = Header(None),
+    payload: dict = Depends(verify_webhook_signature),
 ):
-    body = await request.body()
-    verify_webhook_signature(body, x_hub_signature_256)
-    payload = await request.json()
-    push_data = GitHubPushRequest(**payload)
+    try:
+        push_data = GitHubPushRequest(**payload)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
     background_tasks.add_task(process_push_webhook, push_data)
     return {"message": "Webhook received and processed"}
