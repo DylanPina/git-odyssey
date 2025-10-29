@@ -1,11 +1,12 @@
-from data.database import Database
 from core.embedder import OpenAIEmbedder
 from core.retriever import Retriever
 from core.ai import AIEngine
+from sqlalchemy.orm import Session
 from core.writer import Writer
 
+
 class SummarizeService:
-    def __init__(self, db: Database, embedder: OpenAIEmbedder, ai_engine: AIEngine):
+    def __init__(self, db: Session, embedder: OpenAIEmbedder, ai_engine: AIEngine):
         self.db = db
         self.embedder = embedder
         self.ai_engine = ai_engine

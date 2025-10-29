@@ -1,12 +1,12 @@
 from core.retriever import Retriever
 from core.embedder import OpenAIEmbedder
-from data.database import Database
 from api.api_model import FilterRequest, FilterResponse
+from sqlalchemy.orm import Session
 
 
 class FilterService:
-    def __init__(self):
-        self.db = Database()
+    def __init__(self, db: Session):
+        self.db = db
         self.embedder = OpenAIEmbedder()
         self.retriever = Retriever(self.db, self.embedder)
 
