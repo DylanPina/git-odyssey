@@ -3,6 +3,7 @@ from infrastructure.settings import settings
 from starlette.responses import RedirectResponse, Response
 from services.auth_service import handle_github_callback
 from services.security_service import get_current_user
+from data.data_model import User
 
 router = APIRouter()
 
@@ -32,9 +33,6 @@ async def github_auth_callback(request: Request, oauth=Depends(get_oauth)):
 
     installation_id = request.query_params.get("installation_id")
 
-    if not installation_id:
-        raise HTTPException(status_code=400, detail="Installation ID is required")
-
     session_jwt = await handle_github_callback(github_user, token, installation_id)
 
     frontend_dashboard_url = "/"
@@ -53,7 +51,7 @@ async def github_auth_callback(request: Request, oauth=Depends(get_oauth)):
 
 
 @router.get("/me")
-async def get_current_user(current_user: dict = Depends(get_current_user)):
+async def get_current_user(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 

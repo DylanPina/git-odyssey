@@ -1,6 +1,5 @@
 from typing import List, Optional
 from enum import Enum
-
 from sqlalchemy import (
     String,
     Integer,
@@ -9,6 +8,7 @@ from sqlalchemy import (
     Enum as SQLEnum,
     Column,
     JSON,
+    DateTime,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -34,6 +34,18 @@ class FileChangeStatus(str, Enum):
     MODIFIED = "modified"
     RENAMED = "renamed"
     COPIED = "copied"
+
+
+class SQLUser(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    github_id: Mapped[int]
+    username: Mapped[str]
+    email: Mapped[Optional[str]]
+    installation_id: Mapped[Optional[str]]
+    api_credits_remaining: Mapped[int]
+    created_at: Mapped[DateTime]
+    updated_at: Mapped[DateTime]
 
 
 class SQLDiffHunk(Base):
@@ -175,7 +187,11 @@ class SQLRepo(Base):
 
     url: Mapped[str] = mapped_column(primary_key=True)
 
+    # Foreign Keys
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
     # Relationships
+    users: Mapped[List["SQLUser"]] = relationship("SQLUser", back_populates="repos")
     branches: Mapped[List["SQLBranch"]] = relationship(
         "SQLBranch", back_populates="repo", foreign_keys="[SQLBranch.repo_url]"
     )

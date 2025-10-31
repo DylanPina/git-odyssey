@@ -1,5 +1,5 @@
-from data.schema import SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch
-from data.data_model import DiffHunk, FileChange, Commit, Branch, FileSnapshot
+from data.schema import SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch, SQLUser
+from data.data_model import DiffHunk, FileChange, Commit, Branch, FileSnapshot, User
 
 
 class Database:
@@ -22,6 +22,18 @@ class Database:
             ),
             embedding=sql_hunk.embedding if not compressed else None,
             diff_embedding=sql_hunk.diff_embedding if not compressed else None,
+        )
+
+    def parse_sql_user(self, sql_user: SQLUser) -> User:
+        return User(
+            id=sql_user.id,
+            github_id=sql_user.github_id,
+            username=sql_user.username,
+            email=sql_user.email,
+            installation_id=sql_user.installation_id,
+            api_credits_remaining=sql_user.api_credits_remaining,
+            created_at=sql_user.created_at,
+            updated_at=sql_user.updated_at,
         )
 
     def parse_sql_file_change(
