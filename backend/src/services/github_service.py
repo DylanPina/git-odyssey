@@ -25,4 +25,5 @@ async def get_installation_access_token(installation_id: int):
             headers=headers,
         )
         response.raise_for_status()
+        print("Response: ", response.json())
         return response.json()["token"]

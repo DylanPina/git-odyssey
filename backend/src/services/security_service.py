@@ -1,6 +1,5 @@
 from fastapi import Request, HTTPException
 import jwt
-from jwt.exceptions import JWTError
 from infrastructure.settings import settings
 from sqlalchemy.orm import Session
 from infrastructure.db import get_session
@@ -13,8 +12,9 @@ from data.data_model import User
 async def get_current_user(
     request: Request, db: Session = Depends(get_session)
 ) -> User:
+    print("Cookies: ", request.cookies)
     token = request.cookies.get("session_token")
-
+    print("Token: ", token)
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -23,8 +23,7 @@ async def get_current_user(
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-
-    except JWTError:
+    except:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user = db.query(SQLUser).filter(SQLUser.id == user_id).first()

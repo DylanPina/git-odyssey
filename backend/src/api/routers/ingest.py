@@ -16,6 +16,7 @@ def ingest(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    print("Request: ", request)
     if not request.url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="URL is required"

@@ -18,6 +18,7 @@ from sqlalchemy.orm import (
 )
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Table
+from datetime import datetime
 
 
 class Base(DeclarativeBase):
@@ -43,9 +44,12 @@ class SQLUser(Base):
     username: Mapped[str]
     email: Mapped[Optional[str]]
     installation_id: Mapped[Optional[str]]
-    api_credits_remaining: Mapped[int]
-    created_at: Mapped[DateTime]
-    updated_at: Mapped[DateTime]
+    api_credits_remaining: Mapped[int] = mapped_column(Integer, default=100)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    # Relationships
+    repos: Mapped[List["SQLRepo"]] = relationship("SQLRepo", back_populates="users")
 
 
 class SQLDiffHunk(Base):

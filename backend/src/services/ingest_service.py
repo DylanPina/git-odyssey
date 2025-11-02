@@ -6,7 +6,8 @@ from utils.logger import logger
 from api.api_model import IngestRequest
 from sqlalchemy.orm import Session
 from services.github_service import get_installation_access_token
-from data.schema import SQLUser  # TODO: Implement SQLUser model
+from data.schema import SQLUser
+import traceback
 
 
 class IngestService:
@@ -25,11 +26,13 @@ class IngestService:
         try:
             # TODO: Remove asyncio once ingest_repo is async
             token = asyncio.run(get_installation_access_token(user.installation_id))
+            print("Token: ", token)
         except Exception as e:
             raise Exception(f"Cannot get installation access token: {e}")
 
-        repo_url = f"https://x-access-token:{token}@{repo_url}"
-
+        safe_url = request.url.removeprefix("https://")
+        repo_url = f"https://x-access-token:{token}@{safe_url}"
+        print("Repo URL: ", repo_url)
         with tempfile.TemporaryDirectory() as temp_repo_path:
             logger.info(f"Cloning repo into {temp_repo_path}")
             repo = Repo(
@@ -45,7 +48,22 @@ class IngestService:
             logger.info(f"Embedding complete. Creating SQL models...")
             sql_repo = repo.to_sql()
             sql_repo.user_id = user_id
+            logger.info("Adding sql_repo to session...")
             self.session.add(sql_repo)
-            self.session.commit()
+
+            try:
+                logger.info("Flushing to database (will reveal constraint issues)...")
+                self.session.flush()  # flush to send SQL to DB and surface errors early
+                logger.info("Flush OK; committing...")
+                self.session.commit()
+                logger.info("Commit successful!")
+            except Exception as e:
+                logger.error("DB write failed: %s", e)
+                logger.error(traceback.format_exc())
+                try:
+                    self.session.rollback()
+                except Exception:
+                    logger.exception("Rollback failed")
+                raise  # re-raise so the HTTP 500 still happens (or handle as you prefer)
 
             logger.info(f"SQL models created. Removing repo...")

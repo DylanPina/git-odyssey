@@ -1,10 +1,19 @@
-from data.schema import SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch, SQLUser
+from data.schema import SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch, SQLUser, Base
 from data.data_model import DiffHunk, FileChange, Commit, Branch, FileSnapshot, User
+from infrastructure.db import engine
 
 
 class Database:
     def __init__(self):
         pass
+
+    def init(self):
+        """Create all database tables"""
+        Base.metadata.create_all(bind=engine)
+
+    def drop(self):
+        """Drop all database tables"""
+        Base.metadata.drop_all(bind=engine)
 
     def parse_sql_hunk(
         self, sql_hunk: SQLDiffHunk, compressed: bool = False

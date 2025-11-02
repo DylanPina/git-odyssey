@@ -6,9 +6,6 @@ uvicorn[standard]
 # Data validation
 pydantic==2.11.9
 pydantic-core==2.33.2
-
-typing-extensions==4.15.0
-typing-inspection==0.4.1
 annotated-types==0.7.0
 typing-extensions==4.15.0
 typing-inspection==0.4.1
@@ -38,3 +35,8 @@ pydantic-settings
 
 # OAuth
 authlib[starlette]
+itsdangerous
+
+# HTTP and JWT
+httpx
+pyjwt
