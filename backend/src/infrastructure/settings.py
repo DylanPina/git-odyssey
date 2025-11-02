@@ -22,6 +22,3 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
-
-
-settings = Settings()

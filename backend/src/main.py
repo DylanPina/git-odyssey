@@ -9,6 +9,7 @@ if src_dir not in sys.path:
 
 os.environ["PYTHONPATH"] = src_dir
 
+
 if __name__ == "__main__":
     import uvicorn
 

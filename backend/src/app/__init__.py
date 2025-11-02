@@ -2,12 +2,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
-from infrastructure.settings import settings
+from infrastructure.db import init_db, close_db
+from contextlib import asynccontextmanager
+from api.dependencies import get_settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db(get_settings().database_url)
+    yield
+    close_db()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI()
-
+    app = FastAPI(lifespan=lifespan)
+    settings = get_settings()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,

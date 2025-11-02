@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session
 from services.github_service import get_installation_access_token
 from data.schema import SQLUser
 import traceback
+from infrastructure.settings import Settings
 
 
 class IngestService:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, settings: Settings):
         self.session = session
         self.embedder = OpenAIEmbedder()
+        self.settings = settings
 
     # TODO: Make async (this is bottleneck) - store ingestion jobs and use Celery or Arq
     def ingest_repo(self, request: IngestRequest, user_id: str):
@@ -25,7 +27,9 @@ class IngestService:
 
         try:
             # TODO: Remove asyncio once ingest_repo is async
-            token = asyncio.run(get_installation_access_token(user.installation_id))
+            token = asyncio.run(
+                get_installation_access_token(user.installation_id, self.settings)
+            )
             print("Token: ", token)
         except Exception as e:
             raise Exception(f"Cannot get installation access token: {e}")

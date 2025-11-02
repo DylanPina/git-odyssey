@@ -3,7 +3,7 @@ from services.chat_service import ChatService
 from api.api_model import ChatbotRequest, ChatbotResponse
 from core.ai import AIEngine
 from sqlalchemy.orm import Session
-from infrastructure.db import get_session
+from api.dependencies import get_session
 
 
 router = APIRouter()

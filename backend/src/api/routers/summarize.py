@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from infrastructure.db import get_session
+from api.dependencies import get_session
 from services.summarize_service import SummarizeService
 from core.ai import AIEngine
 from core.embedder import OpenAIEmbedder

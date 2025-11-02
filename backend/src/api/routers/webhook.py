@@ -2,14 +2,15 @@ from fastapi import APIRouter, Header, HTTPException, BackgroundTasks, Depends, 
 import hashlib, hmac, json
 from pydantic import ValidationError
 from api.api_model import GitHubPushRequest
-from infrastructure.settings import settings
+from api.dependencies import get_settings
+from infrastructure.settings import Settings
 
 
 router = APIRouter()
 
 
 async def verify_webhook_signature(
-    request: Request, x_hub_signature_256: str = Header(None)
+    request: Request, x_hub_signature_256: str = Header(None), settings: Settings = Depends(get_settings)
 ):
     if x_hub_signature_256 is None:
         raise HTTPException(status_code=403, detail="X-Hub Signature is Missing")

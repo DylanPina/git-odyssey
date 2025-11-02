@@ -365,27 +365,27 @@ class Retriever:
             )
             cited_commits.append(row["sha"])
 
-            # Search for file changes from the context commits
-            fc_query = (
-                select(
-                    SQLFileChange.commit_sha,
-                    SQLFileChange.old_path,
-                    SQLFileChange.new_path,
-                    SQLFileChange.status,
-                    SQLFileChange.summary,
-                    SQLCommit.message.label("commit_message"),
-                    SQLCommit.author.label("commit_author"),
-                    SQLCommit.time.label("commit_time"),
-                    SQLFileChange.embedding.cosine_distance(query_embedding).label(
-                        "similarity"
-                    ),
-                )
-                .join(SQLCommit, SQLFileChange.commit_sha == SQLCommit.sha)
-                .where(
-                    SQLFileChange.commit_sha.in_(context_shas),
-                    SQLFileChange.embedding.isnot(None),
-                )
+        # Search for file changes from the context commits
+        fc_query = (
+            select(
+                SQLFileChange.commit_sha,
+                SQLFileChange.old_path,
+                SQLFileChange.new_path,
+                SQLFileChange.status,
+                SQLFileChange.summary,
+                SQLCommit.message.label("commit_message"),
+                SQLCommit.author.label("commit_author"),
+                SQLCommit.time.label("commit_time"),
+                SQLFileChange.embedding.cosine_distance(query_embedding).label(
+                    "similarity"
+                ),
             )
+            .join(SQLCommit, SQLFileChange.commit_sha == SQLCommit.sha)
+            .where(
+                SQLFileChange.commit_sha.in_(context_shas),
+                SQLFileChange.embedding.isnot(None),
+            )
+        )
 
         fc_results = self.session.execute(fc_query).mappings().all()
 
@@ -410,49 +410,49 @@ class Retriever:
             if row["commit_sha"] not in cited_commits:
                 cited_commits.append(row["commit_sha"])
 
-            # Search for diff hunks from the context commits
-            hunk_context_similarity = case(
-                (
-                    (SQLDiffHunk.embedding.isnot(None))
-                    & (SQLDiffHunk.diff_embedding.isnot(None)),
-                    func.least(
-                        SQLDiffHunk.embedding.cosine_distance(query_embedding),
-                        SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
-                    ),
-                ),
-                (
-                    SQLDiffHunk.embedding.isnot(None),
+        # Search for diff hunks from the context commits
+        hunk_context_similarity = case(
+            (
+                (SQLDiffHunk.embedding.isnot(None))
+                & (SQLDiffHunk.diff_embedding.isnot(None)),
+                func.least(
                     SQLDiffHunk.embedding.cosine_distance(query_embedding),
+                    SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
                 ),
-                else_=SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
-            )
+            ),
+            (
+                SQLDiffHunk.embedding.isnot(None),
+                SQLDiffHunk.embedding.cosine_distance(query_embedding),
+            ),
+            else_=SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
+        )
 
-            hunk_query = (
-                select(
-                    SQLDiffHunk.commit_sha,
-                    SQLDiffHunk.old_lines,
-                    SQLDiffHunk.new_lines,
-                    SQLDiffHunk.content,
-                    SQLDiffHunk.summary,
-                    SQLFileChange.old_path,
-                    SQLFileChange.new_path,
-                    SQLFileChange.status,
-                    SQLFileChange.summary,
-                    SQLCommit.message.label("commit_message"),
-                    SQLCommit.author.label("commit_author"),
-                    SQLCommit.time.label("commit_time"),
-                    hunk_context_similarity.label("similarity"),
-                )
-                .join(SQLCommit, SQLDiffHunk.commit_sha == SQLCommit.sha)
-                .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
-                .where(
-                    SQLDiffHunk.commit_sha.in_(context_shas),
-                    or_(
-                        SQLDiffHunk.embedding.isnot(None),
-                        SQLDiffHunk.diff_embedding.isnot(None),
-                    ),
-                )
+        hunk_query = (
+            select(
+                SQLDiffHunk.commit_sha,
+                SQLDiffHunk.old_lines,
+                SQLDiffHunk.new_lines,
+                SQLDiffHunk.content,
+                SQLDiffHunk.summary,
+                SQLFileChange.old_path,
+                SQLFileChange.new_path,
+                SQLFileChange.status,
+                SQLFileChange.summary,
+                SQLCommit.message.label("commit_message"),
+                SQLCommit.author.label("commit_author"),
+                SQLCommit.time.label("commit_time"),
+                hunk_context_similarity.label("similarity"),
             )
+            .join(SQLCommit, SQLDiffHunk.commit_sha == SQLCommit.sha)
+            .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
+            .where(
+                SQLDiffHunk.commit_sha.in_(context_shas),
+                or_(
+                    SQLDiffHunk.embedding.isnot(None),
+                    SQLDiffHunk.diff_embedding.isnot(None),
+                ),
+            )
+        )
 
         hunk_results = self.session.execute(hunk_query).mappings().all()
 

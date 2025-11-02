@@ -1,13 +1,13 @@
-from data.database import Database
 from data.data_model import Commit, FileChange, DiffHunk
 from data.schema import SQLCommit, SQLFileChange, SQLDiffHunk
 from typing import Union, List, Tuple
 from core.embedder import OpenAIEmbedder
+from sqlalchemy.orm import Session
 
 
 class Writer:
-    def __init__(self, db: Database, embedder: OpenAIEmbedder):
-        self.db = db
+    def __init__(self, session: Session, embedder: OpenAIEmbedder):
+        self.session = session
         self.embedder = embedder
 
     def update_summaries(self, git_object: Union[Commit, FileChange, DiffHunk]):
@@ -29,19 +29,18 @@ class Writer:
         else:
             embeddings = []
 
-        with self.db.get_session() as session:
-            # Create a mapping of valid updates to their embeddings
-            valid_embedding_map = {}
-            for update, embedding in zip(valid_updates, embeddings):
-                valid_embedding_map[update["id"]] = embedding
-            
-            for update in updates:
-                db_object = session.get(update["type"], update["id"])
-                db_object.summary = update["summary"]
-                # Only set embedding if we have one for this update
-                if update["id"] in valid_embedding_map:
-                    db_object.embedding = valid_embedding_map[update["id"]]
-            session.commit()
+        # Create a mapping of valid updates to their embeddings
+        valid_embedding_map = {}
+        for update, embedding in zip(valid_updates, embeddings):
+            valid_embedding_map[update["id"]] = embedding
+
+        for update in updates:
+            db_object = self.session.get(update["type"], update["id"])
+            db_object.summary = update["summary"]
+            # Only set embedding if we have one for this update
+            if update["id"] in valid_embedding_map:
+                db_object.embedding = valid_embedding_map[update["id"]]
+            self.session.commit()
         print(f"Summaries saved for {type(git_object).__name__}...")
 
     def _recursive_collect_updates(

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from services.filter_service import FilterService
 from api.api_model import FilterRequest, FilterResponse
 from sqlalchemy.orm import Session
-from infrastructure.db import get_session
+from api.dependencies import get_session
 
 
 router = APIRouter()

@@ -1,19 +1,19 @@
 import time, httpx, jwt
-from infrastructure.settings import settings
+from infrastructure.settings import Settings
 
 
-def create_app_jwt():
+def create_app_jwt(app_id: int, private_key: str):
     now = int(time.time())
     payload = {
         "iat": now - 60,
         "exp": now + (10 * 60) - 60,
-        "iss": settings.app_id,
+        "iss": app_id,
     }
-    return jwt.encode(payload, settings.private_key, algorithm="RS256")
+    return jwt.encode(payload, private_key, algorithm="RS256")
 
 
-async def get_installation_access_token(installation_id: int):
-    app_jwt = create_app_jwt()
+async def get_installation_access_token(installation_id: int, settings: Settings):
+    app_jwt = create_app_jwt(settings.app_id, settings.private_key)
     headers = {
         "Authorization": f"Bearer {app_jwt}",
         "Accept": "application/vnd.github+json",

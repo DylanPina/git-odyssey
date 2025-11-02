@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from infrastructure.db import get_session
+from api.dependencies import get_session
 from services.repo_service import RepoService
 from api.api_model import RepoResponse, CommitResponse, CommitsResponse
 
