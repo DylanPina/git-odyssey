@@ -46,6 +46,9 @@ class IngestService:
             self.embedder.embed_repo(repo)
 
             logger.info(f"Embedding complete. Creating SQL models...")
+            repo.url = (
+                request.url
+            )  # Store the original URL in the SQL model (remove the token)
             sql_repo = repo.to_sql()
             sql_repo.user_id = user_id
             logger.info("Adding sql_repo to session...")
