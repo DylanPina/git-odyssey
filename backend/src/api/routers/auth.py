@@ -72,7 +72,7 @@ async def github_auth_callback(
                 url="https://github.com/apps/Git-Odyssey/installations/new"
             )
         installation_id = installation["id"]
-    session_jwt = await handle_github_callback(
+    session_jwt = handle_github_callback(
         github_user, token, session, installation_id, settings
     )
 
