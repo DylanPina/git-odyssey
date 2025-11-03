@@ -9,6 +9,17 @@ import type {
 } from "../lib/definitions/api";
 import type { FilterFormData } from "@/lib/filter-utils";
 
+export interface User {
+  id: number;
+  github_id: number;
+  username: string;
+  email?: string;
+  installation_id?: string;
+  api_credits_remaining: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export const getRepo = async (
   owner: string,
   repoName: string
@@ -99,5 +110,24 @@ export const getCommits = async (
   const response = await api.get<CommitsResponse>(
     `/repo/${owner}/${repoName}/commits`
   );
+  return response.data;
+};
+
+// Auth endpoints
+export const getLoginUrl = (): string => {
+  const baseUrl =
+    import.meta.env.VITE_API_URL ||
+    api.defaults.baseURL ||
+    "https://git-odyssey.onrender.com";
+  return `${baseUrl}/auth/login`;
+};
+
+export const getCurrentUser = async (): Promise<User> => {
+  const response = await api.get<User>("/auth/me");
+  return response.data;
+};
+
+export const logout = async (): Promise<{ message: string }> => {
+  const response = await api.post<{ message: string }>("/auth/logout");
   return response.data;
 };
