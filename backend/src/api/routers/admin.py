@@ -1,16 +1,16 @@
 from fastapi import APIRouter
-from data.database import Database
+from infrastructure.schema import init_schema, drop_schema
 
 router = APIRouter()
 
 
 @router.post("/init")
 def init_database():
-    Database().init()
+    init_schema()
     return {"status": "Database initialized successfully"}
 
 
 @router.delete("/drop")
 def drop_database():
-    Database().drop()
+    drop_schema()
     return {"status": "Database dropped successfully"}

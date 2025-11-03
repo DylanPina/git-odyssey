@@ -1,19 +1,9 @@
-from data.schema import SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch, SQLUser, Base
+from data.schema import SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch, SQLUser
 from data.data_model import DiffHunk, FileChange, Commit, Branch, FileSnapshot, User
-import infrastructure.db as db
 
 
-class Database:
-    def __init__(self):
-        pass
-
-    def init(self):
-        """Create all database tables"""
-        Base.metadata.create_all(bind=db.engine)
-
-    def drop(self):
-        """Drop all database tables"""
-        Base.metadata.drop_all(bind=db.engine)
+class DatabaseAdapter:
+    """Adapter for converting SQLAlchemy models to data models."""
 
     def parse_sql_hunk(
         self, sql_hunk: SQLDiffHunk, compressed: bool = False

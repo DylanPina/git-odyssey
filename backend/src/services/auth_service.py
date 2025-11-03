@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from infrastructure.settings import Settings
 
 
-async def handle_github_callback(
+def handle_github_callback(
     github_user: dict,
     github_access_token: dict,
-    db: Session,
+    session: Session,
     installation_id: str | None = None,
     settings: Settings = None,
 ) -> str:
@@ -16,7 +16,7 @@ async def handle_github_callback(
     username = github_user["login"]
     email = github_user["email"]
 
-    user = db.query(SQLUser).filter(SQLUser.github_id == github_id).first()
+    user = session.query(SQLUser).filter(SQLUser.github_id == github_id).first()
     if not user:
         user = SQLUser(
             github_id=github_id,
@@ -26,12 +26,12 @@ async def handle_github_callback(
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
-        db.add(user)
+        session.add(user)
     else:
         user.updated_at = datetime.now()
         user.installation_id = installation_id
-    db.commit()
-    db.refresh(user)
+    session.commit()
+    session.refresh(user)
     session_jwt = create_session_jwt(user.id, settings.secret_key)
 
     return session_jwt

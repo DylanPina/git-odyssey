@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
-from data import Commit, Branch
+from data.data_model import Commit, Branch
 
 
 class RepoResponse(BaseModel):

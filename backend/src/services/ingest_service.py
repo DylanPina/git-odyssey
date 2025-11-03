@@ -1,5 +1,4 @@
 import os, asyncio, tempfile
-from utils.utils import delete_dir_if_exists
 from core.repo import Repo
 from core.embedder import OpenAIEmbedder
 from utils.logger import logger
@@ -12,9 +11,9 @@ from infrastructure.settings import Settings
 
 
 class IngestService:
-    def __init__(self, session: Session, settings: Settings):
+    def __init__(self, session: Session, embedder: OpenAIEmbedder, settings: Settings):
         self.session = session
-        self.embedder = OpenAIEmbedder()
+        self.embedder = embedder
         self.settings = settings
 
     # TODO: Make async (this is bottleneck) - store ingestion jobs and use Celery or Arq

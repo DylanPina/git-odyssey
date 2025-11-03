@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, Depends
 from starlette.responses import RedirectResponse, Response
 from services.auth_service import handle_github_callback
-from services.security_service import get_current_user
+from api.dependencies import get_current_user
 from data.data_model import User
 from api.dependencies import get_session, get_settings
 import httpx
@@ -26,7 +26,7 @@ async def github_login(request: Request, oauth=Depends(get_oauth)):
 async def github_auth_callback(
     request: Request,
     oauth=Depends(get_oauth),
-    db: Session = Depends(get_session),
+    session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
     installation_id = request.query_params.get("installation_id")
@@ -73,7 +73,7 @@ async def github_auth_callback(
             )
         installation_id = installation["id"]
     session_jwt = await handle_github_callback(
-        github_user, token, db, installation_id, settings
+        github_user, token, session, installation_id, settings
     )
 
     frontend_dashboard_url = settings.frontend_url

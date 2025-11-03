@@ -5,6 +5,7 @@ from utils.logger import logger
 from sqlalchemy import or_, func, union_all, select, distinct, case, literal
 from sqlalchemy.orm import joinedload, Session
 from data.data_model import Commit, FileChange, DiffHunk
+from data.adapter import DatabaseAdapter
 
 
 class Retriever:
@@ -51,13 +52,12 @@ class Retriever:
         ".avif",
     ]
 
-    def __init__(self, session: Session, embedder: OpenAIEmbedder):
+    def __init__(
+        self, session: Session, embedder: OpenAIEmbedder, db_adapter: DatabaseAdapter
+    ):
         self.session = session
         self.embedder = embedder
-        # Database adapter for parsing SQL models to data models
-        from data.database import Database
-
-        self.db_adapter = Database()
+        self.db_adapter = db_adapter
         self.filter_actions = {
             "author": lambda q, v: q.filter(SQLCommit.author.ilike(f"%{v}%")),
             "start_date": lambda q, v: q.filter(SQLCommit.time >= v),
@@ -331,8 +331,8 @@ class Retriever:
         """Find the most relevant context from given SHAs for AI prompt generation and return cited commits."""
         if not context_shas or not query.strip():
             logger.info("No commit SHAs provided, fetching all commits")
-            query = select(SQLCommit.sha)
-            results = self.session.execute(query).all()
+            sha_query = select(SQLCommit.sha)
+            results = self.session.execute(sha_query).all()
             context_shas = [row.sha for row in results]
 
         logger.info(

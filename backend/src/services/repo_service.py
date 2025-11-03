@@ -1,12 +1,13 @@
 from data.schema import SQLBranch, SQLCommit, SQLFileChange, SQLFileSnapshot
 from sqlalchemy.orm import Session, selectinload
-from data.database import Database
+from data.adapter import DatabaseAdapter
 from api.api_model import RepoResponse, CommitResponse, CommitsResponse
 
 
 class RepoService:
-    def __init__(self, db_session: Session):
-        self.session = db_session
+    def __init__(self, session: Session, db_adapter: DatabaseAdapter):
+        self.session = session
+        self.db_adapter = db_adapter
 
     def get_repo(self, url: str) -> RepoResponse:
         branches_query = (
@@ -19,11 +20,12 @@ class RepoService:
         commits_query = self.session.query(SQLCommit).filter(SQLCommit.repo_url == url)
         commits = commits_query.all()
 
-        db_adapter = Database()
         return RepoResponse(
             repo_url=url,
-            branches=[db_adapter.parse_sql_branch(b) for b in branches],
-            commits=[db_adapter.parse_sql_commit(c, compressed=True) for c in commits],
+            branches=[self.db_adapter.parse_sql_branch(b) for b in branches],
+            commits=[
+                self.db_adapter.parse_sql_commit(c, compressed=True) for c in commits
+            ],
         )
 
     def get_commits(self, url: str) -> CommitsResponse:
@@ -31,9 +33,8 @@ class RepoService:
             self.session.query(SQLCommit).filter(SQLCommit.repo_url == url).all()
         )
 
-        db_adapter = Database()
         return CommitsResponse(
-            commits=[db_adapter.parse_sql_commit(c) for c in commits_query]
+            commits=[self.db_adapter.parse_sql_commit(c) for c in commits_query]
         )
 
     def get_commit(self, url: str, sha: str) -> CommitResponse:
@@ -49,5 +50,4 @@ class RepoService:
             .first()
         )
 
-        db_adapter = Database()
-        return CommitResponse(commit=db_adapter.parse_sql_commit(commit))
+        return CommitResponse(commit=self.db_adapter.parse_sql_commit(commit))

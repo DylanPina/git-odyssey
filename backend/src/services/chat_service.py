@@ -1,14 +1,11 @@
 from core.retriever import Retriever
 from core.ai import AIEngine
-from core.embedder import OpenAIEmbedder
 from api.api_model import ChatbotRequest, ChatbotResponse, CitedCommit
-from sqlalchemy.orm import Session
 
 
 class ChatService:
-    def __init__(self, db: Session, ai_engine: AIEngine):
-        self.db = db
-        self.retriever = Retriever(db, OpenAIEmbedder())
+    def __init__(self, ai_engine: AIEngine, retriever: Retriever):
+        self.retriever = retriever
         self.ai = ai_engine
 
     def chat(self, request: ChatbotRequest) -> ChatbotResponse:
