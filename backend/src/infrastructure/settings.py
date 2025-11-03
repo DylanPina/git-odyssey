@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     cors_allow_origins: List[str] = [
         "https://git-odyssey-1.onrender.com",
         "http://localhost:5173",
+        "https://git-odyssey-prod-frontend.s3.us-east-1.amazonaws.com/index.html",
     ]
     frontend_url: str = "http://localhost:5173"
     secret_key: str
