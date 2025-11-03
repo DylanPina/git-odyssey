@@ -135,6 +135,31 @@ resource "aws_iam_role_policy_attachment" "exec_cloudwatch" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
 }
 
+resource "aws_secretsmanager_secret" "openai_api_key" {
+  name        = "${local.name_prefix}/openai_api_key"
+  description = "OpenAI API key for ${local.name_prefix} backend"
+}
+
+resource "aws_secretsmanager_secret_version" "openai_api_key" {
+  secret_id     = aws_secretsmanager_secret.openai_api_key.id
+  secret_string = var.openai_api_key
+}
+
+resource "aws_iam_role_policy" "task_exec_read_openai_secret" {
+  name   = "${local.name_prefix}-read-openai-secret"
+  role   = aws_iam_role.task_execution_role.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect   = "Allow",
+        Action   = ["secretsmanager:GetSecretValue"],
+        Resource = aws_secretsmanager_secret.openai_api_key.arn
+      }
+    ]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${local.name_prefix}-backend"
   retention_in_days = 14
@@ -199,6 +224,9 @@ resource "aws_ecs_task_definition" "backend" {
       environment = [
         { name = "PORT", value = tostring(var.backend_container_port) },
         { name = "DATABASE_URL", value = var.database_url_value }
+      ]
+      secrets = [
+        { name = "OPENAI_API_KEY", valueFrom = aws_secretsmanager_secret.openai_api_key.arn }
       ]
       logConfiguration = {
         logDriver = "awslogs"

@@ -106,6 +106,12 @@ variable "allowed_cors_origins" {
   default     = "http://localhost:5173"
 }
 
+variable "openai_api_key" {
+  description = "OpenAI API key to store in AWS Secrets Manager"
+  type        = string
+  sensitive   = true
+}
+
 variable "domain_name" {
   description = "Optional domain name for CloudFront (leave empty to skip)"
   type        = string
