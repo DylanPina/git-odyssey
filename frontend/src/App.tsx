@@ -1,7 +1,7 @@
 "use client";
 
 import "./App.css";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Home } from "@/pages/Home";
 import { Repo } from "@/pages/Repo";
 import { Commit } from "@/pages/Commit";
@@ -13,6 +13,7 @@ function App() {
 		<div className="w-full h-full">
 			<Routes>
 				<Route path="/" element={<Home />} />
+				<Route path="/index.html" element={<Navigate to="/" replace />} />
 				<Route path="/repo/:owner/:repo_name" element={<Repo />} />
 				<Route
 					path="/repo/:owner/:repo_name/commit/:commitSha"
