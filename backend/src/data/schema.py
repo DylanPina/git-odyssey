@@ -1,6 +1,5 @@
 from typing import List, Optional
 from enum import Enum
-
 from sqlalchemy import (
     String,
     Integer,
@@ -9,6 +8,7 @@ from sqlalchemy import (
     Enum as SQLEnum,
     Column,
     JSON,
+    DateTime,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -18,6 +18,7 @@ from sqlalchemy.orm import (
 )
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Table
+from datetime import datetime
 
 
 class Base(DeclarativeBase):
@@ -34,6 +35,21 @@ class FileChangeStatus(str, Enum):
     MODIFIED = "modified"
     RENAMED = "renamed"
     COPIED = "copied"
+
+
+class SQLUser(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    github_id: Mapped[int]
+    username: Mapped[str]
+    email: Mapped[Optional[str]]
+    installation_id: Mapped[Optional[str]]
+    api_credits_remaining: Mapped[int] = mapped_column(Integer, default=100)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    # Relationships
+    repos: Mapped[List["SQLRepo"]] = relationship("SQLRepo", back_populates="users")
 
 
 class SQLDiffHunk(Base):
@@ -58,8 +74,7 @@ class SQLDiffHunk(Base):
 
     # Foreign Keys
     file_change_id: Mapped[int] = mapped_column(ForeignKey("file_changes.id"))
-    commit_sha: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("commits.sha"))
+    commit_sha: Mapped[Optional[str]] = mapped_column(ForeignKey("commits.sha"))
 
     # Relationships
     file_change: Mapped["SQLFileChange"] = relationship(
@@ -79,7 +94,8 @@ class SQLFileSnapshot(Base):
     path: Mapped[str]
     content: Mapped[str] = mapped_column(Text)
     previous_snapshot_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("file_snapshots.id"))
+        ForeignKey("file_snapshots.id")
+    )
 
     # Relationships
     previous_snapshot: Mapped[Optional["SQLFileSnapshot"]] = relationship(
@@ -102,10 +118,8 @@ class SQLFileChange(Base):
     )  # OpenAI embedding size
 
     # Foreign Keys
-    commit_sha: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("commits.sha"))
-    snapshot_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("file_snapshots.id"))
+    commit_sha: Mapped[Optional[str]] = mapped_column(ForeignKey("commits.sha"))
+    snapshot_id: Mapped[Optional[int]] = mapped_column(ForeignKey("file_snapshots.id"))
 
     # Relationships
     commit: Mapped[Optional["SQLCommit"]] = relationship(
@@ -177,7 +191,11 @@ class SQLRepo(Base):
 
     url: Mapped[str] = mapped_column(primary_key=True)
 
+    # Foreign Keys
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
     # Relationships
+    users: Mapped[List["SQLUser"]] = relationship("SQLUser", back_populates="repos")
     branches: Mapped[List["SQLBranch"]] = relationship(
         "SQLBranch", back_populates="repo", foreign_keys="[SQLBranch.repo_url]"
     )
@@ -189,7 +207,6 @@ class SQLRepo(Base):
 commits_branches = Table(
     "commits_branches",
     Base.metadata,
-    Column("commit_sha", String(40), ForeignKey(
-        "commits.sha"), primary_key=True),
+    Column("commit_sha", String(40), ForeignKey("commits.sha"), primary_key=True),
     Column("branch_id", Integer, ForeignKey("branches.id"), primary_key=True),
 )

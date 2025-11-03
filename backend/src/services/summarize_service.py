@@ -1,16 +1,18 @@
-from data.database import Database
-from core.embedder import OpenAIEmbedder
 from core.retriever import Retriever
-from core.ai import AIEngine
 from core.writer import Writer
+from core.ai import AIEngine
+
 
 class SummarizeService:
-    def __init__(self, db: Database, embedder: OpenAIEmbedder, ai_engine: AIEngine):
-        self.db = db
-        self.embedder = embedder
+    def __init__(
+        self,
+        ai_engine: AIEngine,
+        writer: Writer,
+        retriever: Retriever,
+    ):
         self.ai_engine = ai_engine
-        self.writer = Writer(db, embedder)
-        self.retriever = Retriever(self.db, self.embedder)
+        self.writer = writer
+        self.retriever = retriever
 
     def summarize_commit(self, sha: str):
         commit = self.retriever.get_commit(sha)

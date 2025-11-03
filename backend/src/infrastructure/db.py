@@ -1,16 +1,16 @@
+# from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker TODO: Use async version
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from typing import Generator
-from infrastructure.settings import settings
+
+engine = None
+SessionLocal = None
 
 
-engine = create_engine(settings.database_url, future=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+def init_db(database_url: str):
+    global engine, SessionLocal
+    engine = create_engine(database_url, echo=False)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
-def get_session() -> Generator[Session, None, None]:
-    db: Session = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def close_db():
+    engine.dispose()

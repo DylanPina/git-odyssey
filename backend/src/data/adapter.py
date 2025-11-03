@@ -1,34 +1,9 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from contextlib import contextmanager
-from infrastructure.settings import settings
-from data.schema import Base, SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch
-from data.data_model import DiffHunk, FileChange, Commit, Branch, FileSnapshot
+from data.schema import SQLDiffHunk, SQLFileChange, SQLCommit, SQLBranch, SQLUser
+from data.data_model import DiffHunk, FileChange, Commit, Branch, FileSnapshot, User
 
 
-class Database:
-    def __init__(self):
-        self.engine = create_engine(settings.database_url)
-        self.session = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
-
-    def init(self):
-        Base.metadata.create_all(self.engine)
-
-    def drop(self):
-        Base.metadata.drop_all(self.engine)
-
-    @contextmanager
-    def get_session(self):
-        session = self.session()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    def create(self, obj: Base):
-        with self.get_session() as session:
-            session.add(obj)
-            session.commit()
+class DatabaseAdapter:
+    """Adapter for converting SQLAlchemy models to data models."""
 
     def parse_sql_hunk(
         self, sql_hunk: SQLDiffHunk, compressed: bool = False
@@ -46,6 +21,18 @@ class Database:
             ),
             embedding=sql_hunk.embedding if not compressed else None,
             diff_embedding=sql_hunk.diff_embedding if not compressed else None,
+        )
+
+    def parse_sql_user(self, sql_user: SQLUser) -> User:
+        return User(
+            id=sql_user.id,
+            github_id=sql_user.github_id,
+            username=sql_user.username,
+            email=sql_user.email,
+            installation_id=sql_user.installation_id,
+            api_credits_remaining=sql_user.api_credits_remaining,
+            created_at=sql_user.created_at,
+            updated_at=sql_user.updated_at,
         )
 
     def parse_sql_file_change(

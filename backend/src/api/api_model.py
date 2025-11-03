@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
-from data import Commit, Branch
+from data.data_model import Commit, Branch
 
 
 class RepoResponse(BaseModel):
@@ -48,3 +48,8 @@ class CommitsResponse(BaseModel):
 
 class CommitResponse(BaseModel):
     commit: Commit = Field(default_factory=Commit)
+
+
+# TODO: Verify and add fields for graph update via GitHub webhook with GitHub API docs
+class GitHubPushRequest(BaseModel):
+    ref: str

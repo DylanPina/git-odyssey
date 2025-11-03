@@ -1,14 +1,11 @@
 from core.retriever import Retriever
 from core.ai import AIEngine
-from core.embedder import OpenAIEmbedder
-from data.database import Database
 from api.api_model import ChatbotRequest, ChatbotResponse, CitedCommit
 
 
 class ChatService:
-    def __init__(self, db: Database, ai_engine: AIEngine):
-        self.db = db
-        self.retriever = Retriever(db, OpenAIEmbedder())
+    def __init__(self, ai_engine: AIEngine, retriever: Retriever):
+        self.retriever = retriever
         self.ai = ai_engine
 
     def chat(self, request: ChatbotRequest) -> ChatbotResponse:
@@ -18,7 +15,9 @@ class ChatService:
         response = self.ai.answer_question(request.query, context)
         cited_commits = [
             CitedCommit(
-                sha=commit["sha"], similarity=commit["similarity"], message=commit["message"]
+                sha=commit["sha"],
+                similarity=commit["similarity"],
+                message=commit["message"],
             )
             for commit in cited_commits_with_scores
         ]

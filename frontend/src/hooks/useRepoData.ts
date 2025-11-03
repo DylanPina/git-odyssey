@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getRepo, ingestRepo } from "../api/api";
 import { isAxiosError } from "axios";
 import type { Branch, Commit } from "@/lib/definitions/repo";
@@ -27,6 +27,7 @@ export function useRepoData({ owner, repoName }: UseRepoDataArgs): UseRepoData {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isIngesting, setIsIngesting] = useState<boolean>(false);
   const [ingestStatus, setIngestStatus] = useState<string>("");
+  const didIngest = useRef(false);
   const cacheKey = useMemo(() => {
     if (!owner || !repoName) return null;
     return `${owner}/${repoName}`;
@@ -117,7 +118,8 @@ export function useRepoData({ owner, repoName }: UseRepoDataArgs): UseRepoData {
   }, [cacheKey, owner, repoName, getRepository, ingestRepository]);
 
   useEffect(() => {
-    if (!cacheKey) return;
+    if (!cacheKey || didIngest.current) return;
+    didIngest.current = true;
     const cached = repoCache.get(cacheKey);
     if (repoCache.isValid(cached)) {
       setCommits(cached!.commits);
