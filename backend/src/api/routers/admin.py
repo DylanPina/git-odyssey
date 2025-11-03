@@ -6,11 +6,14 @@ router = APIRouter()
 
 @router.post("/init")
 def init_database():
-    init_schema()
-    return {"status": "Database initialized successfully"}
+    # init_schema()
+    # return {"status": "Database initialized successfully"}
+    return {"status": "Database initialization is not supported"}
 
 
 @router.delete("/drop")
 def drop_database():
-    drop_schema()
+    # drop_schema()
+    # return {"status": "Database dropped successfully"}
+    return {"status": "Database dropping is not supported"}
     return {"status": "Database dropped successfully"}
