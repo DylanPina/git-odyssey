@@ -79,13 +79,19 @@ async def github_auth_callback(
     frontend_dashboard_url = settings.frontend_url
     response = RedirectResponse(url=frontend_dashboard_url)
 
+    # Determine if we're on HTTPS (production) or HTTP (localhost)
+    is_https = frontend_dashboard_url.startswith("https://")
+
     response.set_cookie(
         key="session_token",
         value=session_jwt,
         httponly=True,
-        samesite="lax",
-        secure=False,
+        samesite=(
+            "none" if is_https else "lax"
+        ),  # "none" required for cross-origin HTTPS
+        secure=is_https,  # Must be True for HTTPS
         max_age=60 * 60 * 24 * 7,
+        path="/",
     )
 
     return response
@@ -97,11 +103,20 @@ async def get_me(current_user: User = Depends(get_current_user)) -> User:
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(
+    request: Request, response: Response, settings: Settings = Depends(get_settings)
+):
+    # Determine if we're on HTTPS (production) or HTTP (localhost)
+    referer = request.headers.get("referer", "")
+    is_https = referer.startswith("https://") or settings.frontend_url.startswith(
+        "https://"
+    )
+
     response.delete_cookie(
         key="session_token",
         httponly=True,
-        samesite="lax",
-        secure=False,
+        samesite="none" if is_https else "lax",
+        secure=is_https,
+        path="/",
     )
     return {"message": "Logged out successfully"}
