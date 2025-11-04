@@ -2,16 +2,22 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from api.api_model import IngestRequest, RepoResponse
 from services.ingest_service import IngestService
 from services.repo_service import RepoService
-from api.dependencies import get_current_user, get_ingest_service, get_repo_service
+from api.dependencies import (
+    get_current_user,
+    get_ingest_service,
+    get_repo_service,
+    get_installation_token,
+)
 from data.data_model import User
 
 router = APIRouter()
 
 
 @router.post("/", response_model=RepoResponse)
-def ingest(
+async def ingest(
     request: IngestRequest,
     current_user: User = Depends(get_current_user),
+    installation_token: str = Depends(get_installation_token),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
 ):
@@ -26,7 +32,7 @@ def ingest(
         )
 
     try:
-        ingest_service.ingest_repo(request, user_id)
+        await ingest_service.ingest_repo(request, user_id, installation_token)
         return repo_service.get_repo(request.url)
     except Exception as e:
         raise HTTPException(

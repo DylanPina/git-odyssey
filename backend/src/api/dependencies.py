@@ -16,7 +16,7 @@ from fastapi import Request, Depends, HTTPException
 from data.schema import SQLUser
 from data.adapter import DatabaseAdapter
 from data.data_model import User
-import jwt
+import jwt, time, httpx
 
 
 # Infrastructure
@@ -66,6 +66,41 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="User not found")
 
     return db_adapter.parse_sql_user(user)
+
+
+async def get_installation_token(
+    current_user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> str:
+    """FastAPI dependency to get GitHub installation access token for current user."""
+    if not current_user.installation_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User has no GitHub App installation. Please install the app first.",
+        )
+
+    # Create App JWT for GitHub API authentication
+    now = int(time.time())
+    app_jwt_payload = {
+        "iat": now - 60,
+        "exp": now + (10 * 60) - 60,
+        "iss": settings.app_id,
+    }
+    app_jwt = jwt.encode(app_jwt_payload, settings.private_key, algorithm="RS256")
+
+    # Request installation access token from GitHub
+    headers = {
+        "Authorization": f"Bearer {app_jwt}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"https://api.github.com/app/installations/{current_user.installation_id}/access_tokens",
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()["token"]
 
 
 # Core Components

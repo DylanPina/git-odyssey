@@ -1,10 +1,9 @@
-import os, asyncio, tempfile
+import os, tempfile
 from core.repo import Repo
 from core.embedder import OpenAIEmbedder
 from utils.logger import logger
 from api.api_model import IngestRequest
 from sqlalchemy.orm import Session
-from services.github_service import get_installation_access_token
 from data.schema import SQLUser
 import traceback
 from infrastructure.settings import Settings
@@ -17,24 +16,15 @@ class IngestService:
         self.settings = settings
 
     # TODO: Make async (this is bottleneck) - store ingestion jobs and use Celery or Arq
-    def ingest_repo(self, request: IngestRequest, user_id: str):
+    async def ingest_repo(
+        self, request: IngestRequest, user_id: str, installation_token: str
+    ):
         user = self.session.query(SQLUser).filter(SQLUser.id == user_id).first()
-        if not user or not user.installation_id:
-            raise Exception(
-                f"Cannot ingest: User {user_id} not found or has no installation ID"
-            )
-
-        try:
-            # TODO: Remove asyncio once ingest_repo is async
-            token = asyncio.run(
-                get_installation_access_token(user.installation_id, self.settings)
-            )
-            print("Token: ", token)
-        except Exception as e:
-            raise Exception(f"Cannot get installation access token: {e}")
+        if not user:
+            raise Exception(f"Cannot ingest: User {user_id} not found")
 
         safe_url = request.url.removeprefix("https://")
-        repo_url = f"https://x-access-token:{token}@{safe_url}"
+        repo_url = f"https://x-access-token:{installation_token}@{safe_url}"
         print("Repo URL: ", repo_url)
         with tempfile.TemporaryDirectory() as temp_repo_path:
             logger.info(f"Cloning repo into {temp_repo_path}")
