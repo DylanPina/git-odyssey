@@ -12,10 +12,21 @@ FRONTEND_DIR="${SCRIPT_DIR}/../../../frontend"
 
 AWS_REGION=${AWS_REGION:-us-east-1}
 
+# Get the backend ALB DNS name from terraform outputs
+ALB_DNS=$(terraform -chdir="${TF_DIR}" output -raw alb_dns_name)
+
+if [ -z "$ALB_DNS" ]; then
+  echo "Error: Could not get ALB DNS name from terraform outputs" >&2
+  exit 1
+fi
+
+echo "Building frontend with backend API URL: http://${ALB_DNS}"
+
 pushd "${FRONTEND_DIR}" >/dev/null
 if command -v npm >/dev/null 2>&1; then
   npm ci
-  npm run build
+  # Set the API_URL environment variable before building
+  API_URL=${ALB_DNS} npm run build
 else
   echo "npm is required to build the frontend" >&2
   exit 1

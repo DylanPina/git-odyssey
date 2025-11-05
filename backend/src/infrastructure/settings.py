@@ -1,13 +1,13 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from typing import List
+import json
 
 
 class Settings(BaseSettings):
     database_url: str
     cors_allow_origins: List[str] = [
-        "https://git-odyssey-1.onrender.com",
         "http://localhost:5173",
-        "https://git-odyssey-prod-frontend.s3.us-east-1.amazonaws.com/index.html",
     ]
     frontend_url: str = "http://localhost:5173"
     secret_key: str
@@ -16,6 +16,17 @@ class Settings(BaseSettings):
     github_webhook_secret: str
     app_id: int
     private_key: str
+
+    @field_validator('cors_allow_origins', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                # If it's a comma-separated string, split it
+                return [origin.strip() for origin in v.split(',') if origin.strip()]
+        return v
 
     model_config = SettingsConfigDict(
         env_file=".env",

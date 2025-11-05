@@ -145,8 +145,68 @@ resource "aws_secretsmanager_secret_version" "openai_api_key" {
   secret_string = var.openai_api_key
 }
 
-resource "aws_iam_role_policy" "task_exec_read_openai_secret" {
-  name   = "${local.name_prefix}-read-openai-secret"
+resource "aws_secretsmanager_secret" "secret_key" {
+  name        = "${local.name_prefix}/secret_key"
+  description = "Secret key for session middleware"
+}
+
+resource "aws_secretsmanager_secret_version" "secret_key" {
+  secret_id     = aws_secretsmanager_secret.secret_key.id
+  secret_string = var.secret_key
+}
+
+resource "aws_secretsmanager_secret" "github_client_id" {
+  name        = "${local.name_prefix}/github_client_id"
+  description = "GitHub OAuth client ID"
+}
+
+resource "aws_secretsmanager_secret_version" "github_client_id" {
+  secret_id     = aws_secretsmanager_secret.github_client_id.id
+  secret_string = var.github_client_id
+}
+
+resource "aws_secretsmanager_secret" "github_client_secret" {
+  name        = "${local.name_prefix}/github_client_secret"
+  description = "GitHub OAuth client secret"
+}
+
+resource "aws_secretsmanager_secret_version" "github_client_secret" {
+  secret_id     = aws_secretsmanager_secret.github_client_secret.id
+  secret_string = var.github_client_secret
+}
+
+resource "aws_secretsmanager_secret" "github_webhook_secret" {
+  name        = "${local.name_prefix}/github_webhook_secret"
+  description = "GitHub webhook secret"
+}
+
+resource "aws_secretsmanager_secret_version" "github_webhook_secret" {
+  secret_id     = aws_secretsmanager_secret.github_webhook_secret.id
+  secret_string = var.github_webhook_secret
+}
+
+resource "aws_secretsmanager_secret" "app_id" {
+  name        = "${local.name_prefix}/app_id"
+  description = "GitHub App ID"
+}
+
+resource "aws_secretsmanager_secret_version" "app_id" {
+  secret_id     = aws_secretsmanager_secret.app_id.id
+  secret_string = var.app_id
+}
+
+resource "aws_secretsmanager_secret" "private_key" {
+  name        = "${local.name_prefix}/private_key"
+  description = "GitHub App private key"
+}
+
+resource "aws_secretsmanager_secret_version" "private_key" {
+  secret_id     = aws_secretsmanager_secret.private_key.id
+  secret_string = var.private_key
+}
+
+resource "aws_iam_role_policy" "task_exec_read_secrets" {
+  name   = "${local.name_prefix}-read-secrets"
   role   = aws_iam_role.task_execution_role.id
   policy = jsonencode({
     Version = "2012-10-17",
@@ -154,7 +214,15 @@ resource "aws_iam_role_policy" "task_exec_read_openai_secret" {
       {
         Effect   = "Allow",
         Action   = ["secretsmanager:GetSecretValue"],
-        Resource = aws_secretsmanager_secret.openai_api_key.arn
+        Resource = [
+          aws_secretsmanager_secret.openai_api_key.arn,
+          aws_secretsmanager_secret.secret_key.arn,
+          aws_secretsmanager_secret.github_client_id.arn,
+          aws_secretsmanager_secret.github_client_secret.arn,
+          aws_secretsmanager_secret.github_webhook_secret.arn,
+          aws_secretsmanager_secret.app_id.arn,
+          aws_secretsmanager_secret.private_key.arn
+        ]
       }
     ]
   })
@@ -223,10 +291,18 @@ resource "aws_ecs_task_definition" "backend" {
       ]
       environment = [
         { name = "PORT", value = tostring(var.backend_container_port) },
-        { name = "DATABASE_URL", value = var.database_url_value }
+        { name = "DATABASE_URL", value = var.database_url_value },
+        { name = "CORS_ALLOW_ORIGINS", value = jsonencode(var.allowed_cors_origins) },
+        { name = "FRONTEND_URL", value = var.frontend_url }
       ]
       secrets = [
-        { name = "OPENAI_API_KEY", valueFrom = aws_secretsmanager_secret.openai_api_key.arn }
+        { name = "OPENAI_API_KEY", valueFrom = aws_secretsmanager_secret.openai_api_key.arn },
+        { name = "SECRET_KEY", valueFrom = aws_secretsmanager_secret.secret_key.arn },
+        { name = "GITHUB_CLIENT_ID", valueFrom = aws_secretsmanager_secret.github_client_id.arn },
+        { name = "GITHUB_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.github_client_secret.arn },
+        { name = "GITHUB_WEBHOOK_SECRET", valueFrom = aws_secretsmanager_secret.github_webhook_secret.arn },
+        { name = "APP_ID", valueFrom = aws_secretsmanager_secret.app_id.arn },
+        { name = "PRIVATE_KEY", valueFrom = aws_secretsmanager_secret.private_key.arn }
       ]
       logConfiguration = {
         logDriver = "awslogs"

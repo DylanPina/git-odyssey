@@ -116,7 +116,7 @@ export const getCommits = async (
 // Auth endpoints
 export const getLoginUrl = (): string => {
   const baseUrl =
-    import.meta.env.VITE_API_URL ||
+    import.meta.env.API_URL ||
     api.defaults.baseURL ||
     "https://git-odyssey.onrender.com";
   return `${baseUrl}/auth/login`;

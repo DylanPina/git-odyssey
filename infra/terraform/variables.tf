@@ -101,13 +101,55 @@ variable "database_url_value" {
 }
 
 variable "allowed_cors_origins" {
-  description = "Comma-separated list of allowed CORS origins for backend"
+  description = "List of allowed CORS origins for backend"
+  type        = list(string)
+  default     = ["http://localhost:5173"]
+}
+
+variable "frontend_url" {
+  description = "Frontend URL for the application"
   type        = string
   default     = "http://localhost:5173"
 }
 
 variable "openai_api_key" {
   description = "OpenAI API key to store in AWS Secrets Manager"
+  type        = string
+  sensitive   = true
+}
+
+variable "secret_key" {
+  description = "Secret key for session middleware"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_client_id" {
+  description = "GitHub OAuth client ID"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_client_secret" {
+  description = "GitHub OAuth client secret"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_webhook_secret" {
+  description = "GitHub webhook secret"
+  type        = string
+  sensitive   = true
+}
+
+variable "app_id" {
+  description = "GitHub App ID"
+  type        = string
+  sensitive   = true
+}
+
+variable "private_key" {
+  description = "GitHub App private key"
   type        = string
   sensitive   = true
 }
