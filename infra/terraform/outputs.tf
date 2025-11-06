@@ -1,41 +1,49 @@
-output "ecr_repository_url" {
-  description = "URL of the ECR repository for the backend"
-  value       = aws_ecr_repository.backend.repository_url
-}
-
 output "alb_dns_name" {
   description = "Public ALB DNS name for the backend API"
-  value       = aws_lb.app_alb.dns_name
-}
-
-output "rds_endpoint" {
-  description = "RDS PostgreSQL endpoint"
-  value       = aws_db_instance.app_db.address
-}
-
-output "rds_db_name" {
-  description = "RDS database name"
-  value       = aws_db_instance.app_db.db_name
-}
-
-output "ecs_cluster_name" {
-  description = "ECS cluster name"
-  value       = aws_ecs_cluster.app_cluster.name
+  value       = module.load_balancer.alb_dns_name
 }
 
 output "cloudfront_domain_name" {
   description = "CloudFront distribution domain name for the frontend"
-  value       = aws_cloudfront_distribution.frontend.domain_name
+  value       = module.frontend.domain_name
+}
+
+output "database_endpoint" {
+  description = "Endpoint of the RDS PostgreSQL instance"
+  value       = module.database.db_instance_endpoint
+}
+
+output "backend_repository_url" {
+  description = "ECR repository URL for deploying the backend"
+  value       = module.backend_service.repository_url
+}
+
+output "ecr_repository_url" {
+  description = "URL of the ECR repository for the backend"
+  value       = module.backend_service.ecr_repository_url
+}
+
+output "rds_endpoint" {
+  description = "RDS PostgreSQL endpoint"
+  value       = module.database.db_instance_address
+}
+
+output "rds_db_name" {
+  description = "RDS database name"
+  value       = module.database.db_name
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name"
+  value       = module.backend_service.cluster_name
 }
 
 output "s3_website_bucket" {
   description = "S3 bucket name hosting the frontend"
-  value       = aws_s3_bucket.frontend.bucket
+  value       = module.frontend.bucket_name
 }
 
 output "frontend_distribution_id" {
   description = "CloudFront distribution ID"
-  value       = aws_cloudfront_distribution.frontend.id
+  value       = module.frontend.distribution_id
 }
-
-

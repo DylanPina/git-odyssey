@@ -110,8 +110,7 @@ This happens when:
 
 **Solution:**
 1. Ensure the frontend was built with the correct `API_URL` environment variable
-2. Ensure the backend `CORS_ALLOW_ORIGINS` includes the CloudFront domain
-3. Redeploy both frontend and backend after making changes
+2. Redeploy both frontend and backend after making changes
 
 ### Verifying Configuration
 
@@ -155,7 +154,6 @@ aws ecs update-service --cluster git-odyssey-dev-cluster --service git-odyssey-d
 
 - `PORT`: Container port (default: 8000)
 - `DATABASE_URL`: PostgreSQL connection string
-- `CORS_ALLOW_ORIGINS`: JSON array of allowed CORS origins
 - `FRONTEND_URL`: Frontend URL for redirects
 
 ### Backend Secrets (Set via AWS Secrets Manager)
