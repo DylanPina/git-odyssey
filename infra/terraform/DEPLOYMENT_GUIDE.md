@@ -28,8 +28,8 @@ secret_key = "your-secret-key-for-sessions"
 github_client_id = "your-github-client-id"
 github_client_secret = "your-github-client-secret"
 github_webhook_secret = "your-github-webhook-secret"
-app_id = "your-github-app-id"
-private_key = "your-github-app-private-key"
+github_app_id = "your-github-app-id"
+github_app_private_key = "your-github-app-private-key"
 
 # Initial CORS configuration (will update after deployment)
 allowed_cors_origins = ["http://localhost:5173"]
@@ -164,7 +164,7 @@ aws ecs update-service --cluster git-odyssey-dev-cluster --service git-odyssey-d
 - `GITHUB_CLIENT_SECRET`: GitHub OAuth client secret
 - `GITHUB_WEBHOOK_SECRET`: GitHub webhook secret
 - `APP_ID`: GitHub App ID
-- `PRIVATE_KEY`: GitHub App private key
+- `GITHUB_APP_PRIVATE_KEY`: GitHub App private key
 
 ### Frontend Environment Variables (Set during build)
 

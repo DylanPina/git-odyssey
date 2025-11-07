@@ -51,6 +51,7 @@ async def github_auth_callback(
         )
 
     token_data = response.json()
+    print(token_data)
     token = {
         "access_token": token_data["access_token"],
         "token_type": "bearer",
@@ -64,12 +65,13 @@ async def github_auth_callback(
         inst_resp = await oauth.github.get("user/installations", token=token)
         installations = inst_resp.json().get("installations", [])
         installation = next(
-            (inst for inst in installations if inst["app_id"] == settings.app_id), None
+            (inst for inst in installations if inst["app_id"]
+             == settings.github_app_id), None
         )
         if not installation:
             # Direct user to install the app
             return RedirectResponse(
-                url="https://github.com/apps/Git-Odyssey/installations/new"
+                url="https://github.com/apps/git-odyssey-local"
             )
         installation_id = installation["id"]
     session_jwt = handle_github_callback(

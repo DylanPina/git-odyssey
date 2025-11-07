@@ -5,6 +5,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from infrastructure.db import init_db, close_db
 from contextlib import asynccontextmanager
 from api.dependencies import get_settings
+from services.secrets_service import get_secrets_service
 
 
 @asynccontextmanager
@@ -16,6 +17,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
+    get_secrets_service().load()
     settings = get_settings()
     app.add_middleware(
         CORSMiddleware,
@@ -55,7 +57,8 @@ def create_app() -> FastAPI:
     app.include_router(repo_router, prefix="/repo", tags=["repo"])
     app.include_router(filter_router, prefix="/filter", tags=["filter"])
     app.include_router(chat_router, prefix="/chat", tags=["chat"])
-    app.include_router(summarize_router, prefix="/summarize", tags=["summarize"])
+    app.include_router(
+        summarize_router, prefix="/summarize", tags=["summarize"])
     app.include_router(webhook_router, prefix="/webhook", tags=["webhook"])
 
     return app

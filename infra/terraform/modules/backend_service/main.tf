@@ -67,7 +67,8 @@ resource "aws_ecs_task_definition" "backend" {
       environment = [
         { name = "PORT", value = tostring(var.backend_container_port) },
         { name = "DATABASE_URL", value = var.db_connection_string },
-        { name = "FRONTEND_URL", value = var.frontend_url }
+        { name = "FRONTEND_URL", value = var.frontend_url },
+        { name = "AWS_REGION", value = var.aws_region }
       ]
       logConfiguration = {
         logDriver = "awslogs"

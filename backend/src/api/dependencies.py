@@ -16,7 +16,9 @@ from fastapi import Request, Depends, HTTPException
 from data.schema import SQLUser
 from data.adapter import DatabaseAdapter
 from data.data_model import User
-import jwt, time, httpx
+import jwt
+import time
+import httpx
 
 
 # Infrastructure
@@ -84,9 +86,10 @@ async def get_installation_token(
     app_jwt_payload = {
         "iat": now - 60,
         "exp": now + (10 * 60) - 60,
-        "iss": settings.app_id,
+        "iss": settings.github_app_id,
     }
-    app_jwt = jwt.encode(app_jwt_payload, settings.private_key, algorithm="RS256")
+    app_jwt = jwt.encode(
+        app_jwt_payload, settings.github_app_private_key, algorithm="RS256")
 
     # Request installation access token from GitHub
     headers = {
