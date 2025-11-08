@@ -38,6 +38,11 @@ resource "aws_iam_role_policy_attachment" "task_execution_cloudwatch" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
 }
 
+resource "aws_iam_role_policy_attachment" "task_execution_secrets_manager" {
+  role       = aws_iam_role.task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+}
+
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.name_prefix}-backend"
   retention_in_days = var.log_retention_in_days
@@ -68,7 +73,8 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "PORT", value = tostring(var.backend_container_port) },
         { name = "DATABASE_URL", value = var.db_connection_string },
         { name = "FRONTEND_URL", value = var.frontend_url },
-        { name = "AWS_REGION", value = var.aws_region }
+        { name = "AWS_REGION", value = var.aws_region },
+        { name = "GITHUB_APP_NAME", value = var.github_app_name }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -90,9 +96,9 @@ resource "aws_ecs_service" "backend" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = var.private_subnet_ids
+    subnets          = var.public_subnet_ids
     security_groups  = [var.ecs_security_group_id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   load_balancer {

@@ -71,18 +71,16 @@ async def github_auth_callback(
         if not installation:
             # Direct user to install the app
             return RedirectResponse(
-                url="https://github.com/apps/git-odyssey-local"
+                url=f"https://github.com/apps/{settings.github_app_name}/installations/new"
             )
         installation_id = installation["id"]
     session_jwt = handle_github_callback(
         github_user, token, session, installation_id, settings
     )
 
-    frontend_dashboard_url = settings.frontend_url
-    response = RedirectResponse(url=frontend_dashboard_url)
-
+    response = RedirectResponse(url=settings.frontend_url)
     # Determine if we're on HTTPS (production) or HTTP (localhost)
-    is_https = frontend_dashboard_url.startswith("https://")
+    is_https = settings.frontend_url.startswith("https://")
 
     response.set_cookie(
         key="session_token",
@@ -102,7 +100,6 @@ async def github_auth_callback(
 @router.get("/me")
 async def get_me(current_user: User = Depends(get_current_user)) -> User:
     return current_user
-
 
 @router.post("/logout")
 async def logout(

@@ -3,8 +3,8 @@ variable "name_prefix" {
   type        = string
 }
 
-variable "private_subnet_ids" {
-  description = "List of private subnet IDs for the database subnet group"
+variable "subnet_ids" {
+  description = "List of subnet IDs for the database subnet group"
   type        = list(string)
 }
 
@@ -26,7 +26,6 @@ variable "db_username" {
 variable "db_password" {
   description = "Master password for the database"
   type        = string
-  sensitive   = true
 }
 
 variable "db_name" {

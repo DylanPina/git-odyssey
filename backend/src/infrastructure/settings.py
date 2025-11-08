@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     github_webhook_secret: str
     github_app_id: int
     github_app_private_key: str
+    github_app_name: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

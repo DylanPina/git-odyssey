@@ -47,3 +47,8 @@ output "frontend_distribution_id" {
   description = "CloudFront distribution ID"
   value       = module.frontend.distribution_id
 }
+
+output "db_connection_string" {
+  description = "Database connection string"
+  value       = module.database.connection_string
+}

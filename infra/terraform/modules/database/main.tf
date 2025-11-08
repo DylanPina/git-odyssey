@@ -1,7 +1,11 @@
 resource "aws_db_subnet_group" "this" {
   name        = "${var.name_prefix}-db-subnets"
-  description = "Private subnets for the ${var.name_prefix} database"
-  subnet_ids  = var.private_subnet_ids
+  description = "Subnets for the ${var.name_prefix} database"
+  subnet_ids  = var.subnet_ids
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_db_instance" "this" {
@@ -19,7 +23,7 @@ resource "aws_db_instance" "this" {
   deletion_protection        = false
   vpc_security_group_ids     = [var.db_security_group_id]
   db_subnet_group_name       = aws_db_subnet_group.this.name
-  publicly_accessible        = false
+  publicly_accessible        = true
   auto_minor_version_upgrade = true
 
   backup_retention_period = var.backup_retention_period

@@ -11,8 +11,6 @@ TF_DIR="${SCRIPT_DIR}/.."
 FRONTEND_DIR="${SCRIPT_DIR}/../../../frontend"
 
 AWS_REGION=${AWS_REGION:-us-east-1}
-
-# Get the backend ALB DNS name from terraform outputs
 ALB_DNS=$(terraform -chdir="${TF_DIR}" output -raw alb_dns_name)
 
 if [ -z "$ALB_DNS" ]; then
@@ -20,13 +18,14 @@ if [ -z "$ALB_DNS" ]; then
   exit 1
 fi
 
-echo "Building frontend with backend API URL: http://${ALB_DNS}"
+ALB_DNS="http://${ALB_DNS}"
+echo "Building frontend with backend API URL: ${ALB_DNS}"
 
 pushd "${FRONTEND_DIR}" >/dev/null
 if command -v npm >/dev/null 2>&1; then
   npm ci
   # Set the API_URL environment variable before building
-  API_URL=${ALB_DNS} npm run build
+  API_URL="${ALB_DNS}" npm run build
 else
   echo "npm is required to build the frontend" >&2
   exit 1
@@ -43,7 +42,5 @@ aws cloudfront create-invalidation \
   --paths "/*" \
   >/dev/null
 
-CF_DOMAIN=$(terraform output -raw cloudfront_domain_name)
+CF_DOMAIN=$(terraform -chdir="${TF_DIR}" output -raw cloudfront_domain_name)
 echo "Deployed. CloudFront: https://${CF_DOMAIN}"
-
-

@@ -21,6 +21,7 @@ class SecretsService:
         "github_app_id": "GITHUB_APP_ID",
         "github_app_private_key": "GITHUB_APP_PRIVATE_KEY",
         "github_webhook_secret": "GITHUB_WEBHOOK_SECRET",
+        "github_app_name": "GITHUB_APP_NAME",
         "secret_key": "SECRET_KEY",
         "google_api_key": "GOOGLE_API_KEY",
         "openai_api_key": "OPENAI_API_KEY",

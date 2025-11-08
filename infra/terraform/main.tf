@@ -9,7 +9,6 @@ module "network" {
   name_prefix          = local.name_prefix
   vpc_cidr             = local.vpc_cidr
   public_subnet_cidrs  = local.public_subnet_cidrs
-  private_subnet_cidrs = local.private_subnet_cidrs
 }
 
 module "security" {
@@ -34,7 +33,7 @@ module "database" {
   source = "./modules/database"
 
   name_prefix          = local.name_prefix
-  private_subnet_ids   = module.network.private_subnet_ids
+  subnet_ids           = module.network.public_subnet_ids
   db_security_group_id = module.security.rds_security_group_id
   db_instance_class    = local.db_instance_class
   db_username          = var.db_username
@@ -63,10 +62,11 @@ module "backend_service" {
   backend_desired_count  = local.backend_desired_count
   db_connection_string   = module.database.connection_string
   frontend_url           = module.frontend.domain_name
-  private_subnet_ids     = module.network.private_subnet_ids
+  public_subnet_ids      = module.network.public_subnet_ids
   ecs_security_group_id  = module.security.ecs_tasks_security_group_id
   target_group_arn       = module.load_balancer.target_group_arn
   aws_region             = local.aws_region
+  github_app_name        = local.github_app_name
 }
 
 

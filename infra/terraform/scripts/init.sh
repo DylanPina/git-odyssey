@@ -14,8 +14,10 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
 TF_STATE_BUCKET=${TF_STATE_BUCKET:-${PROJECT_NAME}-${ENVIRONMENT}-tf-state}
 TF_LOCK_TABLE=${TF_LOCK_TABLE:-${PROJECT_NAME}-${ENVIRONMENT}-tf-locks}
 
-cd ..
-terraform init \
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TF_DIR="${SCRIPT_DIR}/.."
+
+terraform -chdir="${TF_DIR}" init \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="key=${PROJECT_NAME}/${ENVIRONMENT}.tfstate" \
   -backend-config="region=${AWS_REGION}" \

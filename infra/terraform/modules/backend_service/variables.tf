@@ -31,7 +31,6 @@ variable "backend_desired_count" {
 variable "db_connection_string" {
   description = "Database connection string"
   type        = string
-  sensitive   = true
 }
 
 variable "frontend_url" {
@@ -39,8 +38,13 @@ variable "frontend_url" {
   type        = string
 }
 
-variable "private_subnet_ids" {
-  description = "Private subnets for the ECS service"
+variable "github_app_name" {
+  description = "Name of the GitHub app"
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "Public subnets for the ECS service"
   type        = list(string)
 }
 

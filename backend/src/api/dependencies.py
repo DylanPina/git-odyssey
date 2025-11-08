@@ -48,15 +48,12 @@ def get_current_user(
     settings: Settings = Depends(get_settings),
     db_adapter: DatabaseAdapter = Depends(get_db_adapter),
 ) -> User:
-    print("Cookies: ", request.cookies)
     token = request.cookies.get("session_token")
-    print("Token: ", token)
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        print("Payload: ", payload)
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")

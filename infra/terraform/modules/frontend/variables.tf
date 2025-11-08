@@ -18,7 +18,7 @@ variable "acm_certificate_arn" {
 variable "force_destroy" {
   description = "Whether to allow Terraform to destroy the S3 bucket even if it contains objects"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "index_document" {

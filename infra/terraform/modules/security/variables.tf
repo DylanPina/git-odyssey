@@ -12,4 +12,3 @@ variable "backend_container_port" {
   description = "Container port exposed by the backend service"
   type        = number
 }
-

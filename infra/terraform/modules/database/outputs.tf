@@ -26,6 +26,5 @@ output "db_name" {
 output "connection_string" {
   description = "PostgreSQL connection string including credentials"
   value       = "postgresql+psycopg2://${var.db_username}:${urlencode(var.db_password)}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.db_name}"
-  sensitive   = true
 }
 
