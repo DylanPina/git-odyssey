@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
@@ -51,15 +51,19 @@ def create_app() -> FastAPI:
     from api.routers.summarize import router as summarize_router
     from api.routers.webhook import router as webhook_router
 
-    app.include_router(auth_router, prefix="/auth", tags=["auth"])
-    app.include_router(ingest_router, prefix="/ingest", tags=["ingest"])
-    app.include_router(admin_router, prefix="/admin", tags=["admin"])
-    app.include_router(repo_router, prefix="/repo", tags=["repo"])
-    app.include_router(filter_router, prefix="/filter", tags=["filter"])
-    app.include_router(chat_router, prefix="/chat", tags=["chat"])
-    app.include_router(
+    api_router = APIRouter(prefix="/api")
+    api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
+    api_router.include_router(ingest_router, prefix="/ingest", tags=["ingest"])
+    api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
+    api_router.include_router(repo_router, prefix="/repo", tags=["repo"])
+    api_router.include_router(filter_router, prefix="/filter", tags=["filter"])
+    api_router.include_router(chat_router, prefix="/chat", tags=["chat"])
+    api_router.include_router(
         summarize_router, prefix="/summarize", tags=["summarize"])
-    app.include_router(webhook_router, prefix="/webhook", tags=["webhook"])
+    api_router.include_router(
+        webhook_router, prefix="/webhook", tags=["webhook"])
+
+    app.include_router(api_router)
 
     return app
 

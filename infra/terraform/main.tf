@@ -6,9 +6,9 @@ locals {
 module "network" {
   source = "./modules/network"
 
-  name_prefix          = local.name_prefix
-  vpc_cidr             = local.vpc_cidr
-  public_subnet_cidrs  = local.public_subnet_cidrs
+  name_prefix         = local.name_prefix
+  vpc_cidr            = local.vpc_cidr
+  public_subnet_cidrs = local.public_subnet_cidrs
 }
 
 module "security" {
