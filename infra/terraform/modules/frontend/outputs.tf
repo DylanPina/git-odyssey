@@ -13,3 +13,13 @@ output "domain_name" {
   value       = aws_cloudfront_distribution.frontend.domain_name
 }
 
+output "distribution_hosted_zone_id" {
+  description = "Route53 hosted zone ID for the CloudFront distribution"
+  value       = aws_cloudfront_distribution.frontend.hosted_zone_id
+}
+
+output "distribution_arn" {
+  description = "ARN of the CloudFront distribution"
+  value       = aws_cloudfront_distribution.frontend.arn
+}
+

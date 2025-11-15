@@ -11,24 +11,28 @@ TF_DIR="${SCRIPT_DIR}/.."
 FRONTEND_DIR="${SCRIPT_DIR}/../../../frontend"
 
 AWS_REGION=${AWS_REGION:-us-east-1}
-ALB_DNS=$(terraform -chdir="${TF_DIR}" output -raw alb_dns_name)
+FRONTEND_DOMAIN=$(terraform -chdir="${TF_DIR}" output -raw frontend_domain 2>/dev/null || true)
+ALB_DNS=$(terraform -chdir="${TF_DIR}" output -raw alb_dns_name 2>/dev/null || true)
 
-if [ -z "$ALB_DNS" ]; then
-  echo "Error: Could not get ALB DNS name from terraform outputs" >&2
-  exit 1
+if [ -n "${FRONTEND_DOMAIN}" ]; then
+    API_ENDPOINT="https://${FRONTEND_DOMAIN}/api"
+elif [ -n "${ALB_DNS}" ]; then
+    API_ENDPOINT="http://${ALB_DNS}/api"
+else
+    echo "Error: Could not determine an API endpoint from terraform outputs" >&2
+    exit 1
 fi
 
-ALB_DNS="http://${ALB_DNS}"
-echo "Building frontend with backend API URL: ${ALB_DNS}"
+echo "Building frontend with backend API URL: ${API_ENDPOINT}"
 
 pushd "${FRONTEND_DIR}" >/dev/null
 if command -v npm >/dev/null 2>&1; then
-  npm ci
-  # Set the API_URL environment variable before building
-  API_URL="${ALB_DNS}" npm run build
+    npm ci
+    # Set the API_URL environment variable before building
+    API_URL="${API_ENDPOINT}" npm run build
 else
-  echo "npm is required to build the frontend" >&2
-  exit 1
+    echo "npm is required to build the frontend" >&2
+    exit 1
 fi
 popd >/dev/null
 
@@ -38,9 +42,16 @@ CF_ID=$(terraform -chdir="${TF_DIR}" output -raw frontend_distribution_id)
 aws s3 sync "${FRONTEND_DIR}/dist/" "s3://${S3_BUCKET}" --delete
 
 aws cloudfront create-invalidation \
-  --distribution-id "${CF_ID}" \
-  --paths "/*" \
-  >/dev/null
+    --distribution-id "${CF_ID}" \
+    --paths "/*" \
+    >/dev/null
 
-CF_DOMAIN=$(terraform -chdir="${TF_DIR}" output -raw cloudfront_domain_name)
-echo "Deployed. CloudFront: https://${CF_DOMAIN}"
+CF_DOMAIN=$(terraform -chdir="${TF_DIR}" output -raw cloudfront_domain_name 2>/dev/null || true)
+
+if [ -n "${FRONTEND_DOMAIN}" ]; then
+    echo "Deployed. Frontend: https://${FRONTEND_DOMAIN}"
+elif [ -n "${CF_DOMAIN}" ]; then
+    echo "Deployed. CloudFront: https://${CF_DOMAIN}"
+else
+    echo "Deployment complete."
+fi

@@ -69,3 +69,21 @@ variable "log_retention_in_days" {
   default     = 14
 }
 
+variable "enable_public_api_access" {
+  description = "Allow inbound traffic from the internet directly to the backend ECS tasks."
+  type        = bool
+  default     = false
+}
+
+variable "public_api_ingress_cidr_blocks" {
+  description = "IPv4 CIDR blocks permitted when public API access is enabled."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "public_api_ingress_ipv6_cidr_blocks" {
+  description = "IPv6 CIDR blocks permitted when public API access is enabled."
+  type        = list(string)
+  default     = ["::/0"]
+}
+

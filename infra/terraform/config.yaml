@@ -1,10 +1,13 @@
-# Project
 project_name: git-odyssey
-domain_name: "gitodyssey.com"
 environment: prod
 aws_region: us-east-1
 
-# Network
+domain_name: "www.gitodyssey.com"
+apex_domain_name: "gitodyssey.com"
+alternate_domain_names: []
+hosted_zone_name: "gitodyssey.com"
+certificate_domain_name: "www.gitodyssey.com"
+
 vpc_cidr: 10.0.0.0/16
 public_subnet_cidrs:
   - 10.0.1.0/24
@@ -21,6 +24,4 @@ backend_cpu: 512 # in vCPU units
 backend_memory: 1024 # in MB
 backend_desired_count: 1
 docker_image_tag: latest
-domain_name: ""
-acm_certificate_arn: ""
 github_app_name: "git-odyssey-prod"
