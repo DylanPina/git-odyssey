@@ -23,6 +23,11 @@ variable "target_group_port" {
   type        = number
 }
 
+variable "listener_certificate_arn" {
+  description = "ACM certificate ARN attached to the HTTPS listener"
+  type        = string
+}
+
 variable "health_check_path" {
   description = "HTTP path used for target group health checks"
   type        = string

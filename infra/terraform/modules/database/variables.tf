@@ -41,7 +41,7 @@ variable "db_allocated_storage" {
 variable "engine_version" {
   description = "PostgreSQL engine version to use"
   type        = string
-  default     = "16.3"
+  default     = "16.8"
 }
 
 variable "skip_final_snapshot" {

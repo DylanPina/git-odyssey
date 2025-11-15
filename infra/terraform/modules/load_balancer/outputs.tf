@@ -14,7 +14,7 @@ output "target_group_arn" {
 }
 
 output "listener_arn" {
-  description = "ARN of the HTTP listener"
-  value       = aws_lb_listener.http.arn
+  description = "ARN of the HTTPS listener"
+  value       = aws_lb_listener.https.arn
 }
 

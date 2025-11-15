@@ -39,13 +39,43 @@ output "ecs_cluster_name" {
 }
 
 output "s3_website_bucket" {
-  description = "S3 bucket name hosting the frontend"
+  description = "S3 bucket name storing the frontend build artifacts"
   value       = module.frontend.bucket_name
 }
 
 output "frontend_distribution_id" {
   description = "CloudFront distribution ID"
   value       = module.frontend.distribution_id
+}
+
+output "frontend_distribution_hosted_zone_id" {
+  description = "Hosted zone ID for aliasing the CloudFront distribution"
+  value       = module.frontend.distribution_hosted_zone_id
+}
+
+output "frontend_distribution_arn" {
+  description = "ARN of the CloudFront distribution"
+  value       = module.frontend.distribution_arn
+}
+
+output "frontend_domain" {
+  description = "Canonical domain serving the frontend"
+  value       = local.domain_name != "" ? local.domain_name : module.frontend.domain_name
+}
+
+output "frontend_domain_aliases" {
+  description = "All hostnames mapped to the CloudFront distribution"
+  value       = local.cloudfront_aliases
+}
+
+output "frontend_route53_record" {
+  description = "Route53 record serving the frontend"
+  value       = module.dns.domain_record_fqdn
+}
+
+output "frontend_apex_route53_record" {
+  description = "Route53 apex record pointing at the frontend"
+  value       = module.dns.apex_record_fqdn
 }
 
 output "db_connection_string" {
