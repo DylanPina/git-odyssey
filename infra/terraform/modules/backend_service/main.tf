@@ -111,3 +111,25 @@ resource "aws_ecs_service" "backend" {
   deployment_maximum_percent         = 200
 }
 
+resource "aws_security_group_rule" "backend_public_ipv4_ingress" {
+  count             = var.enable_public_api_access && length(var.public_api_ingress_cidr_blocks) > 0 ? 1 : 0
+  type              = "ingress"
+  from_port         = var.backend_container_port
+  to_port           = var.backend_container_port
+  protocol          = "tcp"
+  security_group_id = var.ecs_security_group_id
+  cidr_blocks       = var.public_api_ingress_cidr_blocks
+  description       = "Allow public IPv4 access to backend API"
+}
+
+resource "aws_security_group_rule" "backend_public_ipv6_ingress" {
+  count             = var.enable_public_api_access && length(var.public_api_ingress_ipv6_cidr_blocks) > 0 ? 1 : 0
+  type              = "ingress"
+  from_port         = var.backend_container_port
+  to_port           = var.backend_container_port
+  protocol          = "tcp"
+  security_group_id = var.ecs_security_group_id
+  ipv6_cidr_blocks  = var.public_api_ingress_ipv6_cidr_blocks
+  description       = "Allow public IPv6 access to backend API"
+}
+

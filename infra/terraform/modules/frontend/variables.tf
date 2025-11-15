@@ -10,9 +10,13 @@ variable "aliases" {
 }
 
 variable "acm_certificate_arn" {
-  description = "Optional ACM certificate ARN for the CloudFront distribution"
+  description = "Validated ACM certificate ARN attached to the CloudFront distribution"
   type        = string
-  default     = ""
+}
+
+variable "api_origin_domain_name" {
+  description = "Domain name of the backend API origin (e.g. ALB DNS name)"
+  type        = string
 }
 
 variable "force_destroy" {
