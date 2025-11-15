@@ -7,6 +7,7 @@ from api.dependencies import get_session, get_settings
 import httpx
 from sqlalchemy.orm import Session
 from infrastructure.settings import Settings
+from starlette.datastructures import URL
 
 router = APIRouter()
 
@@ -18,8 +19,13 @@ def get_oauth(request: Request):
 
 @router.get("/login")
 async def github_login(request: Request, oauth=Depends(get_oauth)):
-    redirect_uri = request.url_for("github_auth_callback")
-    return await oauth.github.authorize_redirect(request, redirect_uri)
+    redirect_uri = URL(str(request.url_for("github_auth_callback")))
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto:
+        redirect_uri = redirect_uri.replace(
+            scheme=forwarded_proto.split(",")[0].strip().lower()
+        )
+    return await oauth.github.authorize_redirect(request, str(redirect_uri))
 
 
 @router.get("/callback")
@@ -100,6 +106,7 @@ async def github_auth_callback(
 @router.get("/me")
 async def get_me(current_user: User = Depends(get_current_user)) -> User:
     return current_user
+
 
 @router.post("/logout")
 async def logout(
