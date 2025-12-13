@@ -2,6 +2,8 @@
 
 GitOdyssey transforms Git repositories into interactive, AI-powered knowledge graphs, enabling developers to understand codebase evolution through natural language queries and visual commit exploration.
 
+Feel free to watch the demo video below for a quick overview.
+
 [![Watch the Demo](https://img.youtube.com/vi/DYcpnQevTuk/0.jpg)](https://youtu.be/DYcpnQevTuk)
 
 ## Contributors
