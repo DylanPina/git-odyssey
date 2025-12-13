@@ -1,3 +1,11 @@
+## Contributors
+
+This project was created by the **GitOdyssey Team**:
+
+- **Dylan Pina** ([@DylanPina](https://github.com/DylanPina))
+- **Will Sullivan** ([@wsulliv8](https://github.com/wsulliv8))
+- **Pranav Senthilvel** ([@pranavs28](https://github.com/pranavs28))
+
 ## Inspiration
 In large organizations, onboarding new developers to massive codebases can take months. Even experienced engineers spend significant time tracing commits, PRs, and diffs just to understand how a feature evolved. We realized this is a *huge productivity bottleneck* and in the world of AI, where 6 months can mean an entirely new generation of technology, that delay is unacceptable.  
 So, we built **GitOdyssey** a tool to help developers *learn their codebase at the speed of thought.*
