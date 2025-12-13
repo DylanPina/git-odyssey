@@ -73,10 +73,12 @@ aws cloudfront create-invalidation --distribution-id $(terraform output -raw fro
 popd
 ```
 
+The `frontend_domain` output maps to the canonical hostname serving the SPA (for this stack, `www.gitodyssey.com`) and `https://www.gitodyssey.com/api` resolves to the backend through CloudFront. `frontend_domain_aliases` lists every hostname on the distribution.
+
 ## Notes
 
 - For production, move secrets to SSM Parameter Store or Secrets Manager and inject via ECS task `secrets` instead of plain env vars.
-- To use a custom domain on CloudFront, provide `domain_name` and `acm_certificate_arn` (in us-east-1).
+- Custom domains: update `config.yaml` with `domain_name`, `apex_domain_name`, optional `alternate_domain_names`, `hosted_zone_name`, and `certificate_domain_name`. Terraform automatically issues/validates an ACM cert in us-east-1 for those hostnames, maps each alias (including the apex) to CloudFront, and proxies `/api/*` to the ALB.
 
 
 

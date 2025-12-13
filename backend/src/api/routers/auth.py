@@ -7,6 +7,7 @@ from api.dependencies import get_session, get_settings
 import httpx
 from sqlalchemy.orm import Session
 from infrastructure.settings import Settings
+from starlette.datastructures import URL
 
 router = APIRouter()
 
@@ -18,8 +19,13 @@ def get_oauth(request: Request):
 
 @router.get("/login")
 async def github_login(request: Request, oauth=Depends(get_oauth)):
-    redirect_uri = request.url_for("github_auth_callback")
-    return await oauth.github.authorize_redirect(request, redirect_uri)
+    redirect_uri = URL(str(request.url_for("github_auth_callback")))
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto:
+        redirect_uri = redirect_uri.replace(
+            scheme=forwarded_proto.split(",")[0].strip().lower()
+        )
+    return await oauth.github.authorize_redirect(request, str(redirect_uri))
 
 
 @router.get("/callback")
@@ -51,6 +57,7 @@ async def github_auth_callback(
         )
 
     token_data = response.json()
+    print(token_data)
     token = {
         "access_token": token_data["access_token"],
         "token_type": "bearer",
@@ -64,23 +71,22 @@ async def github_auth_callback(
         inst_resp = await oauth.github.get("user/installations", token=token)
         installations = inst_resp.json().get("installations", [])
         installation = next(
-            (inst for inst in installations if inst["app_id"] == settings.app_id), None
+            (inst for inst in installations if inst["app_id"]
+             == settings.github_app_id), None
         )
         if not installation:
             # Direct user to install the app
             return RedirectResponse(
-                url="https://github.com/apps/Git-Odyssey/installations/new"
+                url=f"https://github.com/apps/{settings.github_app_name}/installations/new"
             )
         installation_id = installation["id"]
     session_jwt = handle_github_callback(
         github_user, token, session, installation_id, settings
     )
 
-    frontend_dashboard_url = settings.frontend_url
-    response = RedirectResponse(url=frontend_dashboard_url)
-
+    response = RedirectResponse(url=settings.frontend_url)
     # Determine if we're on HTTPS (production) or HTTP (localhost)
-    is_https = frontend_dashboard_url.startswith("https://")
+    is_https = settings.frontend_url.startswith("https://")
 
     response.set_cookie(
         key="session_token",

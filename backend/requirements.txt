@@ -40,3 +40,6 @@ itsdangerous
 # HTTP and JWT
 httpx
 pyjwt
+
+# AWS
+boto3

@@ -13,7 +13,7 @@ from data.data_model import User
 router = APIRouter()
 
 
-@router.post("/", response_model=RepoResponse)
+@router.post("", response_model=RepoResponse)
 async def ingest(
     request: IngestRequest,
     current_user: User = Depends(get_current_user),

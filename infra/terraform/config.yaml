@@ -1,0 +1,27 @@
+project_name: git-odyssey
+environment: prod
+aws_region: us-east-1
+
+domain_name: "www.gitodyssey.com"
+apex_domain_name: "gitodyssey.com"
+alternate_domain_names: []
+hosted_zone_name: "gitodyssey.com"
+certificate_domain_name: "www.gitodyssey.com"
+
+vpc_cidr: 10.0.0.0/16
+public_subnet_cidrs:
+  - 10.0.1.0/24
+  - 10.0.2.0/24
+
+# Database
+db_name: gitodyssey
+db_instance_class: db.t4g.micro
+db_allocated_storage: 20 # in GB
+
+# Backend
+backend_container_port: 8000
+backend_cpu: 512 # in vCPU units
+backend_memory: 1024 # in MB
+backend_desired_count: 1
+docker_image_tag: latest
+github_app_name: "git-odyssey-prod"

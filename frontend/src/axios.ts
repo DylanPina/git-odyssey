@@ -1,9 +1,8 @@
 import axios from "axios";
 
-const SERVER_URL =
-  import.meta.env.VITE_API_URL || "https://git-odyssey.onrender.com";
+const SERVER_URL = import.meta.env.API_URL;
 
 export const api = axios.create({
-  baseURL: SERVER_URL,
-  withCredentials: true,
+	baseURL: SERVER_URL,
+	withCredentials: true,
 });

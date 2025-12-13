@@ -7,7 +7,7 @@ from api.dependencies import get_chat_service
 router = APIRouter()
 
 
-@router.post("/", response_model=ChatbotResponse)
+@router.post("", response_model=ChatbotResponse)
 def chat(
     request: ChatbotRequest,
     chat_service: ChatService = Depends(get_chat_service),

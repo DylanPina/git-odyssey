@@ -1,4 +1,6 @@
-import time, httpx, jwt
+import time
+import httpx
+import jwt
 from infrastructure.settings import Settings
 
 
@@ -13,7 +15,8 @@ def create_app_jwt(app_id: int, private_key: str):
 
 
 async def get_installation_access_token(installation_id: int, settings: Settings):
-    app_jwt = create_app_jwt(settings.app_id, settings.private_key)
+    app_jwt = create_app_jwt(settings.github_app_id,
+                             settings.github_app_private_key)
     headers = {
         "Authorization": f"Bearer {app_jwt}",
         "Accept": "application/vnd.github+json",

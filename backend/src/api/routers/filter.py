@@ -7,7 +7,7 @@ from api.dependencies import get_filter_service
 router = APIRouter()
 
 
-@router.post("/", response_model=FilterResponse)
+@router.post("", response_model=FilterResponse)
 def filter_commits(
     request: FilterRequest, filter_service: FilterService = Depends(get_filter_service)
 ) -> FilterResponse:
