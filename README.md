@@ -14,6 +14,13 @@ This project was created by the **GitOdyssey Team**:
 
 ## Technologies & Stack
 
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-latest-009688.svg)](https://fastapi.tiangolo.com/)
+[![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL%20%2B%20pgvector-enabled-336791.svg)](https://github.com/pgvector/pgvector)
+[![LangChain](https://img.shields.io/badge/LangChain-latest-1C3C3C.svg)](https://www.langchain.com/)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-2.0%20Flash%20Lite-4285F4.svg)](https://ai.google.dev/)
+[![OpenAI Embeddings](https://img.shields.io/badge/OpenAI-embeddings-412991.svg)](https://platform.openai.com/docs/guides/embeddings)
+
 ### Backend Architecture
 
 - **Language & Framework:** Python 3.13 with FastAPI for high-performance async API development
@@ -28,6 +35,13 @@ This project was created by the **GitOdyssey Team**:
 
 ### Frontend Architecture
 
+[![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-latest-3178C6.svg)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-latest-646CFF.svg)](https://vitejs.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-38B2AC.svg)](https://tailwindcss.com/)
+[![Monaco Editor](https://img.shields.io/badge/Monaco_Editor-enabled-007ACC.svg)](https://microsoft.github.io/monaco-editor/)
+[![React Flow](https://img.shields.io/badge/React_Flow-@xyflow-FF0072.svg)](https://xyflow.com/)
+
 - **Framework:** React 19 with TypeScript for type-safe component development
 - **Build Tool:** Vite for fast development and optimized production builds
 - **Styling:** Tailwind CSS 4.x with custom design system
@@ -40,6 +54,10 @@ This project was created by the **GitOdyssey Team**:
 - **Routing:** React Router v7 for client-side navigation
 
 ### Infrastructure & DevOps
+
+[![AWS](https://img.shields.io/badge/AWS-deployed-FF9900.svg)](https://aws.amazon.com/)
+[![Terraform](https://img.shields.io/badge/Terraform-IaC-844FBA.svg)](https://www.terraform.io/)
+[![Docker](https://img.shields.io/badge/Docker-enabled-2496ED.svg)](https://www.docker.com/)
 
 - **Cloud Platform:** AWS (ECS Fargate, RDS, S3, CloudFront, ALB, VPC)
 - **Infrastructure as Code:** Terraform for declarative infrastructure provisioning
