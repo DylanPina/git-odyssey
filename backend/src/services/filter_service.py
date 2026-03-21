@@ -1,11 +1,9 @@
 from core.retriever import Retriever
-from core.embedder import OpenAIEmbedder
 from api.api_model import FilterRequest, FilterResponse
 
 
 class FilterService:
-    def __init__(self, embedder: OpenAIEmbedder, retriever: Retriever):
-        self.embedder = embedder
+    def __init__(self, retriever: Retriever):
         self.retriever = retriever
 
     def filter(self, request: FilterRequest) -> FilterResponse:

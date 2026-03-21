@@ -36,6 +36,7 @@ class RepoService:
                 self.db_adapter.parse_sql_commit(commit, compressed=True)
                 for commit in repo.commits
             ],
+            reindex_required=bool(repo.reindex_required),
         )
 
     def get_commits(self, repo_path: str) -> CommitsResponse:

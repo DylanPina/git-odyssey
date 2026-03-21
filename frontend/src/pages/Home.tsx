@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   GitBranch,
   Search,
@@ -6,19 +7,28 @@ import {
   Zap,
   Shield,
   Bot,
+  SlidersHorizontal,
 } from "lucide-react";
 import { DesktopSetupCard } from "@/components/ui/custom/DesktopSetupCard";
 import { GitProjectPicker } from "@/components/ui/custom/GitProjectPicker";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 
 export function Home() {
+  const [showAiSettings, setShowAiSettings] = useState(false);
   const {
     isAuthenticated,
+    isAiReady,
     isLoading,
     desktopSettingsStatus,
     desktopHealth,
     checkAuth,
   } = useAuth();
+
+  const handleAiSettingsSaved = async () => {
+    await checkAuth();
+    setShowAiSettings(false);
+  };
 
   return (
     <>
@@ -42,18 +52,38 @@ export function Home() {
             Run GitOdyssey fully locally with a Git Project picker, desktop-managed credentials, and repository analysis that stays on your machine.
           </p>
 
-          <div className="max-w-xl md:max-w-2xl mx-auto px-4">
+          <div className="mx-auto max-w-4xl px-4">
             {isLoading ? (
               <div className="w-full max-w-md mx-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-8 flex items-center justify-center">
                 <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
               </div>
-            ) : isAuthenticated ? (
-              <GitProjectPicker />
+            ) : isAuthenticated && isAiReady ? (
+              <div className="space-y-4">
+                <GitProjectPicker />
+                <div className="flex justify-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowAiSettings((current) => !current)}
+                    className="border-white/20 bg-white/5 text-white hover:bg-white/10"
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                    {showAiSettings ? "Hide AI Settings" : "AI Settings"}
+                  </Button>
+                </div>
+                {showAiSettings && (
+                  <DesktopSetupCard
+                    desktopSettingsStatus={desktopSettingsStatus}
+                    desktopHealth={desktopHealth}
+                    onCredentialsSaved={handleAiSettingsSaved}
+                  />
+                )}
+              </div>
             ) : (
               <DesktopSetupCard
                 desktopSettingsStatus={desktopSettingsStatus}
                 desktopHealth={desktopHealth}
-                onCredentialsSaved={checkAuth}
+                onCredentialsSaved={handleAiSettingsSaved}
               />
             )}
           </div>

@@ -15,6 +15,7 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAiReady, setIsAiReady] = useState(false);
   const [desktopSettingsStatus, setDesktopSettingsStatus] =
     useState<DesktopSettingsStatus | null>(null);
   const [desktopHealth, setDesktopHealth] =
@@ -33,12 +34,7 @@ export function useAuth() {
 
       setDesktopSettingsStatus(settingsStatus);
       setDesktopHealth(healthStatus);
-
-      if (!settingsStatus.hasOpenAiApiKey) {
-        setUser(null);
-        setIsAuthenticated(false);
-        return;
-      }
+      setIsAiReady(Boolean(healthStatus.ai?.textGeneration?.ready));
 
       const userData = await getCurrentUser();
       setUser(userData);
@@ -47,6 +43,7 @@ export function useAuth() {
       console.error("Auth check failed:", error);
       setUser(null);
       setIsAuthenticated(false);
+      setIsAiReady(false);
     } finally {
       if (!options.background) {
         setIsLoading(false);
@@ -59,7 +56,7 @@ export function useAuth() {
   }, [checkAuth]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && isAiReady) {
       return;
     }
 
@@ -70,11 +67,12 @@ export function useAuth() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [checkAuth, isAuthenticated]);
+  }, [checkAuth, isAiReady, isAuthenticated]);
 
   return {
     user,
     isAuthenticated,
+    isAiReady,
     isLoading,
     desktopSettingsStatus,
     desktopHealth,

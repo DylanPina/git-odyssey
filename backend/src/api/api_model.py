@@ -1,12 +1,14 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 from data.data_model import Commit, Branch
+from infrastructure.ai_runtime import AIRuntimeConfig
 
 
 class RepoResponse(BaseModel):
     repo_path: str
     branches: List[Branch]
     commits: List[Commit]
+    reindex_required: bool = False
 
 
 class FilterRequest(BaseModel):
@@ -22,6 +24,7 @@ class FilterResponse(BaseModel):
 
 class ChatbotRequest(BaseModel):
     query: str = ""
+    repo_path: str = ""
     context_shas: List[str] = Field(default_factory=list)
 
 
@@ -34,6 +37,11 @@ class CitedCommit(BaseModel):
 class ChatbotResponse(BaseModel):
     response: str = ""
     cited_commits: List[CitedCommit] = Field(default_factory=list)
+
+
+class AIRuntimeValidationRequest(BaseModel):
+    config: AIRuntimeConfig
+    secret_values: Dict[str, str] = Field(default_factory=dict)
 
 
 class IngestRequest(BaseModel):

@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 const {
+  buildDefaultAiRuntimeConfig,
+  normalizeAiRuntimeConfig,
+  summarizeCapability,
+} = require("./ai-config");
+const {
   dedupeRecentProjects,
   toGitProjectSummary,
 } = require("./git-projects");
@@ -28,6 +33,7 @@ class DesktopConfigStore {
       databaseSslMode: process.env.DATABASE_SSLMODE ?? "disable",
       dataDir,
       logDir,
+      aiRuntimeConfig: buildDefaultAiRuntimeConfig(),
       firstRunCompleted: false,
       recentProjects: [],
     };
@@ -54,6 +60,9 @@ class DesktopConfigStore {
       const merged = {
         ...defaults,
         ...parsed,
+        aiRuntimeConfig: normalizeAiRuntimeConfig(
+          parsed.aiRuntimeConfig ?? defaults.aiRuntimeConfig
+        ),
         recentProjects: dedupeRecentProjects(parsed.recentProjects ?? []),
       };
       fs.writeFileSync(this.configPath, JSON.stringify(merged, null, 2));
@@ -74,7 +83,13 @@ class DesktopConfigStore {
   }
 
   save(partial) {
-    this.state = { ...this.state, ...partial };
+    this.state = {
+      ...this.state,
+      ...partial,
+      aiRuntimeConfig: normalizeAiRuntimeConfig(
+        partial.aiRuntimeConfig ?? this.state.aiRuntimeConfig
+      ),
+    };
     this.#ensureParentDirs();
     fs.writeFileSync(this.configPath, JSON.stringify(this.state, null, 2));
     return this.getState();
@@ -106,13 +121,26 @@ class DesktopConfigStore {
   }
 
   getStatus(secretStatus) {
+    const aiRuntimeConfig = normalizeAiRuntimeConfig(this.state.aiRuntimeConfig);
     return {
-      hasOpenAiApiKey: secretStatus.hasOpenAiApiKey,
       firstRunCompleted: this.state.firstRunCompleted,
       backendPort: this.state.backendPort,
       dataDir: this.state.dataDir,
       logDir: this.state.logDir,
       databaseUrlConfigured: Boolean(this.state.databaseUrl),
+      aiRuntimeConfig,
+      ai: {
+        textGeneration: summarizeCapability(
+          aiRuntimeConfig,
+          secretStatus,
+          "text_generation"
+        ),
+        embeddings: summarizeCapability(
+          aiRuntimeConfig,
+          secretStatus,
+          "embeddings"
+        ),
+      },
     };
   }
 }

@@ -4,6 +4,7 @@ from sqlalchemy import (
     String,
     Integer,
     Text,
+    Boolean,
     ForeignKey,
     Enum as SQLEnum,
     Column,
@@ -50,6 +51,23 @@ class SQLUser(Base):
     repos: Mapped[List["SQLRepo"]] = relationship("SQLRepo", back_populates="users")
 
 
+class SQLEmbeddingProfile(Base):
+    __tablename__ = "embedding_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    provider_type: Mapped[str] = mapped_column(String(64))
+    base_url: Mapped[str] = mapped_column(Text)
+    model_id: Mapped[str] = mapped_column(Text)
+    observed_dimension: Mapped[Optional[int]]
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    repos: Mapped[List["SQLRepo"]] = relationship(
+        "SQLRepo", back_populates="embedding_profile"
+    )
+
+
 class SQLDiffHunk(Base):
     """SQLAlchemy model for diff hunks within file changes."""
 
@@ -62,6 +80,7 @@ class SQLDiffHunk(Base):
     new_lines: Mapped[int]
     content: Mapped[str] = mapped_column(Text)
     summary: Mapped[Optional[str]] = mapped_column(Text)
+    semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
 
     embedding: Mapped[Optional[List[float]]] = mapped_column(
         Vector(1536)
@@ -111,6 +130,7 @@ class SQLFileChange(Base):
     new_path: Mapped[str]
     status: Mapped[FileChangeStatus] = mapped_column(SQLEnum(FileChangeStatus))
     summary: Mapped[Optional[str]] = mapped_column(Text)
+    semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
     embedding: Mapped[Optional[List[float]]] = mapped_column(
         Vector(1536)
     )  # OpenAI embedding size
@@ -164,6 +184,7 @@ class SQLCommit(Base):
     time: Mapped[int]
     message: Mapped[str] = mapped_column(Text)
     summary: Mapped[Optional[str]] = mapped_column(Text)
+    semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
     embedding: Mapped[Optional[List[float]]] = mapped_column(
         Vector(1536)
     )  # OpenAI embedding size
@@ -189,6 +210,10 @@ class SQLRepo(Base):
     __tablename__ = "repos"
 
     path: Mapped[str] = mapped_column(primary_key=True)
+    embedding_profile_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("embedding_profiles.id")
+    )
+    reindex_required: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Foreign Keys
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
@@ -200,6 +225,9 @@ class SQLRepo(Base):
     )
     commits: Mapped[List["SQLCommit"]] = relationship(
         "SQLCommit", back_populates="repo", foreign_keys="[SQLCommit.repo_path]"
+    )
+    embedding_profile: Mapped[Optional["SQLEmbeddingProfile"]] = relationship(
+        "SQLEmbeddingProfile", back_populates="repos"
     )
 
 

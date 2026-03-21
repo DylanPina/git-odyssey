@@ -8,7 +8,8 @@ import type {
 } from "../lib/definitions/api";
 import type { User } from "@/lib/definitions/auth";
 import type {
-  DesktopCredentialsInput,
+  DesktopAiConfigInput,
+  DesktopAiValidationResult,
   GitProjectSummary,
   DesktopHealthStatus,
   DesktopSettingsStatus,
@@ -82,9 +83,10 @@ export const summarizeHunk = async (id: number): Promise<string> => {
 
 export const sendChatMessage = async (
   query: string,
+  repoPath: string,
   contextShas: string[]
 ): Promise<ChatResponse> => {
-  return getDesktopBridge().api.sendChatMessage({ query, contextShas });
+  return getDesktopBridge().api.sendChatMessage({ query, repoPath, contextShas });
 };
 
 export const initDatabase = async (): Promise<DatabaseResponse> => {
@@ -118,10 +120,16 @@ export const getDesktopSettingsStatus = async (): Promise<DesktopSettingsStatus>
   return getDesktopBridge().settings.getStatus();
 };
 
-export const saveDesktopCredentials = async (
-  input: DesktopCredentialsInput
+export const validateDesktopAiConfig = async (
+  input: DesktopAiConfigInput
+): Promise<DesktopAiValidationResult> => {
+  return getDesktopBridge().settings.validateAiConfig(input);
+};
+
+export const saveDesktopAiConfig = async (
+  input: DesktopAiConfigInput
 ): Promise<DesktopSettingsStatus> => {
-  return getDesktopBridge().settings.saveCredentials(input);
+  return getDesktopBridge().settings.saveAiConfig(input);
 };
 
 export const getDesktopHealth = async (): Promise<DesktopHealthStatus> => {

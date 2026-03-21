@@ -13,7 +13,8 @@ class BackendManager {
     this.intentionalStop = false;
     this.state = {
       state: "stopped",
-      message: "Save your OpenAI API key to start the desktop backend.",
+      message:
+        "Configure AI providers to enable chat, summaries, and semantic search.",
     };
   }
 
@@ -114,8 +115,33 @@ class BackendManager {
     return false;
   }
 
+  async #fetchDesktopHealthPayload() {
+    const response = await fetch(`${this.getBackendUrl()}/api/desktop/health`);
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  #mapCapabilityHealth(capability) {
+    if (!capability) {
+      return null;
+    }
+
+    return {
+      configured: Boolean(capability.configured),
+      ready: Boolean(capability.ready),
+      providerType: capability.provider_type ?? null,
+      modelId: capability.model_id ?? null,
+      baseUrl: capability.base_url ?? null,
+      authMode: capability.auth_mode ?? null,
+      secretPresent: Boolean(capability.secret_present),
+      message: capability.message ?? undefined,
+      reindexRequired: Boolean(capability.reindex_required),
+    };
+  }
+
   async sync() {
-    const credentials = await this.keychain.getCredentials();
     const config = this.configStore.getState();
 
     if (!config.databaseUrl) {
@@ -124,15 +150,6 @@ class BackendManager {
         state: "error",
         message:
           "DATABASE_URL is not configured. Bundled PostgreSQL initialization is still pending in the desktop shell.",
-      };
-      return;
-    }
-
-    if (!credentials.openAiApiKey) {
-      await this.stop();
-      this.state = {
-        state: "stopped",
-        message: "Save your OpenAI API key to start the desktop backend.",
       };
       return;
     }
@@ -147,7 +164,7 @@ class BackendManager {
       return;
     }
 
-    this.startPromise = this.start(credentials, config);
+    this.startPromise = this.start(config);
     try {
       await this.startPromise;
     } finally {
@@ -155,7 +172,7 @@ class BackendManager {
     }
   }
 
-  async start(credentials, config) {
+  async start(config) {
     await this.stop();
     this.intentionalStop = false;
     this.state = {
@@ -178,13 +195,15 @@ class BackendManager {
       "manager"
     );
 
+    const secretValues = await this.keychain.getSecrets(config.aiRuntimeConfig);
     this.process = spawn(backendEntry.command, backendEntry.args, {
       env: {
         ...process.env,
         PORT: String(config.backendPort),
         DATABASE_URL: config.databaseUrl,
         DATABASE_SSLMODE: config.databaseSslMode,
-        OPENAI_API_KEY: credentials.openAiApiKey,
+        AI_RUNTIME_CONFIG_JSON: JSON.stringify(config.aiRuntimeConfig),
+        AI_SECRET_VALUES_JSON: JSON.stringify(secretValues),
         PYTHONUNBUFFERED: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -300,8 +319,20 @@ class BackendManager {
   }
 
   async getHealth() {
-    const credentialStatus = await this.keychain.getCredentialStatus();
+    const config = this.configStore.getState();
+    const credentialStatus = await this.keychain.getCredentialStatus(
+      config.aiRuntimeConfig
+    );
     const settingsStatus = this.configStore.getStatus(credentialStatus);
+    let backendPayload = null;
+
+    if (this.state.state === "running") {
+      try {
+        backendPayload = await this.#fetchDesktopHealthPayload();
+      } catch (_error) {
+        backendPayload = null;
+      }
+    }
 
     return {
       backend: {
@@ -314,6 +345,31 @@ class BackendManager {
           ? "Development mode uses the configured local PostgreSQL instance. Start `docker compose up -d db` if it is not already running."
           : "No local PostgreSQL connection is configured yet.",
       },
+      authentication: {
+        ready: Boolean(backendPayload?.authentication?.desktop_backend_reachable),
+        desktopBackendReachable: Boolean(
+          backendPayload?.authentication?.desktop_backend_reachable
+        ),
+        desktopUserAvailable: Boolean(
+          backendPayload?.authentication?.desktop_user_available
+        ),
+      },
+      ai:
+        backendPayload?.ai != null
+          ? {
+              textGeneration: this.#mapCapabilityHealth(
+                backendPayload.ai.text_generation
+              ),
+              embeddings: this.#mapCapabilityHealth(backendPayload.ai.embeddings),
+            }
+          : settingsStatus.ai,
+      desktopUser: backendPayload?.desktop_user
+        ? {
+            id: backendPayload.desktop_user.id,
+            username: backendPayload.desktop_user.username,
+            email: backendPayload.desktop_user.email,
+          }
+        : null,
       credentials: credentialStatus,
       settings: settingsStatus,
     };

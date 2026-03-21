@@ -19,6 +19,7 @@ class DatabaseAdapter:
             commit_sha=(
                 sql_hunk.file_change.commit_sha if sql_hunk.file_change else None
             ),
+            semantic_embedding=sql_hunk.semantic_embedding if not compressed else None,
             embedding=sql_hunk.embedding if not compressed else None,
             diff_embedding=sql_hunk.diff_embedding if not compressed else None,
         )
@@ -74,6 +75,9 @@ class DatabaseAdapter:
             snapshot=snapshot,
             summary=sql_file_change.summary,
             commit_sha=sql_file_change.commit_sha,
+            semantic_embedding=(
+                sql_file_change.semantic_embedding if not compressed else None
+            ),
             embedding=sql_file_change.embedding if not compressed else None,
         )
 
@@ -96,6 +100,9 @@ class DatabaseAdapter:
             message=sql_commit.message,
             file_changes=file_changes,
             summary=sql_commit.summary,
+            semantic_embedding=(
+                sql_commit.semantic_embedding if not compressed else None
+            ),
             embedding=sql_commit.embedding if not compressed else None,
         )
 

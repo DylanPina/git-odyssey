@@ -1,22 +1,23 @@
-from data.schema import SQLCommit, SQLFileChange, SQLDiffHunk
-from core.embedder import OpenAIEmbedder
-from typing import Dict, Any, List, Optional
-from utils.logger import logger
-from sqlalchemy import or_, func, union_all, select, distinct, case, literal
-from sqlalchemy.orm import joinedload, Session
-from data.data_model import Commit, FileChange, DiffHunk
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import distinct, func, literal, or_, select, union_all
+from sqlalchemy.orm import Session, joinedload
+
+from core.embedder import EmbeddingEngine
 from data.adapter import DatabaseAdapter
+from data.data_model import Commit, DiffHunk, FileChange
+from data.schema import SQLCommit, SQLDiffHunk, SQLFileChange
+from utils.logger import logger
 
 
 class Retriever:
     # Similarity thresholds (lower = more similar, 0 = identical, 2 = opposite)
     SIMILARITY_THRESHOLDS = {
-        "commit": 0.5,  # Very loose - commit messages are often poor quality
-        "file_change": 0.6,  # Moderate - file change summaries are better
-        "hunk": 0.6,  # Moderate - hunk content/diffs are specific but noisy
+        "commit": 0.5,
+        "file_change": 0.6,
+        "hunk": 0.6,
     }
 
-    # File patterns to exclude from semantic search (config/generated files)
     EXCLUDED_FILE_PATTERNS = [
         ".gitignore",
         "package-lock.json",
@@ -30,7 +31,7 @@ class Retriever:
         "go.sum",
         ".env",
         ".env.example",
-        "components.json",  # shadcn/ui config
+        "components.json",
         "tsconfig.json",
         "jsconfig.json",
         ".prettierrc",
@@ -53,7 +54,10 @@ class Retriever:
     ]
 
     def __init__(
-        self, session: Session, embedder: OpenAIEmbedder, db_adapter: DatabaseAdapter
+        self,
+        session: Session,
+        embedder: EmbeddingEngine | None,
+        db_adapter: DatabaseAdapter,
     ):
         self.session = session
         self.embedder = embedder
@@ -78,15 +82,30 @@ class Retriever:
             "repo_path": lambda q, v: q.filter(SQLCommit.repo_path == v),
         }
 
-    def _should_exclude_file(self, file_path: str) -> bool:
-        """Check if a file should be excluded from semantic search based on patterns."""
-        if not file_path:
-            return False
-        file_path_lower = file_path.lower()
-        return any(
-            pattern.lower() in file_path_lower
-            for pattern in self.EXCLUDED_FILE_PATTERNS
-        )
+    def _get_query_embedding(self, query: str) -> list[float] | None:
+        if not query.strip() or self.embedder is None:
+            return None
+        return self.embedder.embed_query(query)
+
+    def _build_file_exclusion_filter(self):
+        exclusion_matches = []
+        for pattern in self.EXCLUDED_FILE_PATTERNS:
+            exclusion_matches.append(
+                or_(
+                    SQLFileChange.new_path.ilike(f"%{pattern}%"),
+                    SQLFileChange.old_path.ilike(f"%{pattern}%"),
+                )
+            )
+        return ~or_(*exclusion_matches)
+
+    def _format_status(self, status: Any) -> str:
+        return {
+            "ADDED": "added",
+            "MODIFIED": "modified",
+            "DELETED": "deleted",
+            "RENAMED": "renamed",
+            "COPIED": "copied",
+        }.get(str(status), str(status).lower())
 
     def get_commit(self, sha: str) -> Optional[Commit]:
         query = (
@@ -124,10 +143,9 @@ class Retriever:
     def filter(
         self, query: str, filters: Dict[str, Any], repo_path: str, max_results: int
     ) -> List[str]:
-        """Hybrid search: apply SQL filters first, then semantic search across all tables."""
-        logger.info(f"Filtering for query: '{query}' with filters: {filters}")
+        logger.info("Filtering for query '%s' with filters %s", query, filters)
 
-        query_embedding = self.embedder.embed_query(query) if query else None
+        query_embedding = self._get_query_embedding(query) if query else None
 
         base_query = select(distinct(SQLCommit.sha).label("sha")).select_from(SQLCommit)
 
@@ -152,97 +170,61 @@ class Retriever:
         for key, value in filters.items():
             if key in self.filter_actions:
                 base_query = self.filter_actions[key](base_query, value)
+
+        if query and not query_embedding:
+            pattern = f"%{query}%"
+            base_query = base_query.filter(
+                or_(
+                    SQLCommit.message.ilike(pattern),
+                    SQLCommit.summary.ilike(pattern),
+                )
+            )
+
         filtered_query = base_query.subquery()
+
         if query_embedding:
             shas_cte = select(filtered_query.c.sha).cte()
+            file_exclusion_filter = self._build_file_exclusion_filter()
 
-            # Semantic search on commits with similarity threshold
-            commit_similarity = SQLCommit.embedding.cosine_distance(query_embedding)
+            commit_similarity = SQLCommit.semantic_embedding.cosine_distance(
+                query_embedding
+            )
             commits_semantic = (
                 select(
                     SQLCommit.sha.label("sha"),
                     commit_similarity.label("similarity"),
                     literal("commit").label("match_type"),
-                    func.cast(literal(None), SQLDiffHunk.id.type).label(
-                        "hunk_id"
-                    ),  # Cast NULL to integer type
+                    func.cast(literal(None), SQLDiffHunk.id.type).label("hunk_id"),
                     func.cast(literal(None), SQLFileChange.new_path.type).label(
                         "file_path"
-                    ),  # Cast NULL to text type
+                    ),
                 )
                 .join(shas_cte, SQLCommit.sha == shas_cte.c.sha)
+                .filter(SQLCommit.semantic_embedding.isnot(None))
                 .filter(commit_similarity <= self.SIMILARITY_THRESHOLDS["commit"])
             )
 
-            # Build file exclusion filter (check both old_path and new_path)
-            # Exclude a file if EITHER path matches any excluded pattern
-            exclusion_matches = []
-            for pattern in self.EXCLUDED_FILE_PATTERNS:
-                # Match if new_path OR old_path contains the pattern
-                exclusion_matches.append(
-                    or_(
-                        SQLFileChange.new_path.ilike(f"%{pattern}%"),
-                        SQLFileChange.old_path.ilike(f"%{pattern}%"),
-                    )
-                )
-
-            # Combine all pattern matches with OR (exclude if ANY pattern matches)
-            # Then negate the whole thing to exclude those files
-            file_exclusion_filter = ~or_(*exclusion_matches)
-
-            # Semantic search on file changes with exclusions and threshold
-            fc_similarity = SQLFileChange.embedding.cosine_distance(query_embedding)
+            fc_similarity = SQLFileChange.semantic_embedding.cosine_distance(
+                query_embedding
+            )
             fc_file_path = func.coalesce(SQLFileChange.new_path, SQLFileChange.old_path)
             fc_semantic = (
                 select(
                     SQLFileChange.commit_sha.label("sha"),
                     fc_similarity.label("similarity"),
                     literal("file_change").label("match_type"),
-                    func.cast(literal(None), SQLDiffHunk.id.type).label(
-                        "hunk_id"
-                    ),  # Cast NULL to integer type
+                    func.cast(literal(None), SQLDiffHunk.id.type).label("hunk_id"),
                     fc_file_path.label("file_path"),
                 )
                 .join(shas_cte, SQLFileChange.commit_sha == shas_cte.c.sha)
-                .filter(SQLFileChange.embedding.isnot(None))
+                .filter(SQLFileChange.semantic_embedding.isnot(None))
                 .filter(file_exclusion_filter)
                 .filter(fc_similarity <= self.SIMILARITY_THRESHOLDS["file_change"])
             )
 
-            # Use CASE to pick the best available embedding
-            hunk_similarity = case(
-                # If both exist, use the minimum
-                (
-                    (SQLDiffHunk.embedding.isnot(None))
-                    & (SQLDiffHunk.diff_embedding.isnot(None)),
-                    func.least(
-                        SQLDiffHunk.embedding.cosine_distance(query_embedding),
-                        SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
-                    ),
-                ),
-                # If only embedding exists, use it
-                (
-                    SQLDiffHunk.embedding.isnot(None),
-                    SQLDiffHunk.embedding.cosine_distance(query_embedding),
-                ),
-                # Otherwise use diff_embedding
-                else_=SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
+            hunk_similarity = SQLDiffHunk.semantic_embedding.cosine_distance(
+                query_embedding
             )
-
-            # Semantic search on hunks with file exclusions and threshold
-            # Need to join with file_change to get the file path for filtering
-            # Check both old_path and new_path (same logic as file changes)
-            hunk_exclusion_matches = []
-            for pattern in self.EXCLUDED_FILE_PATTERNS:
-                hunk_exclusion_matches.append(
-                    or_(
-                        SQLFileChange.new_path.ilike(f"%{pattern}%"),
-                        SQLFileChange.old_path.ilike(f"%{pattern}%"),
-                    )
-                )
-
-            hunk_file_exclusion_filter = ~or_(*hunk_exclusion_matches)
-
             hunk_file_path = func.coalesce(
                 SQLFileChange.new_path, SQLFileChange.old_path
             )
@@ -251,26 +233,22 @@ class Retriever:
                     SQLDiffHunk.commit_sha.label("sha"),
                     hunk_similarity.label("similarity"),
                     literal("hunk").label("match_type"),
-                    SQLDiffHunk.id.label(
-                        "hunk_id"
-                    ),  # Keep as integer - NULLs are cast to match
+                    SQLDiffHunk.id.label("hunk_id"),
                     hunk_file_path.label("file_path"),
                 )
                 .join(shas_cte, SQLDiffHunk.commit_sha == shas_cte.c.sha)
                 .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
-                .filter(hunk_file_exclusion_filter)
+                .filter(SQLDiffHunk.semantic_embedding.isnot(None))
+                .filter(file_exclusion_filter)
                 .filter(hunk_similarity <= self.SIMILARITY_THRESHOLDS["hunk"])
             )
 
-            # Debug: print top-k by similarity with types and metadata
             self._debug_print_top_matches(shas_cte, query_embedding)
 
             final_query = union_all(
                 commits_semantic, fc_semantic, hunk_semantic
             ).subquery()
 
-            # Get the best match for each SHA along with match type and metadata
-            # First, use a window function to rank matches by similarity within each SHA
             ranked_query = select(
                 final_query.c.sha,
                 final_query.c.similarity,
@@ -285,7 +263,6 @@ class Retriever:
                 .label("rank"),
             ).subquery()
 
-            # Then, filter to only the best match (rank=1) for each SHA
             final_stmt = (
                 select(
                     ranked_query.c.sha,
@@ -298,74 +275,141 @@ class Retriever:
                 .order_by(ranked_query.c.similarity)
             )
             results = self.session.execute(final_stmt.limit(max_results)).all()
+            commit_shas = [row.sha for row in results]
         else:
             final_stmt = select(filtered_query.c.sha)
             results = self.session.execute(final_stmt.limit(max_results)).all()
-
-        # Log results with match type information
-        if query_embedding:
-            logger.info(f"Found {len(results)} relevant commits:")
-            for i, row in enumerate(results, 1):
-                # Build detailed log message with metadata
-                log_msg = f"  {i}. {row.sha[:8]}... sim={row.best_similarity:.4f} via {row.match_type}"
-
-                # Add file path if available
-                if row.file_path:
-                    log_msg += f" path={row.file_path}"
-
-                # Add hunk ID if this is a hunk match
-                if row.match_type == "hunk" and row.hunk_id:
-                    log_msg += f" hunk_id={row.hunk_id}"
-
-                logger.info(log_msg)
             commit_shas = [row.sha for row in results]
-        else:
-            commit_shas = [row.sha for row in results]
-            logger.info(f"Found {len(commit_shas)} commits (no semantic search)")
 
+        logger.info("Found %s relevant commits", len(commit_shas))
         return commit_shas
 
+    def _build_fallback_context(
+        self, repo_path: str, context_shas: list[str]
+    ) -> tuple[str, list[dict[str, Any]]]:
+        query = (
+            select(
+                SQLCommit.sha,
+                SQLCommit.message,
+                SQLCommit.author,
+                SQLCommit.time,
+                SQLCommit.summary,
+            )
+            .where(SQLCommit.repo_path == repo_path, SQLCommit.sha.in_(context_shas))
+            .order_by(SQLCommit.time.desc())
+            .limit(5)
+        )
+        rows = self.session.execute(query).mappings().all()
+
+        context_lines = ["## Relevant Context:\n"]
+        cited_commits: list[dict[str, Any]] = []
+
+        for index, row in enumerate(rows, 1):
+            context_lines.append(
+                f"### {index}. Commit\n"
+                f"Commit {row['sha'][:8]} by {row['author']} on {row['time']}: {row['message']}\n"
+                f"Summary: {row['summary']}\n\n"
+            )
+            cited_commits.append(
+                {
+                    "sha": row["sha"],
+                    "similarity": 1.0,
+                    "message": row["message"] or "",
+                }
+            )
+
+        return "".join(context_lines), cited_commits
+
     def get_context_with_citations(
-        self, query: str, context_shas: List[str]
-    ) -> tuple[str, List[str]]:
-        """Find the most relevant context from given SHAs for AI prompt generation and return cited commits."""
-        if not context_shas or not query.strip():
-            logger.info("No commit SHAs provided, fetching all commits")
-            sha_query = select(SQLCommit.sha)
-            results = self.session.execute(sha_query).all()
-            context_shas = [row.sha for row in results]
+        self, query: str, repo_path: str, context_shas: List[str]
+    ) -> tuple[str, List[dict[str, Any]]]:
+        if not repo_path:
+            raise ValueError("Repository path is required for chat retrieval.")
+
+        if context_shas:
+            allowed_shas = (
+                self.session.execute(
+                    select(SQLCommit.sha).where(
+                        SQLCommit.repo_path == repo_path,
+                        SQLCommit.sha.in_(context_shas),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            context_shas = list(allowed_shas)
+
+        query_embedding = self._get_query_embedding(query)
+
+        if not context_shas:
+            if query_embedding is None:
+                context_shas = (
+                    self.session.execute(
+                        select(SQLCommit.sha)
+                        .where(SQLCommit.repo_path == repo_path)
+                        .order_by(SQLCommit.time.desc())
+                        .limit(5)
+                    )
+                    .scalars()
+                    .all()
+                )
+            else:
+                context_shas = (
+                    self.session.execute(
+                        select(SQLCommit.sha).where(SQLCommit.repo_path == repo_path)
+                    )
+                    .scalars()
+                    .all()
+                )
 
         logger.info(
-            f"Gathering context for query: '{query}' with context shas: {context_shas}"
+            "Gathering context for query '%s' in repo %s with context SHAs %s",
+            query,
+            repo_path,
+            context_shas,
         )
 
-        query_embedding = self.embedder.embed_query(query)
-        context_items = []
-        cited_commits = []
+        if not context_shas:
+            return "## Relevant Context:\n", []
 
-        # Search for commits from the context SHAs
-        commits_query = select(
-            SQLCommit.sha,
-            SQLCommit.message,
-            SQLCommit.author,
-            SQLCommit.time,
-            SQLCommit.summary,
-            SQLCommit.embedding.cosine_distance(query_embedding).label("similarity"),
-        ).where(SQLCommit.sha.in_(context_shas), SQLCommit.embedding.isnot(None))
+        if query_embedding is None:
+            return self._build_fallback_context(repo_path, context_shas)
 
+        context_items: list[dict[str, Any]] = []
+        file_exclusion_filter = self._build_file_exclusion_filter()
+
+        commits_query = (
+            select(
+                SQLCommit.sha,
+                SQLCommit.message,
+                SQLCommit.author,
+                SQLCommit.time,
+                SQLCommit.summary,
+                SQLCommit.semantic_embedding.cosine_distance(query_embedding).label(
+                    "similarity"
+                ),
+            )
+            .where(
+                SQLCommit.repo_path == repo_path,
+                SQLCommit.sha.in_(context_shas),
+                SQLCommit.semantic_embedding.isnot(None),
+            )
+        )
         commits_results = self.session.execute(commits_query).mappings().all()
-
         for row in commits_results:
             context_items.append(
                 {
                     "type": "commit",
+                    "sha": row["sha"],
+                    "message": row["message"] or "",
                     "similarity": float(row["similarity"]),
-                    "content": f"Commit {row['sha'][:8]} by {row['author']} on {row['time']}: {row['message']} \n Summary: {row['summary']} \n\n",
+                    "content": (
+                        f"Commit {row['sha'][:8]} by {row['author']} on {row['time']}: "
+                        f"{row['message']}\nSummary: {row['summary']}\n\n"
+                    ),
                 }
             )
-            cited_commits.append(row["sha"])
 
-        # Search for file changes from the context commits
         fc_query = (
             select(
                 SQLFileChange.commit_sha,
@@ -376,56 +420,35 @@ class Retriever:
                 SQLCommit.message.label("commit_message"),
                 SQLCommit.author.label("commit_author"),
                 SQLCommit.time.label("commit_time"),
-                SQLFileChange.embedding.cosine_distance(query_embedding).label(
+                SQLFileChange.semantic_embedding.cosine_distance(query_embedding).label(
                     "similarity"
                 ),
             )
             .join(SQLCommit, SQLFileChange.commit_sha == SQLCommit.sha)
             .where(
+                SQLCommit.repo_path == repo_path,
                 SQLFileChange.commit_sha.in_(context_shas),
-                SQLFileChange.embedding.isnot(None),
+                SQLFileChange.semantic_embedding.isnot(None),
             )
+            .filter(file_exclusion_filter)
         )
-
         fc_results = self.session.execute(fc_query).mappings().all()
-
         for row in fc_results:
-            path_info = row["new_path"] if row["new_path"] else row["old_path"]
-            status = {
-                "ADDED": "added",
-                "MODIFIED": "modified",
-                "DELETED": "deleted",
-                "RENAMED": "renamed",
-                "COPIED": "copied",
-            }.get(row["status"], "unknown")
-
+            path_info = row["new_path"] or row["old_path"]
+            status = self._format_status(row["status"])
             context_items.append(
                 {
                     "type": "file_change",
+                    "sha": row["commit_sha"],
+                    "message": row["commit_message"] or "",
                     "similarity": float(row["similarity"]),
-                    "content": f"{status} {path_info} in commit {row['commit_sha'][:8]} by {row['commit_author']} on {row['commit_time']} \n Summary: {row['summary']} \n\n",
+                    "content": (
+                        f"{status} {path_info} in commit {row['commit_sha'][:8]} by "
+                        f"{row['commit_author']} on {row['commit_time']}\n"
+                        f"Summary: {row['summary']}\n\n"
+                    ),
                 }
             )
-            # Add commit SHA if not already in cited_commits
-            if row["commit_sha"] not in cited_commits:
-                cited_commits.append(row["commit_sha"])
-
-        # Search for diff hunks from the context commits
-        hunk_context_similarity = case(
-            (
-                (SQLDiffHunk.embedding.isnot(None))
-                & (SQLDiffHunk.diff_embedding.isnot(None)),
-                func.least(
-                    SQLDiffHunk.embedding.cosine_distance(query_embedding),
-                    SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
-                ),
-            ),
-            (
-                SQLDiffHunk.embedding.isnot(None),
-                SQLDiffHunk.embedding.cosine_distance(query_embedding),
-            ),
-            else_=SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
-        )
 
         hunk_query = (
             select(
@@ -436,159 +459,91 @@ class Retriever:
                 SQLDiffHunk.summary,
                 SQLFileChange.old_path,
                 SQLFileChange.new_path,
-                SQLFileChange.status,
-                SQLFileChange.summary,
                 SQLCommit.message.label("commit_message"),
                 SQLCommit.author.label("commit_author"),
                 SQLCommit.time.label("commit_time"),
-                hunk_context_similarity.label("similarity"),
+                SQLDiffHunk.semantic_embedding.cosine_distance(query_embedding).label(
+                    "similarity"
+                ),
             )
             .join(SQLCommit, SQLDiffHunk.commit_sha == SQLCommit.sha)
             .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
             .where(
+                SQLCommit.repo_path == repo_path,
                 SQLDiffHunk.commit_sha.in_(context_shas),
-                or_(
-                    SQLDiffHunk.embedding.isnot(None),
-                    SQLDiffHunk.diff_embedding.isnot(None),
-                ),
+                SQLDiffHunk.semantic_embedding.isnot(None),
             )
+            .filter(file_exclusion_filter)
         )
-
         hunk_results = self.session.execute(hunk_query).mappings().all()
-
         for row in hunk_results:
-            file_path = row["new_path"] if row["new_path"] else row["old_path"]
+            file_path = row["new_path"] or row["old_path"]
             lines_info = f"{row['old_lines']}/{row['new_lines']} lines"
-
+            preview = (row["content"] or "")[:200]
             context_items.append(
                 {
                     "type": "diff_hunk",
+                    "sha": row["commit_sha"],
+                    "message": row["commit_message"] or "",
                     "similarity": float(row["similarity"]),
-                    "content": f"{lines_info} in {file_path} (commit {row['commit_sha'][:8]} by {row['commit_author']} on {row['commit_time']}):\n```\n{row['content'][:200]}...\n``` \n Summary: {row['summary']} \n\n",
+                    "content": (
+                        f"{lines_info} in {file_path} (commit {row['commit_sha'][:8]} by "
+                        f"{row['commit_author']} on {row['commit_time']}):\n"
+                        f"```\n{preview}...\n```\n"
+                        f"Summary: {row['summary']}\n\n"
+                    ),
                 }
             )
-            # Add commit SHA if not already in cited_commits
-            if row["commit_sha"] not in cited_commits:
-                cited_commits.append(row["commit_sha"])
 
-            # Sort by similarity (lower distance = more similar = higher score)
-            context_items.sort(key=lambda x: x["similarity"])
+        if not context_items:
+            return self._build_fallback_context(repo_path, context_shas)
 
-            # Take top 5 most relevant items
-            top_context = context_items[:5]
+        context_items.sort(key=lambda item: item["similarity"])
+        top_context = context_items[:5]
 
-            # Build context using list comprehension + join (O(n) instead of O(n²))
-            context_lines = [
-                "## Relevant Context:\n",
-                *[
-                    f"### {i}. {item['type'].title()} (similarity: {1 - item['similarity']:.3f})\n"
-                    f"{item['content']}\n"
-                    for i, item in enumerate(top_context, 1)
-                ],
-            ]
-
-            # Collect all cited commits with their similarity scores and messages
-            cited_commits_with_scores = []
-
-            # Add commits with their similarity scores
-            for item in top_context:
-                if item["type"] == "commit":
-                    # Extract commit SHA from content (format: "Commit {sha[:8]} by...")
-                    content_lines = item["content"].split("\n")
-                    first_line = content_lines[0]
-                    if "Commit " in first_line:
-                        sha_part = first_line.split("Commit ")[1].split(" by")[0]
-                        # Find full SHA from context_shas
-                        for full_sha in context_shas:
-                            if full_sha.startswith(sha_part):
-                                # Extract commit message from content
-                                # Format: "Commit {sha} by {author} on {time}: {message}"
-                                commit_message = ""
-                                if " by " in first_line and ": " in first_line:
-                                    commit_message = (
-                                        first_line.split(": ", 1)[1]
-                                        if ": " in first_line
-                                        else ""
-                                    )
-
-                                cited_commits_with_scores.append(
-                                    {
-                                        "sha": full_sha,
-                                        "similarity": 1 - item["similarity"],
-                                        "message": commit_message,
-                                    }
-                                )
-                                break
-                elif item["type"] in ["file_change", "diff_hunk"]:
-                    # Extract commit SHA from content (format: "...in commit {sha[:8]} by...")
-                    content_lines = item["content"].split("\n")
-                    for line in content_lines:
-                        if "in commit " in line:
-                            sha_part = line.split("in commit ")[1].split(" by")[0]
-                            # Find full SHA from context_shas
-                            for full_sha in context_shas:
-                                if full_sha.startswith(sha_part):
-                                    # Extract commit message from line
-                                    commit_message = ""
-                                    if " by " in line and ": " in line:
-                                        commit_message = (
-                                            line.split(": ", 1)[1]
-                                            if ": " in line
-                                            else ""
-                                        )
-
-                                    cited_commits_with_scores.append(
-                                        {
-                                            "sha": full_sha,
-                                            "similarity": 1 - item["similarity"],
-                                            "message": commit_message,
-                                        }
-                                    )
-                                    break
-                            break
-
-            # Remove duplicates while preserving order and similarity scores
-            seen_shas = set()
-            unique_cited_commits = []
-            for commit in cited_commits_with_scores:
-                if commit["sha"] not in seen_shas:
-                    seen_shas.add(commit["sha"])
-                    unique_cited_commits.append(commit)
-
-            # Sort by similarity (highest first) and take top 5
-            unique_cited_commits.sort(key=lambda x: x["similarity"], reverse=True)
-
-            # Apply similarity threshold (only include commits with similarity > 0.3)
-            # This ensures we only show highly relevant citations
-            threshold = 0.3
-            filtered_commits = [
-                commit
-                for commit in unique_cited_commits
-                if commit["similarity"] > threshold
-            ]
-
-            logger.info(
-                f"Filtered {len(unique_cited_commits)} commits to {len(filtered_commits)} based on similarity threshold {threshold}"
+        context_lines = ["## Relevant Context:\n"]
+        for index, item in enumerate(top_context, 1):
+            context_lines.append(
+                f"### {index}. {item['type'].title()} (similarity: {1 - item['similarity']:.3f})\n"
+                f"{item['content']}\n"
             )
 
-            # Take top 5 most similar commits
-            top_cited_commits = filtered_commits[:5]
+        cited_by_sha: dict[str, dict[str, Any]] = {}
+        threshold = 0.3
+        for item in top_context:
+            similarity_score = 1 - item["similarity"]
+            if similarity_score <= threshold:
+                continue
+            existing = cited_by_sha.get(item["sha"])
+            if existing is None or similarity_score > existing["similarity"]:
+                cited_by_sha[item["sha"]] = {
+                    "sha": item["sha"],
+                    "similarity": similarity_score,
+                    "message": item["message"],
+                }
 
-            context = "".join(context_lines)
-            return context, top_cited_commits
+        cited_commits = sorted(
+            cited_by_sha.values(),
+            key=lambda item: item["similarity"],
+            reverse=True,
+        )[:5]
+
+        logger.info(
+            "Selected %s cited commits for repo-scoped chat context",
+            len(cited_commits),
+        )
+
+        return "".join(context_lines), cited_commits
 
     def _debug_print_top_matches(
         self, shas_cte, query_embedding, top_k: int = 15
     ) -> None:
-        """Print top-k semantic matches for commits, file changes, and hunks."""
         try:
-            # Top commits
-            commit_sim = SQLCommit.embedding.cosine_distance(query_embedding).label(
-                "similarity"
-            )
+            commit_sim = SQLCommit.semantic_embedding.cosine_distance(query_embedding)
             top_commits_stmt = (
-                select(SQLCommit.sha, SQLCommit.message, commit_sim)
+                select(SQLCommit.sha, SQLCommit.message, commit_sim.label("similarity"))
                 .join(shas_cte, SQLCommit.sha == shas_cte.c.sha)
+                .filter(SQLCommit.semantic_embedding.isnot(None))
                 .order_by(commit_sim)
                 .limit(top_k)
             )
@@ -600,8 +555,7 @@ class Retriever:
                         f"  {i}. type=commit sha={row.sha} sim={row.similarity:.5f} msg={row.message[:80] if row.message else ''}"
                     )
 
-            # Top file changes
-            fc_sim = SQLFileChange.embedding.cosine_distance(query_embedding)
+            fc_sim = SQLFileChange.semantic_embedding.cosine_distance(query_embedding)
             top_fc_stmt = (
                 select(
                     SQLFileChange.commit_sha,
@@ -611,7 +565,7 @@ class Retriever:
                     fc_sim.label("similarity"),
                 )
                 .join(shas_cte, SQLFileChange.commit_sha == shas_cte.c.sha)
-                .filter(SQLFileChange.embedding.isnot(None))
+                .filter(SQLFileChange.semantic_embedding.isnot(None))
                 .order_by(fc_sim)
                 .limit(top_k)
             )
@@ -630,34 +584,19 @@ class Retriever:
                         )
                     )
 
-            # Top hunks
-            hunk_similarity = case(
-                (
-                    (SQLDiffHunk.embedding.isnot(None))
-                    & (SQLDiffHunk.diff_embedding.isnot(None)),
-                    func.least(
-                        SQLDiffHunk.embedding.cosine_distance(query_embedding),
-                        SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
-                    ),
-                ),
-                (
-                    SQLDiffHunk.embedding.isnot(None),
-                    SQLDiffHunk.embedding.cosine_distance(query_embedding),
-                ),
-                else_=SQLDiffHunk.diff_embedding.cosine_distance(query_embedding),
-            )
-
+            hunk_sim = SQLDiffHunk.semantic_embedding.cosine_distance(query_embedding)
             top_hunk_stmt = (
                 select(
                     SQLDiffHunk.commit_sha,
                     SQLDiffHunk.id.label("hunk_id"),
                     SQLFileChange.new_path,
                     SQLFileChange.old_path,
-                    hunk_similarity.label("similarity"),
+                    hunk_sim.label("similarity"),
                 )
                 .join(shas_cte, SQLDiffHunk.commit_sha == shas_cte.c.sha)
                 .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
-                .order_by(hunk_similarity)
+                .filter(SQLDiffHunk.semantic_embedding.isnot(None))
+                .order_by(hunk_sim)
                 .limit(top_k)
             )
             top_hunks = self.session.execute(top_hunk_stmt).all()
@@ -668,5 +607,5 @@ class Retriever:
                     print(
                         f"  {i}. type=hunk sha={row.commit_sha} hunk_id={row.hunk_id} sim={row.similarity:.5f} path={file_path}"
                     )
-        except Exception as e:
-            print(f"Similarity debug listing failed: {e}")
+        except Exception as error:  # pragma: no cover - debug helper
+            print(f"Similarity debug listing failed: {error}")

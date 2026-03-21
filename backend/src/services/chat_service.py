@@ -10,7 +10,7 @@ class ChatService:
 
     def chat(self, request: ChatbotRequest) -> ChatbotResponse:
         context, cited_commits_with_scores = self.retriever.get_context_with_citations(
-            request.query, request.context_shas
+            request.query, request.repo_path, request.context_shas
         )
         response = self.ai.answer_question(request.query, context)
         cited_commits = [

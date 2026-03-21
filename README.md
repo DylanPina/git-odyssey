@@ -8,7 +8,7 @@ GitOdyssey is now a desktop-first, fully local codebase analysis app. The React 
 
 - Browser deployment, hosted auth, and cloud infrastructure settings have been removed.
 - GitHub OAuth, GitHub App setup, cookies, and session secrets are no longer part of the runtime model.
-- Desktop users provide an OpenAI API key during first-run setup, and that secret is stored locally in the macOS Keychain.
+- Desktop users configure AI providers during first-run setup, and provider secrets are stored locally in the macOS Keychain.
 - The desktop shell owns renderer loading, backend startup, health checks, and local configuration.
 - Repositories are opened directly from local disk with a Git Project picker and recent-project shortcuts.
 
@@ -53,9 +53,10 @@ npm run desktop:dev
 
 On first launch, GitOdyssey will prompt for:
 
-- an OpenAI API key
+- a text-generation provider and model
+- an embeddings provider and model, or an explicit text-only mode
 
-That credential is stored in the macOS Keychain. The Electron shell injects it into the local FastAPI sidecar at runtime.
+Provider secrets are stored in the macOS Keychain. The Electron shell passes the structured AI runtime config and resolved secrets to the local FastAPI sidecar at runtime.
 
 ## Optional Backend Overrides
 
@@ -70,9 +71,8 @@ The desktop-oriented example supports:
 ```env
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey
 DATABASE_SSLMODE=disable
-OPENAI_API_KEY=your-openai-api-key
-OPENAI_TEXT_MODEL=gpt-5.4-mini
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+AI_RUNTIME_CONFIG_JSON={"schema_version":1,"profiles":[{"id":"openai-default","provider_type":"openai","label":"OpenAI","base_url":"https://api.openai.com","auth_mode":"bearer","api_key_secret_ref":"provider:openai-default:api-key","supports_text_generation":true,"supports_embeddings":true}],"capabilities":{"text_generation":{"provider_profile_id":"openai-default","model_id":"gpt-5.4-mini","temperature":0.2},"embeddings":{"provider_profile_id":"openai-default","model_id":"text-embedding-3-small"}}}
+AI_SECRET_VALUES_JSON={"provider:openai-default:api-key":"your-openai-api-key"}
 ```
 
 ## Useful Commands

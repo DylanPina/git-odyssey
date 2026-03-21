@@ -17,6 +17,7 @@ export interface RepoResponse {
   repo_path: string;
   commits: Commit[];
   branches: Branch[];
+  reindex_required: boolean;
 }
 
 export interface FilterRequest {
@@ -32,6 +33,7 @@ export interface FilterResponse {
 
 export interface ChatRequest {
   query: string;
+  repo_path: string;
   context_shas: string[];
 }
 

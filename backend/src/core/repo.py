@@ -122,7 +122,7 @@ class Repo:
                 time=commit.time,
                 message=commit.message,
                 summary=commit.summary,
-                embedding=commit.embedding,
+                semantic_embedding=commit.semantic_embedding,
                 repo_path=self.repo_path,
             )
 
@@ -137,7 +137,7 @@ class Repo:
                     new_path=file_change.new_path,
                     status=file_change.status.value,
                     summary=file_change.summary,
-                    embedding=file_change.embedding,
+                    semantic_embedding=file_change.semantic_embedding,
                     commit_sha=commit.sha,
                 )
 
@@ -166,8 +166,7 @@ class Repo:
                         new_lines=hunk.new_lines,
                         content=hunk.content,
                         summary=hunk.summary,
-                        embedding=hunk.embedding,
-                        diff_embedding=hunk.diff_embedding,
+                        semantic_embedding=hunk.semantic_embedding,
                         commit_sha=commit.sha,
                     )
                     sql_hunks.append(sql_hunk)

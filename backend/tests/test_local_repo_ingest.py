@@ -2,10 +2,10 @@ import os
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from core.repo import DETACHED_HEAD_BRANCH_NAME, Repo
-from infrastructure.settings import Settings
 from services.ingest_service import IngestService
 
 
@@ -53,11 +53,7 @@ class LocalRepoIngestTests(unittest.TestCase):
     def build_service(self) -> IngestService:
         return IngestService(
             session=Mock(),
-            embedder=Mock(),
-            settings=Settings(
-                database_url="postgresql://user:pass@localhost:5432/gitodyssey",
-                database_sslmode="disable",
-            ),
+            embedder=None,
         )
 
     def test_resolve_repo_path_walks_up_from_nested_directory(self) -> None:
@@ -71,7 +67,9 @@ class LocalRepoIngestTests(unittest.TestCase):
     def test_should_reindex_is_false_when_branch_heads_are_unchanged(self) -> None:
         service = self.build_service()
         _, branch_heads = Repo.get_branch_heads(self.repo_dir)
-        service._repo_exists = Mock(return_value=True)
+        service._get_repo_row = Mock(
+            return_value=SimpleNamespace(embedding_profile=None, reindex_required=False)
+        )
         service._get_stored_branch_heads = Mock(return_value=branch_heads)
 
         should_reindex = service.should_reindex(self.repo_dir)
@@ -82,7 +80,9 @@ class LocalRepoIngestTests(unittest.TestCase):
         service = self.build_service()
         _, stored_branch_heads = Repo.get_branch_heads(self.repo_dir)
         create_commit(self.repo_dir, "README.md", "hello again\n", "Update readme")
-        service._repo_exists = Mock(return_value=True)
+        service._get_repo_row = Mock(
+            return_value=SimpleNamespace(embedding_profile=None, reindex_required=False)
+        )
         service._get_stored_branch_heads = Mock(return_value=stored_branch_heads)
 
         should_reindex = service.should_reindex(self.repo_dir)

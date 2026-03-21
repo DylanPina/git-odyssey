@@ -29,8 +29,9 @@ contextBridge.exposeInMainWorld("gitOdysseyDesktop", {
   },
   settings: {
     getStatus: () => invoke("git-odyssey:settings:get-status"),
-    saveCredentials: (input) =>
-      invoke("git-odyssey:settings:save-credentials", input),
+    validateAiConfig: (input) =>
+      invoke("git-odyssey:settings:validate-ai-config", input),
+    saveAiConfig: (input) => invoke("git-odyssey:settings:save-ai-config", input),
   },
   health: {
     getStatus: () => invoke("git-odyssey:health:get-status"),

@@ -1,4 +1,4 @@
-from openai import OpenAI
+from infrastructure.ai_clients import ResponsesTextClient
 
 from utils.prompts import (
     build_question_prompt,
@@ -13,7 +13,7 @@ from data.data_model import DiffHunk, FileChange, Commit
 class AIEngine:
     def __init__(
         self,
-        client: OpenAI,
+        client: ResponsesTextClient,
         model: str = "gpt-5.4-mini",
         temperature: float = 0.2,
     ):
@@ -22,25 +22,12 @@ class AIEngine:
         self.temperature = temperature
 
     def _invoke(self, instructions: str, input_text: str) -> str:
-        response = self.client.responses.create(
+        return self.client.generate(
             model=self.model,
             temperature=self.temperature,
             instructions=instructions,
-            input=input_text,
+            input_text=input_text,
         )
-        output_text = getattr(response, "output_text", None)
-        if output_text:
-            return output_text.strip()
-
-        for item in getattr(response, "output", []) or []:
-            if getattr(item, "type", None) != "message":
-                continue
-            for content in getattr(item, "content", []) or []:
-                text = getattr(content, "text", None)
-                if getattr(content, "type", None) == "output_text" and text:
-                    return text.strip()
-
-        raise ValueError("OpenAI response did not include text output")
 
     def answer_question(self, question: str, context: str) -> str:
         instructions, input_text = build_question_prompt(question, context)

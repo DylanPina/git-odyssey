@@ -156,7 +156,7 @@ export const useChat = ({
 			const contextShas = filteredCommits.map((commit) => commit.sha);
 
 			try {
-				const response = await sendChatMessage(message, contextShas);
+				const response = await sendChatMessage(message, repoPath, contextShas);
 				const citedCommits = response.cited_commits || [];
 				console.log("Full API response:", response);
 				console.log("Cited commits raw data:", citedCommits);

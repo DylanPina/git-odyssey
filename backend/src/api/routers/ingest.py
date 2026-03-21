@@ -1,6 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from openai import AuthenticationError as OpenAIAuthenticationError
-from openai import APIStatusError as OpenAIAPIStatusError
 from api.api_model import IngestRequest, RepoResponse
 from services.ingest_service import IngestService
 from services.repo_service import RepoService
@@ -43,8 +41,6 @@ async def ingest(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except HTTPException:
-        raise
-    except (OpenAIAuthenticationError, OpenAIAPIStatusError):
         raise
     except Exception as e:
         raise HTTPException(

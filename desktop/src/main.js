@@ -41,7 +41,9 @@ function getRendererEntry() {
 }
 
 async function getSettingsStatus() {
-  const secretStatus = await keychain.getCredentialStatus();
+  const secretStatus = await keychain.getCredentialStatus(
+    configStore.getState().aiRuntimeConfig
+  );
   return configStore.getStatus(secretStatus);
 }
 
@@ -82,9 +84,26 @@ function registerIpcHandlers() {
     return getSettingsStatus();
   });
 
-  ipcMain.handle("git-odyssey:settings:save-credentials", async (_event, input) => {
-    await keychain.saveCredentials(input);
-    configStore.save({ firstRunCompleted: true });
+  ipcMain.handle("git-odyssey:settings:validate-ai-config", async (_event, input) => {
+    const savedSecrets = await keychain.getSecrets(input.config);
+    return backendManager.request("/api/desktop/validate-ai-config", {
+      method: "POST",
+      body: {
+        config: input.config,
+        secret_values: {
+          ...savedSecrets,
+          ...input.secretValues,
+        },
+      },
+    });
+  });
+
+  ipcMain.handle("git-odyssey:settings:save-ai-config", async (_event, input) => {
+    await keychain.saveAiConfig(input);
+    configStore.save({
+      firstRunCompleted: true,
+      aiRuntimeConfig: input.config,
+    });
     await backendManager.restart();
     return getSettingsStatus();
   });
@@ -166,6 +185,7 @@ function registerIpcHandlers() {
       method: "POST",
       body: {
         query: input.query,
+        repo_path: input.repoPath,
         context_shas: input.contextShas,
       },
     });
@@ -218,6 +238,14 @@ app.whenReady().then(async () => {
     userDataPath: app.getPath("userData"),
   });
   keychain = new MacKeychainStore({ serviceName: APP_NAME });
+  try {
+    await keychain.migrateLegacySecrets(configStore.getState().aiRuntimeConfig);
+  } catch (error) {
+    console.warn(
+      "Failed to migrate legacy desktop AI secrets:",
+      error instanceof Error ? error.message : error
+    );
+  }
   backendManager = new BackendManager({
     app,
     configStore,

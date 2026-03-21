@@ -1,11 +1,17 @@
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from openai import AuthenticationError as OpenAIAuthenticationError
-from openai import APIStatusError as OpenAIAPIStatusError
 import infrastructure.db as db
 from infrastructure.db import init_db, close_db
-from infrastructure.errors import MissingConfigurationError
+from infrastructure.errors import (
+    AIAuthenticationError,
+    AIConfigurationError,
+    AIConnectionError,
+    AIModelError,
+    AIRequestError,
+    AIUnsupportedCapabilityError,
+)
+from infrastructure.migrations import run_migrations
 from infrastructure.schema import init_schema
 from contextlib import asynccontextmanager
 from api.dependencies import get_settings
@@ -19,6 +25,7 @@ async def lifespan(app: FastAPI):
     with db.engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     init_schema()
+    run_migrations(settings)
     yield
     close_db()
 
@@ -27,12 +34,12 @@ def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     get_settings()
 
-    @app.exception_handler(OpenAIAuthenticationError)
-    async def handle_openai_auth_error(
-        request: Request, exc: OpenAIAuthenticationError
+    @app.exception_handler(AIAuthenticationError)
+    async def handle_ai_auth_error(
+        request: Request, exc: AIAuthenticationError
     ) -> JSONResponse:
         logger.error(
-            "OpenAI authentication failed for %s %s",
+            "AI provider authentication failed for %s %s",
             request.method,
             request.url.path,
         )
@@ -40,40 +47,74 @@ def create_app() -> FastAPI:
             status_code=502,
             content={
                 "detail": (
-                    "OpenAI API key is invalid or unauthorized. Update the "
-                    "saved desktop OpenAI API key and restart GitOdyssey."
+                    "AI provider authentication failed. Update the configured "
+                    "provider credentials in desktop settings."
                 )
             },
         )
 
-    @app.exception_handler(OpenAIAPIStatusError)
-    async def handle_openai_status_error(
-        request: Request, exc: OpenAIAPIStatusError
+    @app.exception_handler(AIConnectionError)
+    async def handle_ai_connection_error(
+        request: Request, exc: AIConnectionError
     ) -> JSONResponse:
         logger.error(
-            "OpenAI request failed for %s %s with status %s",
+            "AI provider connection failed for %s %s: %s",
             request.method,
             request.url.path,
-            exc.status_code,
+            exc,
         )
         return JSONResponse(
             status_code=502,
-            content={
-                "detail": f"OpenAI request failed with status {exc.status_code}."
-            },
+            content={"detail": str(exc)},
         )
 
-    @app.exception_handler(MissingConfigurationError)
-    async def handle_missing_configuration(
-        request: Request, exc: MissingConfigurationError
+    @app.exception_handler(AIConfigurationError)
+    async def handle_ai_configuration_error(
+        request: Request, exc: AIConfigurationError
     ) -> JSONResponse:
         logger.error(
-            "Missing runtime configuration for %s %s: %s",
+            "Invalid AI configuration for %s %s: %s",
             request.method,
             request.url.path,
             exc,
         )
         return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+    @app.exception_handler(AIModelError)
+    async def handle_ai_model_error(
+        request: Request, exc: AIModelError
+    ) -> JSONResponse:
+        logger.error(
+            "AI model request failed for %s %s: %s",
+            request.method,
+            request.url.path,
+            exc,
+        )
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(AIUnsupportedCapabilityError)
+    async def handle_ai_capability_error(
+        request: Request, exc: AIUnsupportedCapabilityError
+    ) -> JSONResponse:
+        logger.error(
+            "AI capability request failed for %s %s: %s",
+            request.method,
+            request.url.path,
+            exc,
+        )
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(AIRequestError)
+    async def handle_ai_request_error(
+        request: Request, exc: AIRequestError
+    ) -> JSONResponse:
+        logger.error(
+            "AI provider request failed for %s %s: %s",
+            request.method,
+            request.url.path,
+            exc,
+        )
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
 
     from api.routers.ingest import router as ingest_router
     from api.routers.auth import router as auth_router
