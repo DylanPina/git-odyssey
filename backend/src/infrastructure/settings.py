@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
 
     database_url: str
+    database_sslmode: str = "require"
     frontend_url: str
     secret_key: str
     github_client_id: str

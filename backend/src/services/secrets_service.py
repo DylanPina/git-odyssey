@@ -86,9 +86,8 @@ class SecretsService:
         """
 
         for suffix, env_name in self.secret_map.items():
-            existing_value = os.getenv(env_name)
-            if existing_value and not force:
-                self._loaded_values[env_name] = existing_value
+            if env_name in os.environ and not force:
+                self._loaded_values[env_name] = os.environ[env_name]
                 continue
 
             secret_id = self._build_secret_id(suffix)

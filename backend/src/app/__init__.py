@@ -10,7 +10,8 @@ from services.secrets_service import get_secrets_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db(get_settings().database_url)
+    settings = get_settings()
+    init_db(settings.database_url, settings.database_sslmode)
     yield
     close_db()
 
@@ -19,9 +20,12 @@ def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     get_secrets_service().load()
     settings = get_settings()
+    allowed_origins = [
+        origin.strip() for origin in settings.frontend_url.split(",") if origin.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.frontend_url,
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -6,6 +6,80 @@ Feel free to watch the demo video below for a quick overview.
 
 [![Watch the Demo](https://img.youtube.com/vi/DYcpnQevTuk/0.jpg)](https://youtu.be/DYcpnQevTuk)
 
+## Local Setup
+
+### Prerequisites
+
+- Docker and Docker Compose
+- GitHub OAuth and GitHub App credentials
+- OpenAI and Google AI API keys
+
+### 1. Create the local env files
+
+Copy the tracked example files:
+
+```bash
+cp backend/src/.env.example backend/src/.env
+cp frontend/.env.example frontend/.env
+```
+
+The local defaults already point the app at the Dockerized services:
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@db:5432/gitodyssey
+DATABASE_SSLMODE=disable
+FRONTEND_URL=http://localhost:5173
+API_URL=http://localhost:8000/api
+```
+
+Fill in the placeholder values in `backend/src/.env` for:
+
+- `SECRET_KEY`
+- `GITHUB_CLIENT_ID`
+- `GITHUB_CLIENT_SECRET`
+- `GITHUB_WEBHOOK_SECRET`
+- `GITHUB_APP_ID`
+- `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_APP_NAME`
+- `OPENAI_API_KEY`
+- `GOOGLE_API_KEY`
+
+The backend still prefers environment variables over AWS Secrets Manager values, so you can optionally use AWS credentials plus `SECRETS_PREFIX` instead of storing all secrets locally.
+
+### 2. Start the stack
+
+From the repo root, run:
+
+```bash
+docker compose up
+```
+
+This starts:
+
+- PostgreSQL + pgvector on `localhost:5432`
+- the one-shot schema bootstrapper
+- the FastAPI backend on `http://localhost:8000`
+- the Vite frontend on `http://localhost:5173`
+
+Both app containers use bind mounts for hot reload, so backend and frontend changes should be picked up without rebuilding the whole stack.
+
+### 3. Common commands
+
+```bash
+docker compose down
+docker compose down -v
+docker compose logs -f backend
+docker compose up --build
+```
+
+Use `docker compose down -v` when you want to remove the local Postgres volume and start from a clean database.
+
+### 4. Configure GitHub auth for local development
+
+- Set your GitHub OAuth callback URL to `http://localhost:8000/api/auth/callback`
+- Make sure the GitHub App identified by `GITHUB_APP_NAME` is installed on any repositories you want to ingest
+- If you test webhooks locally, point GitHub to `http://localhost:8000/api/webhook`
+
 ## Contributors
 
 This project was created by the **GitOdyssey Team**:
