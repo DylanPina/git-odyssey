@@ -1,13 +1,16 @@
 import { useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { LoadingOverlay } from "@/components/ui/custom/LoadingOverlay";
 import { useCommitDetails } from "@/hooks/useCommitDetails";
 import { CommitToolbar } from "@/components/ui/custom/CommitToolbar";
 import { CommitFilePanel } from "@/components/ui/custom/CommitFilePanel";
+import { buildRepoRoute, readRepoPathFromSearchParams } from "@/lib/repoPaths";
 
 export function Commit() {
-	const { owner, repo_name, commitSha } = useParams();
+	const { commitSha } = useParams();
 	const navigate = useNavigate();
+	const [searchParams] = useSearchParams();
+	const repoPath = readRepoPathFromSearchParams(searchParams);
 
 	const shortSha = useMemo(
 		() => (commitSha ? commitSha.slice(0, 8) : ""),
@@ -28,7 +31,8 @@ export function Commit() {
 		setHunkSummaryOpen,
 		handleSummarizeFile,
 		handleSummarizeHunk,
-	} = useCommitDetails({ owner, repoName: repo_name, commitSha });
+	} = useCommitDetails({ repoPath, commitSha });
+	const pageError = !repoPath ? "No Git project path was provided." : error;
 
 	const collapseAll = () => {
 		setExpanded((prev) => {
@@ -59,8 +63,7 @@ export function Commit() {
 					return (
 						<CommitFilePanel
 							key={`${targetCommit.sha}-${labelPath}`}
-							owner={owner}
-							repoName={repo_name}
+							repoPath={repoPath}
 							commit={targetCommit}
 							fileChange={fc}
 							isExpanded={isExpanded}
@@ -98,16 +101,15 @@ export function Commit() {
 	return (
 		<div className="w-screen h-screen relative p-4 overflow-auto">
 			<CommitToolbar
-				owner={owner}
-				repoName={repo_name}
+				repoPath={repoPath}
 				shortSha={shortSha}
-				onExit={() => navigate(`/repo/${owner}/${repo_name}`)}
+				onExit={() => navigate(repoPath ? buildRepoRoute(repoPath) : "/")}
 				onCollapseAll={collapseAll}
 			/>
 
 			<LoadingOverlay isVisible={Boolean(isLoading)} />
-			{error && <div className="text-red-400">{error}</div>}
-			{!isLoading && !error && renderDiffEditors()}
+			{pageError && <div className="text-red-400">{pageError}</div>}
+			{!isLoading && !pageError && renderDiffEditors()}
 		</div>
 	);
 }

@@ -8,13 +8,14 @@ import {
   ContextMenuContent,
   ContextMenuItem,
 } from "@/components/ui/context-menu";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { summarizeCommit } from "@/api/api";
 import Lottie from "lottie-react";
 import aiIcon from "@/assets/ai-icon.json";
 import { Loader2, Sparkles, Copy } from "lucide-react";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
+import { buildCommitRoute, readRepoPathFromSearchParams } from "@/lib/repoPaths";
 
 function CommitNode(props: {
   data: {
@@ -31,6 +32,8 @@ function CommitNode(props: {
   const selected = props.selected;
   const [isSummarizing, setIsSummarizing] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const repoPath = readRepoPathFromSearchParams(searchParams);
 
   // Calculate dynamic text size based on message length
   const getMessageStyles = useCallback(() => {
@@ -126,9 +129,11 @@ function CommitNode(props: {
   }, [summary, copyToClipboard]);
 
   const handleOpenCommitDiff = useCallback(() => {
-    // Navigate relative to current repo route
-    navigate(`commit/${sha}`);
-  }, [navigate, sha]);
+    if (!repoPath) {
+      return;
+    }
+    navigate(buildCommitRoute(repoPath, sha));
+  }, [navigate, repoPath, sha]);
 
   return (
     <>

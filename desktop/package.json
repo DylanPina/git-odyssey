@@ -1,0 +1,45 @@
+{
+  "name": "git-odyssey-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "main": "src/main.js",
+  "scripts": {
+    "dev:renderer": "npm --prefix ../frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:desktop": "cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 ELECTRON_DEV=1 electron .",
+    "dev": "concurrently -k -n renderer,desktop -c cyan,green \"npm:dev:renderer\" \"wait-on tcp:5173 && npm run dev:desktop\"",
+    "build": "npm --prefix ../frontend run build && electron-builder",
+    "smoke": "node ./scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^37.4.0",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.gitodyssey.desktop",
+    "productName": "GitOdyssey",
+    "files": [
+      "src/**/*",
+      "scripts/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.developer-tools"
+    }
+  }
+}

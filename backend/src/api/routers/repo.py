@@ -1,51 +1,116 @@
 from fastapi import APIRouter, Depends, HTTPException
-from api.dependencies import get_repo_service
-from services.repo_service import RepoService
-from api.api_model import RepoResponse, CommitResponse, CommitsResponse
 
+from api.api_model import CommitResponse, CommitsResponse, IngestRequest, RepoResponse
+from api.dependencies import get_current_user, get_ingest_service, get_repo_service
+from data.data_model import User
+from services.ingest_service import IngestService
+from services.repo_service import RepoService
+
+DEFAULT_MAX_COMMITS = 50
+DEFAULT_CONTEXT_LINES = 3
 
 router = APIRouter()
 
 
-@router.get("/{repo_owner}/{repo_name}", response_model=RepoResponse)
-def get_repo(
-    repo_owner: str,
-    repo_name: str,
+async def ensure_fresh_repo_index(
+    repo_path: str,
+    current_user: User,
+    ingest_service: IngestService,
+    repo_service: RepoService,
+) -> str:
+    normalized_repo_path = ingest_service.resolve_repo_path(repo_path)
+    if not repo_service.has_repo(normalized_repo_path):
+        await ingest_service.ingest_repo(
+            IngestRequest(
+                repo_path=normalized_repo_path,
+                max_commits=DEFAULT_MAX_COMMITS,
+                context_lines=DEFAULT_CONTEXT_LINES,
+                force=False,
+            ),
+            current_user.id,
+        )
+    elif ingest_service.should_reindex(normalized_repo_path):
+        await ingest_service.ingest_repo(
+            IngestRequest(
+                repo_path=normalized_repo_path,
+                max_commits=DEFAULT_MAX_COMMITS,
+                context_lines=DEFAULT_CONTEXT_LINES,
+                force=True,
+            ),
+            current_user.id,
+        )
+
+    return normalized_repo_path
+
+
+@router.get("", response_model=RepoResponse)
+async def get_repo(
+    repo_path: str,
+    current_user: User = Depends(get_current_user),
+    ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
 ):
     try:
-        result = repo_service.get_repo(f"https://github.com/{repo_owner}/{repo_name}")
-        if not result.branches and not result.commits:
+        normalized_repo_path = await ensure_fresh_repo_index(
+            repo_path=repo_path,
+            current_user=current_user,
+            ingest_service=ingest_service,
+            repo_service=repo_service,
+        )
+        result = repo_service.get_repo(normalized_repo_path)
+        if result is None:
             raise HTTPException(status_code=404, detail="Repository not found")
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{repo_owner}/{repo_name}/commits", response_model=CommitsResponse)
-def get_commits(
-    repo_owner: str,
-    repo_name: str,
+@router.get("/commits", response_model=CommitsResponse)
+async def get_commits(
+    repo_path: str,
+    current_user: User = Depends(get_current_user),
+    ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
 ):
     try:
-        return repo_service.get_commits(f"https://github.com/{repo_owner}/{repo_name}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get(
-    "/{repo_owner}/{repo_name}/commit/{commit_sha}", response_model=CommitResponse
-)
-def get_commit(
-    repo_owner: str,
-    repo_name: str,
-    commit_sha: str,
-    repo_service: RepoService = Depends(get_repo_service),
-):
-    try:
-        return repo_service.get_commit(
-            f"https://github.com/{repo_owner}/{repo_name}", commit_sha
+        normalized_repo_path = await ensure_fresh_repo_index(
+            repo_path=repo_path,
+            current_user=current_user,
+            ingest_service=ingest_service,
+            repo_service=repo_service,
         )
+        return repo_service.get_commits(normalized_repo_path)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/commit/{commit_sha}", response_model=CommitResponse)
+async def get_commit(
+    repo_path: str,
+    commit_sha: str,
+    current_user: User = Depends(get_current_user),
+    ingest_service: IngestService = Depends(get_ingest_service),
+    repo_service: RepoService = Depends(get_repo_service),
+):
+    try:
+        normalized_repo_path = await ensure_fresh_repo_index(
+            repo_path=repo_path,
+            current_user=current_user,
+            ingest_service=ingest_service,
+            repo_service=repo_service,
+        )
+        return repo_service.get_commit(normalized_repo_path, commit_sha)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

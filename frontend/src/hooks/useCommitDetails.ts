@@ -3,8 +3,7 @@ import { getCommit, summarizeFileChange, summarizeHunk } from "@/api/api";
 import type { Commit, FileChange, FileHunk } from "@/lib/definitions/repo";
 
 type UseCommitDetailsArgs = {
-  owner?: string;
-  repoName?: string;
+  repoPath?: string | null;
   commitSha?: string;
 };
 
@@ -28,7 +27,10 @@ type UseCommitDetails = {
   handleSummarizeHunk: (hunk: FileHunk) => Promise<void>;
 };
 
-export function useCommitDetails({ owner, repoName, commitSha }: UseCommitDetailsArgs): UseCommitDetails {
+export function useCommitDetails({
+  repoPath,
+  commitSha,
+}: UseCommitDetailsArgs): UseCommitDetails {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [commit, setCommit] = useState<Commit | null>(null);
@@ -42,11 +44,15 @@ export function useCommitDetails({ owner, repoName, commitSha }: UseCommitDetail
 
   useEffect(() => {
     const load = async () => {
-      if (!owner || !repoName || !commitSha) return;
+      if (!repoPath || !commitSha) {
+        setCommit(null);
+        setError(null);
+        return;
+      }
       setIsLoading(true);
       setError(null);
       try {
-        const response = await getCommit(owner, repoName, commitSha);
+        const response = await getCommit(repoPath, commitSha);
         if (!response.commit) throw new Error("Commit not found");
         setCommit(response.commit);
       } catch (e) {
@@ -57,7 +63,7 @@ export function useCommitDetails({ owner, repoName, commitSha }: UseCommitDetail
       }
     };
     void load();
-  }, [owner, repoName, commitSha]);
+  }, [repoPath, commitSha]);
 
   // Initialize expanded per file
   useEffect(() => {
@@ -165,5 +171,3 @@ export function useCommitDetails({ owner, repoName, commitSha }: UseCommitDetail
 }
 
 export default useCommitDetails;
-
-

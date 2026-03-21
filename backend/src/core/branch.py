@@ -6,14 +6,31 @@ from typing import Optional
 
 
 class Branch:
-    def __init__(self, repo: pygit2.Repository, repo_url: str, name: str, all_commits: dict[str, Commit], context_lines: int = 3):
+    def __init__(
+        self,
+        repo: pygit2.Repository,
+        repo_path: str,
+        name: str,
+        all_commits: dict[str, Commit],
+        context_lines: int = 3,
+        max_commits: Optional[int] = None,
+        reference_name: Optional[str] = None,
+        target_oid: Optional[pygit2.Oid] = None,
+    ):
         self.repo = repo
-        self.repo_url = repo_url
+        self.repo_path = repo_path
         self.name = name
         self.all_commits = all_commits
         self.context_lines = context_lines
+        self.max_commits = max_commits
+        self.reference_name = reference_name
+        self.target_oid = target_oid
         self.commits = self._get_commit_shas()
-        self.head_commit = self.commits[0] if self.commits else ""
+        self.head_commit_sha = (
+            str(self.target_oid) if self.target_oid is not None else None
+        )
+        if self.head_commit_sha is None and self.commits:
+            self.head_commit_sha = self.commits[0]
 
     def _get_commit_shas(self) -> list[str]:
         """
@@ -24,11 +41,20 @@ class Branch:
             context_lines: Number of context lines to include in diffs
             max_commits: Maximum number of commits to process (None for unlimited)
         """
-        tip = self.repo.revparse_single(self.name)
-        walker = self.repo.walk(tip.id)
+        tip = self._resolve_tip()
+        if tip is None:
+            return []
+
+        walker = self.repo.walk(
+            tip.id,
+            pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
+        )
         commits: list[str] = []
 
         for commit in walker:
+            if self.max_commits is not None and len(commits) >= self.max_commits:
+                break
+
             if (sha := str(commit.id)) in self.all_commits:
                 commits.append(self.all_commits[sha].sha)
                 continue
@@ -116,7 +142,7 @@ class Branch:
 
             commit = Commit(
                 sha=sha,
-                repo_url=self.repo_url,
+                repo_path=self.repo_path,
                 parents=[str(parent.id) for parent in commit.parents],
                 author=author_name,
                 email=author_email,
@@ -128,6 +154,16 @@ class Branch:
             self.all_commits[sha] = commit
 
         return commits
+
+    def _resolve_tip(self) -> Optional[pygit2.Commit]:
+        try:
+            if self.target_oid is not None:
+                return self.repo[self.target_oid]
+            if self.reference_name:
+                return self.repo.revparse_single(self.reference_name)
+            return self.repo.revparse_single(self.name)
+        except Exception:
+            return None
 
     def _get_snapshot(self, tree: pygit2.Tree, path: str) -> Optional[str]:
         """Retrieves the snapshot of a file from a tree"""

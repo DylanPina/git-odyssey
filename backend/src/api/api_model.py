@@ -4,7 +4,7 @@ from data.data_model import Commit, Branch
 
 
 class RepoResponse(BaseModel):
-    repo_url: str
+    repo_path: str
     branches: List[Branch]
     commits: List[Commit]
 
@@ -12,7 +12,7 @@ class RepoResponse(BaseModel):
 class FilterRequest(BaseModel):
     query: str = ""
     filters: Dict[str, Any] = Field(default_factory=dict)
-    repo_url: str = ""
+    repo_path: str = ""
     max_results: int = 8
 
 
@@ -37,9 +37,10 @@ class ChatbotResponse(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    url: str = ""
-    max_commits: int = 3
+    repo_path: str = ""
+    max_commits: int = 50
     context_lines: int = 3
+    force: bool = False
 
 
 class CommitsResponse(BaseModel):
@@ -48,8 +49,3 @@ class CommitsResponse(BaseModel):
 
 class CommitResponse(BaseModel):
     commit: Commit = Field(default_factory=Commit)
-
-
-# TODO: Verify and add fields for graph update via GitHub webhook with GitHub API docs
-class GitHubPushRequest(BaseModel):
-    ref: str

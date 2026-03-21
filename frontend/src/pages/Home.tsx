@@ -6,14 +6,19 @@ import {
   Zap,
   Shield,
   Bot,
-  Github,
 } from "lucide-react";
-import { RepoInput } from "@/components/ui/custom/RepoInput";
-import { LoginButton } from "@/components/ui/custom/LoginButton";
+import { DesktopSetupCard } from "@/components/ui/custom/DesktopSetupCard";
+import { GitProjectPicker } from "@/components/ui/custom/GitProjectPicker";
 import { useAuth } from "@/hooks/useAuth";
 
 export function Home() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const {
+    isAuthenticated,
+    isLoading,
+    desktopSettingsStatus,
+    desktopHealth,
+    checkAuth,
+  } = useAuth();
 
   return (
     <>
@@ -24,7 +29,7 @@ export function Home() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 bg-white/10 backdrop-blur-sm rounded-full border border-white/20 mb-3 md:mb-4">
               <GitBranch className="w-3 h-3 md:w-4 md:h-4 text-blue-400" />
               <span className="text-xs md:text-sm text-white/80">
-                AI-Powered Git Repository Analysis
+                AI-Powered Local Git Analysis
               </span>
             </div>
           </div>
@@ -34,8 +39,7 @@ export function Home() {
           </h1>
 
           <p className="text-base md:text-lg lg:text-xl text-white/70 mb-6 md:mb-8 max-w-3xl mx-auto leading-relaxed px-4">
-            Explore your Git repositories with AI-powered insights. Understand
-            commits, analyze changes, and discover patterns.
+            Run GitOdyssey fully locally with a Git Project picker, desktop-managed credentials, and repository analysis that stays on your machine.
           </p>
 
           <div className="max-w-xl md:max-w-2xl mx-auto px-4">
@@ -44,9 +48,13 @@ export function Home() {
                 <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
               </div>
             ) : isAuthenticated ? (
-              <RepoInput />
+              <GitProjectPicker />
             ) : (
-              <LoginButton />
+              <DesktopSetupCard
+                desktopSettingsStatus={desktopSettingsStatus}
+                desktopHealth={desktopHealth}
+                onCredentialsSaved={checkAuth}
+              />
             )}
           </div>
         </div>
@@ -115,20 +123,11 @@ export function Home() {
         {/* Footer */}
         <footer className="mt-8 md:mt-12 pt-6 md:pt-8 border-t border-white/10">
           <div className="text-center">
-            <p className="text-sm text-white/50 mb-3">
+            <p className="text-sm text-white/50">
               Created by <span className="text-white/70">Dylan Pina</span>,{" "}
               <span className="text-white/70">William Sullivan</span>, and{" "}
               <span className="text-white/70">Pranav Senthilvel</span>
             </p>
-            <a
-              href="https://github.com/DylanPina/git-odyssey"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg text-white/70 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all duration-200"
-            >
-              <Github className="w-4 h-4" />
-              <span className="text-sm">View on GitHub</span>
-            </a>
           </div>
         </footer>
       </div>

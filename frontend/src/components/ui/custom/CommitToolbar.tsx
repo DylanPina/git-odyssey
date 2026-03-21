@@ -1,21 +1,22 @@
 import { Button } from "@/components/ui/button";
 import { ChevronRight, ChevronsDown, LogOut } from "lucide-react";
+import { getRepoDisplayName } from "@/lib/repoPaths";
 
 type CommitToolbarProps = {
-	owner?: string;
-	repoName?: string;
+	repoPath?: string | null;
 	shortSha?: string;
 	onExit?: () => void;
 	onCollapseAll?: () => void;
 };
 
 export function CommitToolbar({
-	owner,
-	repoName,
+	repoPath,
 	shortSha,
 	onExit,
 	onCollapseAll,
 }: CommitToolbarProps) {
+	const repoName = repoPath ? getRepoDisplayName(repoPath) : "Git Project";
+
 	return (
 		<>
 			<Button
@@ -37,12 +38,17 @@ export function CommitToolbar({
 
 			<div className="flex items-center gap-2 mb-4">
 				<span className="px-1.5 py-0.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded text-white/70 text-[10px]">
-					{owner}
+					Git Project
 				</span>
 				<ChevronRight className="w-2.5 h-2.5 text-white/50" />
 				<span className="px-1.5 py-0.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded text-white text-[10px] font-medium">
 					{repoName}
 				</span>
+				{repoPath && (
+					<span className="max-w-[24rem] truncate text-[10px] text-white/45">
+						{repoPath}
+					</span>
+				)}
 				<ChevronRight className="w-2.5 h-2.5 text-white/50" />
 				<span className="px-1.5 py-0.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded text-white text-[10px] font-medium">
 					{shortSha}

@@ -14,11 +14,8 @@ function App() {
 			<Routes>
 				<Route path="/" element={<Home />} />
 				<Route path="/index.html" element={<Navigate to="/" replace />} />
-				<Route path="/repo/:owner/:repo_name" element={<Repo />} />
-				<Route
-					path="/repo/:owner/:repo_name/commit/:commitSha"
-					element={<Commit />}
-				/>
+				<Route path="/repo" element={<Repo />} />
+				<Route path="/repo/commit/:commitSha" element={<Commit />} />
 			</Routes>
 			<ToastContainer
 				theme="dark"

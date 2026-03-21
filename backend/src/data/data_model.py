@@ -6,13 +6,8 @@ from datetime import datetime
 
 class User(BaseModel):
     id: int
-    github_id: int
     username: str
     email: Optional[str]
-    installation_id: Optional[str] = Field(
-        None,
-        description="Token generated on user creation - allows creation of installation tokens forever",
-    )
     api_credits_remaining: int = Field(
         default=100,
         description="Number of API credits remaining for the user",
@@ -113,7 +108,7 @@ class Commit(BaseModel):
 
     sha: str = Field(..., description="Full SHA hash of the commit")
 
-    repo_url: str = Field(..., description="URL of the repository")
+    repo_path: str = Field(..., description="Absolute path of the repository")
     parents: List[str] = Field(
         default_factory=list, description="SHAs of parent commits"
     )
@@ -137,7 +132,7 @@ class Branch(BaseModel):
 
     name: str = Field(..., description="Name of the branch")
 
-    repo_url: str = Field(..., description="URL of the repository")
+    repo_path: str = Field(..., description="Absolute path of the repository")
     commits: List[str] = Field(
         default_factory=list, description="List of commit SHAs in the branch"
     )

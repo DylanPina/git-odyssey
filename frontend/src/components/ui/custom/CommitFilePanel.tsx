@@ -6,12 +6,12 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
 import type { Commit, FileChange, FileHunk } from "@/lib/definitions/repo";
 import { formatHunkLabel, inferLanguage } from "@/lib/diff";
+import { buildMonacoModelUri } from "@/lib/repoPaths";
 
 type SummaryState = { loading: boolean; text?: string; error?: string };
 
 type CommitFilePanelProps = {
-	owner?: string;
-	repoName?: string;
+	repoPath?: string | null;
 	commit: Commit;
 	fileChange: FileChange;
 	isExpanded: boolean;
@@ -27,8 +27,7 @@ type CommitFilePanelProps = {
 };
 
 export function CommitFilePanel({
-	owner,
-	repoName,
+	repoPath,
 	commit,
 	fileChange,
 	isExpanded,
@@ -76,8 +75,18 @@ export function CommitFilePanel({
 	}
 
 	const labelPath = fileChange.new_path || "unknown";
-	const originalModelPath = `file://${owner}/${repoName}/${commit.sha}/${labelPath}?side=original`;
-	const modifiedModelPath = `file://${owner}/${repoName}/${commit.sha}/${labelPath}?side=modified`;
+	const originalModelPath = buildMonacoModelUri(
+		repoPath ?? commit.repo_path,
+		commit.sha,
+		labelPath,
+		"original"
+	);
+	const modifiedModelPath = buildMonacoModelUri(
+		repoPath ?? commit.repo_path,
+		commit.sha,
+		labelPath,
+		"modified"
+	);
 	const summaryLoading = Boolean(fileSummary?.loading);
 
 	return (

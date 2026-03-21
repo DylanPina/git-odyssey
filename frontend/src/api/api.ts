@@ -1,130 +1,129 @@
-import { api } from "../axios";
 import type {
-	RepoResponse,
-	FilterResponse,
-	ChatResponse,
-	DatabaseResponse,
-	CommitResponse,
-	CommitsResponse,
+  RepoResponse,
+  FilterResponse,
+  ChatResponse,
+  DatabaseResponse,
+  CommitResponse,
+  CommitsResponse,
 } from "../lib/definitions/api";
+import type { User } from "@/lib/definitions/auth";
+import type {
+  DesktopCredentialsInput,
+  GitProjectSummary,
+  DesktopHealthStatus,
+  DesktopSettingsStatus,
+  GitOdysseyDesktopBridge,
+} from "@/lib/definitions/desktop";
 import type { FilterFormData } from "@/lib/filter-utils";
 
-export interface User {
-	id: number;
-	github_id: number;
-	username: string;
-	email?: string;
-	installation_id?: string;
-	api_credits_remaining: number;
-	created_at: string;
-	updated_at: string;
+function getDesktopBridge(): GitOdysseyDesktopBridge {
+  if (typeof window === "undefined" || !window.gitOdysseyDesktop) {
+    throw new Error(
+      "GitOdyssey must run inside the Electron desktop shell."
+    );
+  }
+
+  return window.gitOdysseyDesktop;
 }
 
 export const getRepo = async (
-	owner: string,
-	repoName: string
+  repoPath: string
 ): Promise<RepoResponse> => {
-	const response = await api.get<RepoResponse>(`/repo/${owner}/${repoName}`);
-	return response.data;
+  return getDesktopBridge().api.getRepo(repoPath);
 };
 
 export const ingestRepo = async (
-	githubUrl: string,
-	maxCommits: number = 50,
-	contextLines: number = 3
+  repoPath: string,
+  maxCommits: number = 50,
+  contextLines: number = 3,
+  force: boolean = false
 ): Promise<RepoResponse> => {
-	const response = await api.post<RepoResponse>("/ingest", {
-		url: githubUrl,
-		max_commits: maxCommits,
-		context_lines: contextLines,
-	});
-	return response.data;
+  return getDesktopBridge().api.ingestRepo({
+    repoPath,
+    maxCommits,
+    contextLines,
+    force,
+  });
 };
 
 export const filterCommits = async (
-	query: string,
-	filters: FilterFormData,
-	repoUrl: string,
-	maxResults?: number
+  query: string,
+  filters: FilterFormData,
+  repoPath: string,
+  maxResults?: number
 ): Promise<FilterResponse> => {
-	const response = await api.post<FilterResponse>("/filter", {
-		query,
-		filters,
-		repo_url: repoUrl,
-		max_results: maxResults,
-	});
-	return response.data;
+  return getDesktopBridge().api.filterCommits({
+    query,
+    filters,
+    repoPath,
+    maxResults,
+  });
+};
+
+export const pickGitProject = async (): Promise<GitProjectSummary | null> => {
+  return getDesktopBridge().api.pickGitProject();
+};
+
+export const getRecentProjects = async (): Promise<GitProjectSummary[]> => {
+  return getDesktopBridge().api.getRecentProjects();
 };
 
 export const summarizeCommit = async (sha: string): Promise<string> => {
-	const response = await api.get<string>(`/summarize/commit/${sha}`);
-	return response.data;
+  return getDesktopBridge().api.summarizeCommit(sha);
 };
 
 export const summarizeFileChange = async (id: number): Promise<string> => {
-	const response = await api.get<string>(`/summarize/file_change/${id}`);
-	return response.data;
+  return getDesktopBridge().api.summarizeFileChange(id);
 };
 
 export const summarizeHunk = async (id: number): Promise<string> => {
-	const response = await api.get<string>(`/summarize/hunk/${id}`);
-	return response.data;
+  return getDesktopBridge().api.summarizeHunk(id);
 };
 
 export const sendChatMessage = async (
-	query: string,
-	contextShas: string[]
+  query: string,
+  contextShas: string[]
 ): Promise<ChatResponse> => {
-	const response = await api.post<ChatResponse>("/chat", {
-		query,
-		context_shas: contextShas,
-	});
-	return response.data;
+  return getDesktopBridge().api.sendChatMessage({ query, contextShas });
 };
 
 export const initDatabase = async (): Promise<DatabaseResponse> => {
-	const response = await api.post<DatabaseResponse>("/init");
-	return response.data;
+  return getDesktopBridge().api.initDatabase();
 };
 
 export const dropDatabase = async (): Promise<DatabaseResponse> => {
-	const response = await api.delete<DatabaseResponse>("/drop");
-	return response.data;
+  return getDesktopBridge().api.dropDatabase();
 };
 
 export const getCommit = async (
-	owner: string,
-	repoName: string,
-	commitSha: string
+  repoPath: string,
+  commitSha: string
 ): Promise<CommitResponse> => {
-	const response = await api.get<CommitResponse>(
-		`/repo/${owner}/${repoName}/commit/${commitSha}`
-	);
-	return response.data;
+  return getDesktopBridge().api.getCommit(repoPath, commitSha);
 };
 
-export const getCommits = async (
-	owner: string,
-	repoName: string
-): Promise<CommitsResponse> => {
-	const response = await api.get<CommitsResponse>(
-		`/repo/${owner}/${repoName}/commits`
-	);
-	return response.data;
-};
-
-// Auth endpoints
-export const getLoginUrl = (): string => {
-	const baseUrl = import.meta.env.API_URL;
-	return `${baseUrl}/auth/login`;
+export const getCommits = async (repoPath: string): Promise<CommitsResponse> => {
+  return getDesktopBridge().api.getCommits(repoPath);
 };
 
 export const getCurrentUser = async (): Promise<User> => {
-	const response = await api.get<User>("/auth/me");
-	return response.data;
+  return getDesktopBridge().api.getCurrentUser();
 };
 
 export const logout = async (): Promise<{ message: string }> => {
-	const response = await api.post<{ message: string }>("/auth/logout");
-	return response.data;
+  return getDesktopBridge().api.logout();
+};
+
+export const getDesktopSettingsStatus = async (): Promise<DesktopSettingsStatus> => {
+  return getDesktopBridge().settings.getStatus();
+};
+
+export const saveDesktopCredentials = async (
+  input: DesktopCredentialsInput
+): Promise<DesktopSettingsStatus> => {
+  return getDesktopBridge().settings.saveCredentials(input);
+};
+
+export const getDesktopHealth = async (): Promise<DesktopHealthStatus> => {
+  return getDesktopBridge().health.getStatus();
 };

@@ -1,10 +1,12 @@
+import type { Citation } from "./chat";
 import type { FilterFormData } from "../filter-utils";
 import type { Commit, Branch } from "./repo";
 
 export interface IngestRequest {
-  url: string;
+  repo_path: string;
   max_commits?: number;
   context_lines?: number;
+  force?: boolean;
 }
 
 export interface IngestResponse {
@@ -12,6 +14,7 @@ export interface IngestResponse {
 }
 
 export interface RepoResponse {
+  repo_path: string;
   commits: Commit[];
   branches: Branch[];
 }
@@ -19,7 +22,7 @@ export interface RepoResponse {
 export interface FilterRequest {
   query: string;
   filters: FilterFormData;
-  repo_url: string;
+  repo_path: string;
   max_results?: number;
 }
 
@@ -34,6 +37,7 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   response: string;
+  cited_commits: Citation[];
 }
 
 export interface DatabaseResponse {

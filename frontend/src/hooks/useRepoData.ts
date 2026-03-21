@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { getRepo, ingestRepo } from "../api/api";
-import { isAxiosError } from "axios";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { getRepo, ingestRepo } from "@/api/api";
 import type { Branch, Commit } from "@/lib/definitions/repo";
+import { getRepoStableKey } from "@/lib/repoPaths";
 import { repoCache } from "@/utils/repoCache";
 
 const MAX_COMMITS = 50;
-const MAX_BRANCHES = 5;
+const CONTEXT_LINES = 3;
 
 type UseRepoDataArgs = {
-  owner?: string;
-  repoName?: string;
+  repoPath?: string | null;
+};
+
+type RefreshOptions = {
+  force?: boolean;
 };
 
 type UseRepoData = {
@@ -18,121 +22,158 @@ type UseRepoData = {
   isLoading: boolean;
   isIngesting: boolean;
   ingestStatus: string;
-  refresh: () => Promise<void>;
+  error: string | null;
+  refresh: (options?: RefreshOptions) => Promise<void>;
 };
 
-export function useRepoData({ owner, repoName }: UseRepoDataArgs): UseRepoData {
+function isRepoMissingError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message === "Repository not found";
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Failed to load repository.";
+}
+
+export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
   const [commits, setCommits] = useState<Commit[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isIngesting, setIsIngesting] = useState<boolean>(false);
   const [ingestStatus, setIngestStatus] = useState<string>("");
-  const didIngest = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+
   const cacheKey = useMemo(() => {
-    if (!owner || !repoName) return null;
-    return `${owner}/${repoName}`;
-  }, [owner, repoName]);
+    if (!repoPath) {
+      return null;
+    }
+    return getRepoStableKey(repoPath);
+  }, [repoPath]);
 
-  // Function to ingest repository synchronously (blocking) and set data
-  const ingestRepository = useCallback(async (): Promise<boolean> => {
-    if (!owner || !repoName) return false;
+  const updateRepoState = useCallback(
+    (nextCommits: Commit[], nextBranches: Branch[]) => {
+      setCommits(nextCommits);
+      setBranches(nextBranches);
 
-    setIsIngesting(true);
-    setIngestStatus("Creating repository in database...");
-
-    const data = await ingestRepo(
-      `https://github.com/${owner}/${repoName}`,
-      MAX_COMMITS,
-      MAX_BRANCHES
-    );
-
-    const fetchedCommits = (data?.commits ?? []) as Commit[];
-    const fetchedBranches = (data?.branches ?? []) as Branch[];
-
-    if (fetchedCommits.length > 0) {
-      if (cacheKey) {
+      if (cacheKey && nextCommits.length > 0) {
         repoCache.set(cacheKey, {
-          commits: fetchedCommits,
-          branches: fetchedBranches,
+          commits: nextCommits,
+          branches: nextBranches,
           timestamp: Date.now(),
         });
       }
-    }
+    },
+    [cacheKey]
+  );
 
-    setCommits(fetchedCommits);
-    setBranches(fetchedBranches);
-    setIngestStatus("Repository created successfully!");
-    setIsIngesting(false);
-    return fetchedCommits.length > 0;
-  }, [owner, repoName, cacheKey]);
+  const ingestRepository = useCallback(
+    async (force: boolean = false): Promise<boolean> => {
+      if (!repoPath) {
+        return false;
+      }
+
+      setIsIngesting(true);
+      setError(null);
+      setIngestStatus(
+        force ? "Refreshing repository from disk..." : "Indexing repository from disk..."
+      );
+
+      try {
+        const data = await ingestRepo(repoPath, MAX_COMMITS, CONTEXT_LINES, force);
+        const fetchedCommits = (data?.commits ?? []) as Commit[];
+        const fetchedBranches = (data?.branches ?? []) as Branch[];
+        updateRepoState(fetchedCommits, fetchedBranches);
+        setIngestStatus(
+          force ? "Repository refreshed successfully." : "Repository indexed successfully."
+        );
+        return true;
+      } catch (ingestError) {
+        setError(getErrorMessage(ingestError));
+        return false;
+      } finally {
+        setIsIngesting(false);
+      }
+    },
+    [repoPath, updateRepoState]
+  );
 
   const getRepository = useCallback(async (): Promise<boolean> => {
-    if (!cacheKey || !owner || !repoName) return false;
+    if (!repoPath) {
+      return false;
+    }
+
     setIsLoading(true);
+    setError(null);
+
     try {
-      const response = await getRepo(owner!, repoName!);
+      const response = await getRepo(repoPath);
       const fetchedCommits = response.commits as Commit[];
       const fetchedBranches = response.branches as Branch[];
+      updateRepoState(fetchedCommits, fetchedBranches);
+      return true;
+    } catch (fetchError: unknown) {
+      if (isRepoMissingError(fetchError)) {
+        return false;
+      }
 
-      if (fetchedCommits && fetchedCommits.length > 0) {
-        repoCache.set(cacheKey, {
-          commits: fetchedCommits,
-          branches: fetchedBranches,
-          timestamp: Date.now(),
-        });
-      }
-      setCommits(fetchedCommits);
-      setBranches(fetchedBranches);
-      return (fetchedCommits?.length ?? 0) > 0;
-    } catch (error: unknown) {
-      if (!(isAxiosError(error) && error.response?.status === 404)) {
-        console.error("Error fetching repository:", error);
-      }
       setCommits([]);
       setBranches([]);
+      setError(getErrorMessage(fetchError));
       return false;
     } finally {
       setIsLoading(false);
     }
-  }, [cacheKey, owner, repoName]);
+  }, [repoPath, updateRepoState]);
 
-  const load = useCallback(async () => {
-    if (!cacheKey || !owner || !repoName) {
-      setCommits([]);
-      setBranches([]);
-      setIsLoading(false);
-      return;
-    }
+  const load = useCallback(
+    async ({ force = false }: RefreshOptions = {}) => {
+      if (!cacheKey || !repoPath) {
+        setCommits([]);
+        setBranches([]);
+        setError(null);
+        setIsLoading(false);
+        return;
+      }
 
-    const cached = repoCache.get(cacheKey!);
-    if (cached && repoCache.isValid(cached)) {
-      setCommits(cached!.commits);
-      setBranches(cached!.branches);
-      return;
-    }
+      if (force) {
+        repoCache.clear(cacheKey);
+        await ingestRepository(true);
+        return;
+      }
 
-    const exists = await getRepository();
-    if (!exists) {
-      await ingestRepository();
-    }
-  }, [cacheKey, owner, repoName, getRepository, ingestRepository]);
+      const cached = repoCache.get(cacheKey);
+      if (cached && repoCache.isValid(cached)) {
+        setCommits(cached.commits);
+        setBranches(cached.branches);
+        setError(null);
+        const exists = await getRepository();
+        if (!exists) {
+          await ingestRepository(false);
+        }
+        return;
+      }
+
+      const exists = await getRepository();
+      if (!exists) {
+        await ingestRepository(false);
+      }
+    },
+    [cacheKey, repoPath, getRepository, ingestRepository]
+  );
 
   useEffect(() => {
-    if (!cacheKey || didIngest.current) return;
-    didIngest.current = true;
-    const cached = repoCache.get(cacheKey);
-    if (repoCache.isValid(cached)) {
-      setCommits(cached!.commits);
-      setBranches(cached!.branches);
-      return;
-    }
-
-    load();
-  }, [cacheKey, load]);
-
-  const refresh = useCallback(async () => {
-    await load();
+    void load();
   }, [load]);
+
+  const refresh = useCallback(
+    async (options?: RefreshOptions) => {
+      await load(options);
+    },
+    [load]
+  );
 
   return {
     commits,
@@ -140,6 +181,7 @@ export function useRepoData({ owner, repoName }: UseRepoDataArgs): UseRepoData {
     isLoading,
     isIngesting,
     ingestStatus,
+    error,
     refresh,
   };
 }

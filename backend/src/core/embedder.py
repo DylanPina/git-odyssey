@@ -1,13 +1,11 @@
-from google import genai
-from google.genai import types
-from langchain_openai import OpenAIEmbeddings
+from openai import BadRequestError, OpenAI
 
 from typing import List, Any
 from core.repo import Repo
 from abc import ABC, abstractmethod
+from utils.logger import logger
 
 
-# Set GEMINI_API_KEY variable in .env file
 class BaseEmbedder(ABC):
     """Abstract base class for embedding implementations"""
 
@@ -16,6 +14,26 @@ class BaseEmbedder(ABC):
         self.token_limit = token_limit
         self.embedding_dim = embedding_dim
         self.token_chars = 3
+
+    def estimate_tokens(self, text: str) -> int:
+        if not text:
+            return 0
+        return max(1, len(text) // self.token_chars)
+
+    def prepare_text_for_embedding(self, text: str) -> str:
+        return text
+
+    def _build_embedding_payload(
+        self,
+        obj: Any,
+        text: str,
+        field_name: str,
+    ) -> tuple[tuple[Any, str, str], int] | None:
+        prepared_text = self.prepare_text_for_embedding(text)
+        if not prepared_text or not prepared_text.strip():
+            return None
+
+        return (obj, prepared_text, field_name), self.estimate_tokens(prepared_text)
 
     @abstractmethod
     def embed_batch(self, repo_objects: List[Any]) -> None:
@@ -44,14 +62,33 @@ class BaseEmbedder(ABC):
         for commit in repo.commits.values():
             if commit.message is not None and commit.embedding is None:
                 commit_info = f"Commit Author: {commit.author}, Commit Message: {commit.message}"
-                repo_objects.append((commit, commit_info, "embedding"))
-                num_tokens += len(commit.message) // self.token_chars
+                commit_payload = self._build_embedding_payload(
+                    commit, commit_info, "embedding"
+                )
+                if commit_payload is not None:
+                    repo_object, commit_tokens = commit_payload
+                    if repo_objects and commit_tokens + num_tokens > self.token_limit:
+                        print(
+                            f"Reached token limit of {self.token_limit} with {num_tokens} tokens. Embedding {len(repo_objects)} objects."
+                        )
+                        self.embed_batch(repo_objects)
+                        total_repo_objects += len(repo_objects)
+                        repo_objects = []
+                        num_tokens = 0
+                    repo_objects.append(repo_object)
+                    num_tokens += commit_tokens
 
             for file_change in commit.file_changes:
                 for hunk in file_change.hunks:
                     if hunk.content is not None and hunk.embedding is None:
-                        content_tokens = len(hunk.content) // self.token_chars
-                        if content_tokens + num_tokens > self.token_limit:
+                        hunk_payload = self._build_embedding_payload(
+                            hunk, hunk.content, "embedding"
+                        )
+                        if hunk_payload is None:
+                            continue
+
+                        repo_object, content_tokens = hunk_payload
+                        if repo_objects and content_tokens + num_tokens > self.token_limit:
                             print(
                                 f"Reached token limit of {self.token_limit} with {num_tokens} tokens. Embedding {len(repo_objects)} objects."
                             )
@@ -59,7 +96,7 @@ class BaseEmbedder(ABC):
                             total_repo_objects += len(repo_objects)
                             repo_objects = []
                             num_tokens = 0
-                        repo_objects.append((hunk, hunk.content, "embedding"))
+                        repo_objects.append(repo_object)
                         num_tokens += content_tokens
 
         if repo_objects:
@@ -69,61 +106,206 @@ class BaseEmbedder(ABC):
         print(f"Successfully embedded {total_repo_objects} summaries!")
 
 
-class GeminiEmbedder(BaseEmbedder):
-    def __init__(self):
-        super().__init__(
-            model="gemini-embedding-001", token_limit=2048, embedding_dim=1536
-        )
-        self.embedder = genai.Client()
-
-    def embed_batch(self, repo_objects: List[Any]) -> None:
-        """Embed a batch of repo objects"""
-        embeddings = self.embedder.models.embed_content(
-            model=self.model,
-            contents=[text for obj, text, _ in repo_objects],
-            config=types.EmbedContentConfig(
-                output_dimensionality=self.embedding_dim),
-        ).embeddings
-        for (obj, _, field_name), embedding in zip(repo_objects, embeddings):
-            setattr(obj, field_name, embedding.values)
-
-    def embed_query(self, query: str) -> List[float]:
-        """Embed a single query"""
-        result = self.embedder.models.embed_content(
-            model=self.model,
-            contents=query,
-            config=types.EmbedContentConfig(
-                output_dimensionality=self.embedding_dim),
-        )
-        return result.embeddings[0].values
-
-    def get_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get batch embeddings for a list of texts"""
-        result = self.embedder.models.embed_content(
-            model=self.model,
-            contents=texts,
-            config=types.EmbedContentConfig(
-                output_dimensionality=self.embedding_dim),
-        )
-        return [embedding.values for embedding in result.embeddings]
-
-
 class OpenAIEmbedder(BaseEmbedder):
-    def __init__(self):
+    def __init__(
+        self,
+        client: OpenAI,
+        model: str = "text-embedding-3-small",
+        token_limit: int = 5000,
+        embedding_dim: int = 1536,
+        max_input_tokens: int = 4500,
+    ):
         super().__init__(
-            model="text-embedding-3-small", token_limit=25000, embedding_dim=1536
+            model=model,
+            token_limit=token_limit,
+            embedding_dim=embedding_dim,
         )
-        self.embedder = OpenAIEmbeddings(model=self.model)
+        self.client = client
+        self.max_input_tokens = max_input_tokens
+
+    @staticmethod
+    def _describe_bad_request(exc: BadRequestError) -> str:
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict):
+                message = error.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message
+        return str(exc)
+
+    def _request_embeddings(self, inputs: list[str]):
+        return self.client.embeddings.create(model=self.model, input=inputs)
+
+    def _request_embedding(self, text: str):
+        return self.client.embeddings.create(model=self.model, input=text)
+
+    def prepare_text_for_embedding(self, text: str) -> str:
+        if not text or self.max_input_tokens < 1:
+            return text
+
+        max_chars = self.max_input_tokens * self.token_chars
+        if len(text) <= max_chars:
+            return text
+
+        return text[:max_chars]
+
+    def _chunk_repo_objects(
+        self,
+        repo_objects: list[tuple[Any, str, str]],
+    ) -> list[list[tuple[Any, str, str]]]:
+        batches: list[list[tuple[Any, str, str]]] = []
+        current_batch: list[tuple[Any, str, str]] = []
+        current_tokens = 0
+
+        for repo_object in repo_objects:
+            item_tokens = self.estimate_tokens(repo_object[1])
+            if current_batch and current_tokens + item_tokens > self.token_limit:
+                batches.append(current_batch)
+                current_batch = []
+                current_tokens = 0
+
+            current_batch.append(repo_object)
+            current_tokens += item_tokens
+
+        if current_batch:
+            batches.append(current_batch)
+
+        return batches
+
+    def _chunk_texts(self, texts: list[str]) -> list[list[str]]:
+        batches: list[list[str]] = []
+        current_batch: list[str] = []
+        current_tokens = 0
+
+        for text in texts:
+            item_tokens = self.estimate_tokens(text)
+            if current_batch and current_tokens + item_tokens > self.token_limit:
+                batches.append(current_batch)
+                current_batch = []
+                current_tokens = 0
+
+            current_batch.append(text)
+            current_tokens += item_tokens
+
+        if current_batch:
+            batches.append(current_batch)
+
+        return batches
+
+    def _get_single_embedding_with_truncation(self, text: str) -> list[float]:
+        candidate = text
+        last_error: BadRequestError | None = None
+
+        while candidate and candidate.strip():
+            try:
+                response = self._request_embedding(candidate)
+                if candidate != text:
+                    logger.warning(
+                        "Truncated oversized embedding input from %s to %s characters.",
+                        len(text),
+                        len(candidate),
+                    )
+                return response.data[0].embedding
+            except BadRequestError as exc:
+                last_error = exc
+                next_length = len(candidate) // 2
+                if next_length < 1 or next_length == len(candidate):
+                    break
+                candidate = candidate[:next_length]
+
+        if last_error is not None:
+            logger.error(
+                "OpenAI rejected a single embedding input after truncating from %s to %s characters: %s",
+                len(text),
+                len(candidate),
+                self._describe_bad_request(last_error),
+            )
+            raise last_error
+
+        raise ValueError("Embedding input was empty after truncation.")
+
+    def _get_batch_embeddings_with_fallback(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+
+        if len(texts) == 1:
+            return [self._get_single_embedding_with_truncation(texts[0])]
+
+        try:
+            response = self._request_embeddings(texts)
+            return [embedding.embedding for embedding in response.data]
+        except BadRequestError as exc:
+            midpoint = len(texts) // 2
+            logger.warning(
+                "OpenAI rejected an embedding batch of %s items; retrying in smaller chunks. %s",
+                len(texts),
+                self._describe_bad_request(exc),
+            )
+            return self._get_batch_embeddings_with_fallback(
+                texts[:midpoint]
+            ) + self._get_batch_embeddings_with_fallback(texts[midpoint:])
+
+    def _embed_single_with_truncation(self, repo_object: tuple[Any, str, str]) -> None:
+        obj, text, field_name = repo_object
+        setattr(obj, field_name, self._get_single_embedding_with_truncation(text))
+
+    def _embed_batch_with_fallback(
+        self,
+        repo_objects: list[tuple[Any, str, str]],
+        exc: BadRequestError,
+    ) -> None:
+        if not repo_objects:
+            return
+
+        if len(repo_objects) == 1:
+            self._embed_single_with_truncation(repo_objects[0])
+            return
+
+        midpoint = len(repo_objects) // 2
+        logger.warning(
+            "OpenAI rejected an embedding batch of %s items; retrying in smaller chunks. %s",
+            len(repo_objects),
+            self._describe_bad_request(exc),
+        )
+        self.embed_batch(repo_objects[:midpoint])
+        self.embed_batch(repo_objects[midpoint:])
 
     def embed_batch(self, repo_objects: List[Any]) -> None:
-        embeddings = self.embedder.embed_documents(
-            [text for obj, text, _ in repo_objects]
-        )
-        for (obj, _, field_name), embedding in zip(repo_objects, embeddings):
-            setattr(obj, field_name, embedding)
+        sanitized_repo_objects = []
+        for obj, text, field_name in repo_objects:
+            prepared_text = self.prepare_text_for_embedding(text)
+            if prepared_text and prepared_text.strip():
+                sanitized_repo_objects.append((obj, prepared_text, field_name))
+        if not sanitized_repo_objects:
+            return
+
+        for batch in self._chunk_repo_objects(sanitized_repo_objects):
+            if len(batch) == 1:
+                self._embed_single_with_truncation(batch[0])
+                continue
+
+            try:
+                response = self._request_embeddings([text for _, text, _ in batch])
+            except BadRequestError as exc:
+                self._embed_batch_with_fallback(batch, exc)
+                continue
+
+            for (obj, _, field_name), embedding in zip(batch, response.data):
+                setattr(obj, field_name, embedding.embedding)
 
     def embed_query(self, query: str) -> List[float]:
-        return self.embedder.embed_query(query)
+        response = self.client.embeddings.create(model=self.model, input=query)
+        return response.data[0].embedding
 
     def get_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
-        return self.embedder.embed_documents(texts)
+        if not texts:
+            return []
+
+        prepared_texts = [self.prepare_text_for_embedding(text) for text in texts]
+        embeddings: list[list[float]] = []
+
+        for batch in self._chunk_texts(prepared_texts):
+            embeddings.extend(self._get_batch_embeddings_with_fallback(batch))
+
+        return embeddings

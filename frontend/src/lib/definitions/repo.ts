@@ -1,5 +1,6 @@
 export type Branch = {
 	name: string;
+	repo_path: string;
 	commits: string[];
 };
 
@@ -37,6 +38,7 @@ export type FileChange = {
 
 export type Commit = {
 	sha: string;
+	repo_path: string;
 	message: string;
 	author: string | null;
 	time: number;

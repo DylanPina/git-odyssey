@@ -26,10 +26,8 @@ class DatabaseAdapter:
     def parse_sql_user(self, sql_user: SQLUser) -> User:
         return User(
             id=sql_user.id,
-            github_id=sql_user.github_id,
             username=sql_user.username,
             email=sql_user.email,
-            installation_id=sql_user.installation_id,
             api_credits_remaining=sql_user.api_credits_remaining,
             created_at=sql_user.created_at,
             updated_at=sql_user.updated_at,
@@ -82,13 +80,15 @@ class DatabaseAdapter:
     def parse_sql_commit(
         self, sql_commit: SQLCommit, compressed: bool = False
     ) -> Commit:
-        file_changes = [
-            self.parse_sql_file_change(fc, compressed) for fc in sql_commit.file_changes
-        ]
+        file_changes = (
+            []
+            if compressed
+            else [self.parse_sql_file_change(fc, compressed) for fc in sql_commit.file_changes]
+        )
 
         return Commit(
             sha=sql_commit.sha,
-            repo_url=sql_commit.repo_url,
+            repo_path=sql_commit.repo_path,
             parents=sql_commit.parents,
             author=sql_commit.author,
             email=sql_commit.email,
@@ -102,6 +102,6 @@ class DatabaseAdapter:
     def parse_sql_branch(self, sql_branch: SQLBranch) -> Branch:
         return Branch(
             name=sql_branch.name,
-            repo_url=sql_branch.repo_url,
+            repo_path=sql_branch.repo_path,
             commits=[commit.sha for commit in sql_branch.commits],
         )

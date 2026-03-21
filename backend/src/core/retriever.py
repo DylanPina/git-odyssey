@@ -75,7 +75,7 @@ class Retriever:
             "lines_changed": lambda q, v: q.filter(
                 SQLDiffHunk.old_lines + SQLDiffHunk.new_lines >= v
             ),
-            "repo_url": lambda q, v: q.filter(SQLCommit.repo_url == v),
+            "repo_path": lambda q, v: q.filter(SQLCommit.repo_path == v),
         }
 
     def _should_exclude_file(self, file_path: str) -> bool:
@@ -122,7 +122,7 @@ class Retriever:
         return None
 
     def filter(
-        self, query: str, filters: Dict[str, Any], repo_url: str, max_results: int
+        self, query: str, filters: Dict[str, Any], repo_path: str, max_results: int
     ) -> List[str]:
         """Hybrid search: apply SQL filters first, then semantic search across all tables."""
         logger.info(f"Filtering for query: '{query}' with filters: {filters}")
@@ -131,8 +131,8 @@ class Retriever:
 
         base_query = select(distinct(SQLCommit.sha).label("sha")).select_from(SQLCommit)
 
-        if repo_url:
-            base_query = base_query.filter(SQLCommit.repo_url == repo_url)
+        if repo_path:
+            base_query = base_query.filter(SQLCommit.repo_path == repo_path)
 
         joins = set()
         if any(f in ["path", "status"] for f in filters):

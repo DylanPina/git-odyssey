@@ -10,6 +10,7 @@ export interface CompressedCachedData {
   timestamp: number;
   commits: Array<{
     sha: string;
+    repo_path: string;
     message: string;
     author: string | null;
     time: number;
@@ -17,6 +18,7 @@ export interface CompressedCachedData {
   }>;
   branches: Array<{
     name: string;
+    repo_path: string;
     commits: string[];
   }>;
 }
@@ -78,6 +80,7 @@ class RepoCache {
         timestamp: data.timestamp,
         commits: data.commits.map((commit) => ({
           sha: commit.sha,
+          repo_path: commit.repo_path,
           message: commit.message,
           author: commit.author,
           time: commit.time,
@@ -86,6 +89,7 @@ class RepoCache {
         })),
         branches: data.branches.map((branch) => ({
           name: branch.name,
+          repo_path: branch.repo_path,
           commits: branch.commits,
           // Keep only essential branch data
         })),

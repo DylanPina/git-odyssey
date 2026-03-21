@@ -12,7 +12,7 @@ class FilterService:
         commit_shas = self.retriever.filter(
             request.query,
             request.filters,
-            request.repo_url,
+            request.repo_path,
             request.max_results,
         )
         return FilterResponse(commit_shas=commit_shas)

@@ -1,8 +1,17 @@
+import os
+
+from openai import OpenAI
+
 from core.ai import AIEngine
 from data.data_model import Commit, FileChange, DiffHunk, FileChangeStatus
 
-# Initialize AI engine
-ai = AIEngine()
+
+def get_ai_engine() -> AIEngine:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Set OPENAI_API_KEY before running this smoke test.")
+
+    return AIEngine(client=OpenAI(api_key=api_key))
 
 # Mock commit data for testing
 def create_mock_commit():
@@ -106,7 +115,7 @@ def create_mock_commit():
     # Create the commit
     commit = Commit(
         sha="abc123def456789",
-        repo_url="https://github.com/test/repo",
+        repo_path="/tmp/test-repo",
         parents=["def456ghi789"],
         author="John Developer",
         email="john@example.com",
@@ -119,6 +128,7 @@ def create_mock_commit():
 
 def test_commit_summarization():
     """Test the commit summarization functionality."""
+    ai = get_ai_engine()
     print("=== Testing Commit Summarization ===")
     
     # Create mock commit

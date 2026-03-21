@@ -1,84 +1,119 @@
 import os
-from copy import deepcopy
+
 import pygit2
+
 from core.branch import Branch
-from utils.logger import logger
-from utils.utils import delete_dir_if_exists, parse_github_url
 from data.schema import (
+    FileChangeStatus,
     SQLBranch,
     SQLCommit,
-    SQLFileChange,
     SQLDiffHunk,
-    SQLRepo,
+    SQLFileChange,
     SQLFileSnapshot,
-    FileChangeStatus,
+    SQLRepo,
 )
+from utils.logger import logger
+
+DETACHED_HEAD_BRANCH_NAME = "HEAD (detached)"
+
+
+def normalize_repo_path(repo_path: str) -> str:
+    if not repo_path:
+        raise ValueError("Repository path is required.")
+
+    return os.path.realpath(os.path.abspath(os.path.expanduser(repo_path)))
 
 
 class Repo:
     def __init__(
         self,
-        url: str,
+        repo_path: str,
         context_lines: int = 0,
-        max_commits: int = None,
-        local_path: str = None,
+        max_commits: int | None = None,
     ):
-        self.url = url
         self.context_lines = context_lines
         self.max_commits = max_commits
-        self.repo = self.clone_repo(url, local_path)
+        self.repo, self.repo_path = self.open_repo(repo_path)
+        self.name = os.path.basename(self.repo_path.rstrip(os.sep)) or self.repo_path
         self.commits = {}
-        self.branches = self._get_branches()
+        self.branch_specs = self._build_branch_specs(self.repo)
+        self.branches = [self._get_branch(spec) for spec in self.branch_specs]
 
-    def clone_repo(self, url: str, local_path: str) -> pygit2.Repository:
-        """
-        Clones the repository into a local directory and returns the pygit2.Repository object.
-        Sets the owner, name, repo_dir, repo_path, main_branch attributes.
-        """
-        self.owner, self.name = parse_github_url(url)
-        self.repo_path = local_path
+    @classmethod
+    def discover_repo_path(cls, repo_path: str) -> str:
+        _, resolved_path = cls.open_repo(repo_path)
+        return resolved_path
 
-        logger.info(f"Cloning repository {url} into {self.repo_path}")
-        try:
-            pygit_repo = pygit2.clone_repository(
-                url,
-                self.repo_path,
-                depth=self.max_commits,
-                bare=True,
+    @classmethod
+    def get_branch_heads(cls, repo_path: str) -> tuple[str, dict[str, str]]:
+        pygit_repo, resolved_path = cls.open_repo(repo_path)
+        branch_heads = {}
+
+        for branch_spec in cls._build_branch_specs(pygit_repo):
+            if branch_spec["target_oid"] is None:
+                continue
+            branch_heads[branch_spec["name"]] = str(branch_spec["target_oid"])
+
+        return resolved_path, branch_heads
+
+    @classmethod
+    def open_repo(cls, repo_path: str) -> tuple[pygit2.Repository, str]:
+        normalized_input = normalize_repo_path(repo_path)
+        discovered_path = pygit2.discover_repository(normalized_input)
+        if not discovered_path:
+            raise ValueError(
+                f"Git project not found at {normalized_input}. Re-select the folder from Home."
             )
-        except Exception as e:
-            raise Exception(f"Failed to clone repository: {e}")
 
-        logger.info(f"Cloned repository {url} into {self.repo_path}/main")
+        try:
+            pygit_repo = pygit2.Repository(discovered_path)
+        except Exception as error:
+            raise ValueError(f"Failed to open the Git project at {normalized_input}: {error}")
 
-        self.branch_names = [
-            branch_name.decode("utf-8")
-            for branch_name in pygit_repo.raw_listall_branches(pygit2.GIT_BRANCH_REMOTE)
-        ]
-        logger.info(f"Remote branch names={self.branch_names}")
-        logger.info(f"References={[ref for ref in pygit_repo.references]}")
+        if pygit_repo.is_bare:
+            resolved_path = normalize_repo_path(discovered_path)
+        else:
+            resolved_path = normalize_repo_path(
+                pygit_repo.workdir or os.path.dirname(discovered_path)
+            )
 
-        head_ref = pygit_repo.references.get("HEAD")
-        logger.info(f"HEAD is tracking: {head_ref.raw_target.decode('utf-8')}")
+        logger.info("Opened local repository at %s", resolved_path)
+        return pygit_repo, resolved_path
 
-        self.main_branch = (
-            pygit_repo.references.get("HEAD").raw_target.decode("utf-8").split("/")[-1]
-        )
-        logger.info(f"Main branch is: {self.main_branch}")
+    @staticmethod
+    def _build_branch_specs(pygit_repo: pygit2.Repository) -> list[dict[str, object]]:
+        if not pygit_repo.head_is_unborn and pygit_repo.head_is_detached:
+            head_target = pygit_repo.head.target if pygit_repo.head else None
+            return [
+                {
+                    "name": DETACHED_HEAD_BRANCH_NAME,
+                    "reference_name": None,
+                    "target_oid": head_target,
+                }
+            ]
 
-        return pygit_repo
+        branch_specs = []
+        for branch_name in sorted(pygit_repo.listall_branches(pygit2.GIT_BRANCH_LOCAL)):
+            branch = pygit_repo.lookup_branch(branch_name, pygit2.GIT_BRANCH_LOCAL)
+            target_oid = branch.target if branch is not None else None
+            branch_specs.append(
+                {
+                    "name": branch_name,
+                    "reference_name": f"refs/heads/{branch_name}",
+                    "target_oid": target_oid,
+                }
+            )
+
+        return branch_specs
 
     def to_sql(self) -> SQLRepo:
         """Parse the repository into SQLAlchemy models."""
-        # Create SQLAlchemy commits first
         sql_commits: dict[str, SQLCommit] = {}
 
-        # Process all commits from the CoreRepo
         last_snapshot_by_path: dict[str, SQLFileSnapshot] = {}
-        for sha, commit in sorted(self.commits.items(), key=lambda x: x[1].time):
-            logger.info(f"Processing commit: {sha}")
+        for sha, commit in sorted(self.commits.items(), key=lambda item: item[1].time):
+            logger.info("Processing commit: %s", sha)
 
-            # Create SQLAlchemy commit
             sql_commit = SQLCommit(
                 sha=commit.sha,
                 parents=commit.parents,
@@ -88,12 +123,11 @@ class Repo:
                 message=commit.message,
                 summary=commit.summary,
                 embedding=commit.embedding,
-                repo_url=self.url,
+                repo_path=self.repo_path,
             )
 
             sql_file_changes = []
             for file_change in commit.file_changes:
-                # Sanitize snapshot to ensure no NULs are stored in DB
                 sanitized_snapshot_text = (
                     (file_change.snapshot.content if file_change.snapshot else "")
                 ).replace("\x00", "")
@@ -101,16 +135,14 @@ class Repo:
                 sql_fc = SQLFileChange(
                     old_path=file_change.old_path,
                     new_path=file_change.new_path,
-                    status=file_change.status.value,  # Store enum as string
+                    status=file_change.status.value,
                     summary=file_change.summary,
                     embedding=file_change.embedding,
                     commit_sha=commit.sha,
                 )
 
-                # Create snapshot record if present
                 if file_change.snapshot:
                     snapshot_path = file_change.snapshot.path
-                    # For renames or copies, the previous snapshot should be looked up by old_path
                     previous_key = (
                         file_change.old_path
                         if file_change.status
@@ -125,7 +157,6 @@ class Repo:
                     sql_fc.snapshot = sql_snapshot
                     last_snapshot_by_path[snapshot_path] = sql_snapshot
 
-                # Process hunks for this file change
                 sql_hunks = []
                 for hunk in file_change.hunks:
                     sql_hunk = SQLDiffHunk(
@@ -141,55 +172,52 @@ class Repo:
                     )
                     sql_hunks.append(sql_hunk)
 
-                # Set the hunks relationship
                 sql_fc.hunks = sql_hunks
                 sql_file_changes.append(sql_fc)
 
-            # Set the file changes relationship
             sql_commit.file_changes = sql_file_changes
             sql_commits[sha] = sql_commit
 
-        # Create SQLAlchemy branches
         sql_branches = []
         for branch in self.branches:
-            # Get the commits for this branch that exist in our sql_commits
             branch_commits = [
                 sql_commits[sha] for sha in branch.commits if sha in sql_commits
             ]
 
             sql_branch = SQLBranch(
-                name=branch.name, repo_url=self.url, commits=branch_commits
+                name=branch.name,
+                repo_path=self.repo_path,
+                head_commit_sha=branch.head_commit_sha,
+                commits=branch_commits,
             )
             sql_branches.append(sql_branch)
 
-        # Create the final SQLAlchemy repo
         sql_repo = SQLRepo(
-            url=self.url, branches=sql_branches, commits=list(sql_commits.values())
+            path=self.repo_path,
+            branches=sql_branches,
+            commits=list(sql_commits.values()),
         )
 
         logger.info(
-            f"Parsed repo with {len(sql_commits)} commits and {len(sql_branches)} branches"
+            "Parsed repo at %s with %s commits and %s branches",
+            self.repo_path,
+            len(sql_commits),
+            len(sql_branches),
         )
         return sql_repo
-
-    def rm(self):
-        delete_dir_if_exists(self.repo_dir)
 
     def output_branches(self):
         for branch in self.branches:
             branch.output()
 
-    def _get_branches(self) -> list[Branch]:
-        return [
-            self._get_branch(name)
-            for name in self.branch_names
-            if name != "origin/HEAD"
-        ]
-
-    def _get_branch(self, branch_name: str) -> Branch:
+    def _get_branch(self, branch_spec: dict[str, object]) -> Branch:
         return Branch(
             repo=self.repo,
-            repo_url=self.url,
-            name=branch_name,
+            repo_path=self.repo_path,
+            name=str(branch_spec["name"]),
+            reference_name=branch_spec["reference_name"],
+            target_oid=branch_spec["target_oid"],
             all_commits=self.commits,
+            context_lines=self.context_lines,
+            max_commits=self.max_commits,
         )

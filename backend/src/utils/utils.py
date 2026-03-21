@@ -1,13 +1,23 @@
 import os
 import shutil
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 
-def parse_github_url(url: str) -> tuple[str, str]:
-    """Parse a GitHub URL into owner and name"""
+def redact_url_credentials(url: str) -> str:
+    """Redact any credentials embedded in a URL before logging it."""
     parsed = urlparse(url)
-    owner, name = parsed.path.split("/")[-2:]
-    return owner, name.replace(".git", "")
+    if "@" not in parsed.netloc:
+        return url
+
+    _, host = parsed.netloc.rsplit("@", 1)
+    username = parsed.username or ""
+    if parsed.password is not None:
+        auth = f"{username}:***" if username else "***"
+    else:
+        auth = username
+
+    netloc = f"{auth}@{host}" if auth else host
+    return urlunparse(parsed._replace(netloc=netloc))
 
 
 def delete_dir_if_exists(path: str):

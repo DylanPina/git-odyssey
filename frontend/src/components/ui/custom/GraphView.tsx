@@ -30,7 +30,7 @@ import {
 	ingestStatus: string;
 	layoutDirection: LayoutDirection;
 	toggleLayoutDirection: () => void;
-	repoUrl: string;
+	repoPath: string;
 	onSearchResults: (commitShas: string[], query?: string) => void;
   };
   
@@ -47,7 +47,7 @@ import {
   ingestStatus,
   layoutDirection,
   toggleLayoutDirection,
-  repoUrl,
+  repoPath,
   onSearchResults,
 }: GraphViewProps) {
   return (
@@ -114,7 +114,7 @@ import {
 		  }}
 		>
 		  <div className="w-full max-w-2xl px-2">
-			<Search repoUrl={repoUrl} onSearchResults={onSearchResults} />
+			<Search repoPath={repoPath} onSearchResults={onSearchResults} />
 		  </div>
 		</div>
 	  </ReactFlow>

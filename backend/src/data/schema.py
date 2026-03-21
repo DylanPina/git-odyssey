@@ -40,10 +40,8 @@ class FileChangeStatus(str, Enum):
 class SQLUser(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    github_id: Mapped[int]
     username: Mapped[str]
     email: Mapped[Optional[str]]
-    installation_id: Mapped[Optional[str]]
     api_credits_remaining: Mapped[int] = mapped_column(Integer, default=100)
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
@@ -140,13 +138,14 @@ class SQLBranch(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
+    head_commit_sha: Mapped[Optional[str]] = mapped_column(String(40))
 
     # Foreign Keys
-    repo_url: Mapped[str] = mapped_column(ForeignKey("repos.url"))
+    repo_path: Mapped[str] = mapped_column(ForeignKey("repos.path"))
 
     # Relationships
     repo: Mapped["SQLRepo"] = relationship(
-        "SQLRepo", back_populates="branches", foreign_keys=[repo_url]
+        "SQLRepo", back_populates="branches", foreign_keys=[repo_path]
     )
     commits: Mapped[List["SQLCommit"]] = relationship(
         "SQLCommit", secondary="commits_branches", back_populates="branches"
@@ -170,11 +169,11 @@ class SQLCommit(Base):
     )  # OpenAI embedding size
 
     # Foreign Keys
-    repo_url: Mapped[str] = mapped_column(ForeignKey("repos.url"))
+    repo_path: Mapped[str] = mapped_column(ForeignKey("repos.path"))
 
     # Relationships
     repo: Mapped["SQLRepo"] = relationship(
-        "SQLRepo", back_populates="commits", foreign_keys=[repo_url]
+        "SQLRepo", back_populates="commits", foreign_keys=[repo_path]
     )
     branches: Mapped[List["SQLBranch"]] = relationship(
         "SQLBranch", secondary="commits_branches", back_populates="commits"
@@ -189,7 +188,7 @@ class SQLRepo(Base):
 
     __tablename__ = "repos"
 
-    url: Mapped[str] = mapped_column(primary_key=True)
+    path: Mapped[str] = mapped_column(primary_key=True)
 
     # Foreign Keys
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
@@ -197,10 +196,10 @@ class SQLRepo(Base):
     # Relationships
     users: Mapped[List["SQLUser"]] = relationship("SQLUser", back_populates="repos")
     branches: Mapped[List["SQLBranch"]] = relationship(
-        "SQLBranch", back_populates="repo", foreign_keys="[SQLBranch.repo_url]"
+        "SQLBranch", back_populates="repo", foreign_keys="[SQLBranch.repo_path]"
     )
     commits: Mapped[List["SQLCommit"]] = relationship(
-        "SQLCommit", back_populates="repo", foreign_keys="[SQLCommit.repo_url]"
+        "SQLCommit", back_populates="repo", foreign_keys="[SQLCommit.repo_path]"
     )
 
 

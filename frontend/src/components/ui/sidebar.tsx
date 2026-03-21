@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 "use client";
 
 import * as React from "react";
@@ -25,12 +26,28 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const SIDEBAR_COOKIE_NAME = "sidebar_state";
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+const SIDEBAR_STORAGE_KEY = "git-odyssey.sidebar_state";
 const SIDEBAR_WIDTH = "20rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+
+function getStoredSidebarState(defaultOpen: boolean) {
+	if (typeof window === "undefined") {
+		return defaultOpen;
+	}
+
+	try {
+		const storedState = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+		if (storedState === null) {
+			return defaultOpen;
+		}
+
+		return storedState === "true";
+	} catch {
+		return defaultOpen;
+	}
+}
 
 type SidebarContextProps = {
 	state: "expanded" | "collapsed";
@@ -71,7 +88,9 @@ function SidebarProvider({
 
 	// This is the internal state of the sidebar.
 	// We use openProp and setOpenProp for control from outside the component.
-	const [_open, _setOpen] = React.useState(defaultOpen);
+	const [_open, _setOpen] = React.useState(() =>
+		getStoredSidebarState(defaultOpen)
+	);
 	const open = openProp ?? _open;
 	const setOpen = React.useCallback(
 		(value: boolean | ((value: boolean) => boolean)) => {
@@ -82,8 +101,11 @@ function SidebarProvider({
 				_setOpen(openState);
 			}
 
-			// This sets the cookie to keep the sidebar state.
-			document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+			try {
+				window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(openState));
+			} catch {
+				// Ignore local storage failures and keep the in-memory state.
+			}
 		},
 		[setOpenProp, open]
 	);

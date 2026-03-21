@@ -1,16 +1,11 @@
 import { useState, useCallback, useEffect } from "react";
-import { api } from "@/axios";
+import { sendChatMessage } from "@/api/api";
 import type { ChatMessage, Citation } from "@/lib/definitions/chat";
 import type { Commit } from "@/lib/definitions/repo";
-
-interface APIResponse {
-	response: string;
-	cited_commits: Citation[];
-}
+import { getRepoStableKey } from "@/lib/repoPaths";
 
 export interface UseChatProps {
-	owner?: string;
-	repoName?: string;
+	repoPath?: string | null;
 	filteredCommits?: Commit[];
 }
 
@@ -26,15 +21,14 @@ export interface UseChatReturn {
 }
 
 export const useChat = ({
-	owner,
-	repoName,
+	repoPath,
 	filteredCommits = [],
 }: UseChatProps): UseChatReturn => {
 	// Generate a unique storage key based on repository
 	const getStorageKey = useCallback(() => {
-		if (!owner || !repoName) return null;
-		return `git-odyssey-chat-${owner}-${repoName}`;
-	}, [owner, repoName]);
+		if (!repoPath) return null;
+		return `git-odyssey-chat-${getRepoStableKey(repoPath)}`;
+	}, [repoPath]);
 
 	// Load messages from localStorage on initialization
 	const loadMessagesFromStorage = useCallback((): ChatMessage[] => {
@@ -99,9 +93,10 @@ export const useChat = ({
 
 	// Load messages from localStorage when the hook initializes or repository changes
 	useEffect(() => {
-		// Only load if we have both owner and repoName
-		if (!owner || !repoName) {
-			console.log("Skipping chat message loading - missing owner or repoName");
+		if (!repoPath) {
+			console.log("Skipping chat message loading - missing repoPath");
+			setChatMessages([]);
+			setIsInitialized(false);
 			return;
 		}
 
@@ -112,17 +107,16 @@ export const useChat = ({
 		// Debug logging to confirm loading
 		if (messages.length > 0) {
 			console.log(
-				`Loaded ${messages.length} chat messages for ${owner}/${repoName}`
+				`Loaded ${messages.length} chat messages for ${repoPath}`
 			);
 		}
-	}, [loadMessagesFromStorage, owner, repoName]);
+	}, [loadMessagesFromStorage, repoPath]);
 
 	// Save messages to localStorage whenever chatMessages changes
 	useEffect(() => {
-		// Only save if we have both owner and repoName and we've been initialized
-		if (!owner || !repoName || !isInitialized) {
+		if (!repoPath || !isInitialized) {
 			console.log(
-				"Skipping chat message saving - missing owner, repoName, or not initialized"
+				"Skipping chat message saving - missing repoPath or not initialized"
 			);
 			return;
 		}
@@ -137,13 +131,13 @@ export const useChat = ({
 
 		// Debug logging to confirm saving
 		console.log(
-			`Saved ${chatMessages.length} chat messages for ${owner}/${repoName}`
+			`Saved ${chatMessages.length} chat messages for ${repoPath}`
 		);
-	}, [chatMessages, saveMessagesToStorage, owner, repoName, isInitialized]);
+	}, [chatMessages, saveMessagesToStorage, repoPath, isInitialized]);
 
 	const sendMessage = useCallback(
 		async (message: string) => {
-			if (!owner || !repoName) return;
+			if (!repoPath) return;
 
 			setIsChatLoading(true);
 			setChatError(null);
@@ -162,13 +156,9 @@ export const useChat = ({
 			const contextShas = filteredCommits.map((commit) => commit.sha);
 
 			try {
-				const response = await api.post<APIResponse>("/chat", {
-					query: message,
-					context_shas: contextShas,
-				});
-
-				const citedCommits = response.data.cited_commits || [];
-				console.log("Full API response:", response.data);
+				const response = await sendChatMessage(message, contextShas);
+				const citedCommits = response.cited_commits || [];
+				console.log("Full API response:", response);
 				console.log("Cited commits raw data:", citedCommits);
 				console.log(
 					`AI response received with ${citedCommits.length} cited commits:`,
@@ -186,7 +176,7 @@ export const useChat = ({
 				const aiMessage: ChatMessage = {
 					id: (Date.now() + 1).toString(),
 					role: "assistant",
-					content: response.data.response,
+					content: response.response,
 					timestamp: new Date(),
 					citedCommits: citedCommits,
 				};
@@ -201,7 +191,7 @@ export const useChat = ({
 				setIsChatLoading(false);
 			}
 		},
-		[owner, repoName, filteredCommits]
+		[repoPath, filteredCommits]
 	);
 
 	const clearMessages = useCallback(() => {
@@ -211,10 +201,10 @@ export const useChat = ({
 		if (storageKey) {
 			localStorage.removeItem(storageKey);
 			console.log(
-				`Cleared chat messages from localStorage for ${owner}/${repoName}`
+				`Cleared chat messages from localStorage for ${repoPath}`
 			);
 		}
-	}, [getStorageKey, owner, repoName]);
+	}, [getStorageKey, repoPath]);
 
 	const clearError = useCallback(() => {
 		setChatError(null);
@@ -238,9 +228,9 @@ export const useChat = ({
 		const messages = loadMessagesFromStorage();
 		setChatMessages(messages);
 		console.log(
-			`Manually reloaded ${messages.length} chat messages for ${owner}/${repoName}`
+			`Manually reloaded ${messages.length} chat messages for ${repoPath}`
 		);
-	}, [loadMessagesFromStorage, owner, repoName]);
+	}, [loadMessagesFromStorage, repoPath]);
 
 	return {
 		chatMessages,

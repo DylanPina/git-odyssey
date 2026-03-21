@@ -1,24 +1,26 @@
+from datetime import datetime
 from typing import Generator
-from sqlalchemy.orm import Session
-import infrastructure.db as db
-from infrastructure.settings import Settings
 from functools import lru_cache
-from core.embedder import GeminiEmbedder, OpenAIEmbedder
+from fastapi import Depends
+from openai import OpenAI
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+
+import infrastructure.db as db
 from core.ai import AIEngine
-from core.writer import Writer
+from core.embedder import OpenAIEmbedder
 from core.retriever import Retriever
-from services.chat_service import ChatService
-from services.summarize_service import SummarizeService
-from services.ingest_service import IngestService
-from services.repo_service import RepoService
-from services.filter_service import FilterService
-from fastapi import Request, Depends, HTTPException
-from data.schema import SQLUser
+from core.writer import Writer
 from data.adapter import DatabaseAdapter
 from data.data_model import User
-import jwt
-import time
-import httpx
+from data.schema import SQLUser
+from infrastructure.errors import MissingConfigurationError
+from infrastructure.settings import Settings
+from services.chat_service import ChatService
+from services.filter_service import FilterService
+from services.ingest_service import IngestService
+from services.repo_service import RepoService
+from services.summarize_service import SummarizeService
 
 
 # Infrastructure
@@ -43,82 +45,81 @@ def get_settings() -> Settings:
 
 
 def get_current_user(
-    request: Request,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
     db_adapter: DatabaseAdapter = Depends(get_db_adapter),
 ) -> User:
-    token = request.cookies.get("session_token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    return get_or_create_desktop_user(
+        session=session, settings=settings, db_adapter=db_adapter
+    )
 
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = session.query(SQLUser).filter(SQLUser.id == user_id).first()
+def get_or_create_desktop_user(
+    session: Session,
+    settings: Settings,
+    db_adapter: DatabaseAdapter,
+) -> User:
+    user = (
+        session.query(SQLUser)
+        .filter(SQLUser.id == settings.desktop_user_id)
+        .first()
+    )
+
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        now = datetime.now()
+        user = SQLUser(
+            id=settings.desktop_user_id,
+            username=settings.desktop_user_username,
+            email=settings.desktop_user_email,
+            api_credits_remaining=100,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(user)
+        try:
+            session.commit()
+            session.refresh(user)
+        except IntegrityError:
+            session.rollback()
+            user = (
+                session.query(SQLUser)
+                .filter(SQLUser.id == settings.desktop_user_id)
+                .first()
+            )
+            if not user:
+                raise
 
     return db_adapter.parse_sql_user(user)
-
-
-async def get_installation_token(
-    current_user: User = Depends(get_current_user),
-    settings: Settings = Depends(get_settings),
-) -> str:
-    """FastAPI dependency to get GitHub installation access token for current user."""
-    if not current_user.installation_id:
-        raise HTTPException(
-            status_code=400,
-            detail="User has no GitHub App installation. Please install the app first.",
-        )
-
-    # Create App JWT for GitHub API authentication
-    now = int(time.time())
-    app_jwt_payload = {
-        "iat": now - 60,
-        "exp": now + (10 * 60) - 60,
-        "iss": settings.github_app_id,
-    }
-    app_jwt = jwt.encode(
-        app_jwt_payload, settings.github_app_private_key, algorithm="RS256")
-
-    # Request installation access token from GitHub
-    headers = {
-        "Authorization": f"Bearer {app_jwt}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"https://api.github.com/app/installations/{current_user.installation_id}/access_tokens",
-            headers=headers,
-        )
-        response.raise_for_status()
-        return response.json()["token"]
-
 
 # Core Components
 
 
 @lru_cache(maxsize=1)
-def get_gemini_embedder() -> GeminiEmbedder:
-    return GeminiEmbedder()
+def get_openai_client() -> OpenAI:
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise MissingConfigurationError(
+            "OpenAI API key is not configured. Save it in desktop settings before using AI features."
+        )
+    return OpenAI(api_key=settings.openai_api_key)
 
 
 @lru_cache(maxsize=1)
 def get_openai_embedder() -> OpenAIEmbedder:
-    return OpenAIEmbedder()
+    settings = get_settings()
+    return OpenAIEmbedder(
+        client=get_openai_client(),
+        model=settings.openai_embedding_model,
+    )
 
 
 @lru_cache(maxsize=1)
 def get_ai_engine() -> AIEngine:
-    return AIEngine()
+    settings = get_settings()
+    return AIEngine(
+        client=get_openai_client(),
+        model=settings.openai_text_model,
+    )
 
 
 def get_writer(

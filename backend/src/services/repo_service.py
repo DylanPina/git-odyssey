@@ -1,7 +1,8 @@
-from data.schema import SQLBranch, SQLCommit, SQLFileChange, SQLFileSnapshot
+from data.schema import SQLBranch, SQLCommit, SQLFileChange, SQLFileSnapshot, SQLRepo
 from sqlalchemy.orm import Session, selectinload
 from data.adapter import DatabaseAdapter
 from api.api_model import RepoResponse, CommitResponse, CommitsResponse
+from fastapi import HTTPException
 
 
 class RepoService:
@@ -9,38 +10,47 @@ class RepoService:
         self.session = session
         self.db_adapter = db_adapter
 
-    def get_repo(self, url: str) -> RepoResponse:
-        branches_query = (
-            self.session.query(SQLBranch)
-            .filter(SQLBranch.repo_url == url)
-            .join(SQLBranch.commits)
+    def has_repo(self, repo_path: str) -> bool:
+        return (
+            self.session.query(SQLRepo.path).filter(SQLRepo.path == repo_path).first()
+            is not None
         )
-        branches = branches_query.all()
 
-        commits_query = self.session.query(SQLCommit).filter(SQLCommit.repo_url == url)
-        commits = commits_query.all()
+    def get_repo(self, repo_path: str) -> RepoResponse | None:
+        repo = (
+            self.session.query(SQLRepo)
+            .filter(SQLRepo.path == repo_path)
+            .options(
+                selectinload(SQLRepo.branches).selectinload(SQLBranch.commits),
+                selectinload(SQLRepo.commits),
+            )
+            .first()
+        )
+        if repo is None:
+            return None
 
         return RepoResponse(
-            repo_url=url,
-            branches=[self.db_adapter.parse_sql_branch(b) for b in branches],
+            repo_path=repo.path,
+            branches=[self.db_adapter.parse_sql_branch(branch) for branch in repo.branches],
             commits=[
-                self.db_adapter.parse_sql_commit(c, compressed=True) for c in commits
+                self.db_adapter.parse_sql_commit(commit, compressed=True)
+                for commit in repo.commits
             ],
         )
 
-    def get_commits(self, url: str) -> CommitsResponse:
+    def get_commits(self, repo_path: str) -> CommitsResponse:
         commits_query = (
-            self.session.query(SQLCommit).filter(SQLCommit.repo_url == url).all()
+            self.session.query(SQLCommit).filter(SQLCommit.repo_path == repo_path).all()
         )
 
         return CommitsResponse(
             commits=[self.db_adapter.parse_sql_commit(c) for c in commits_query]
         )
 
-    def get_commit(self, url: str, sha: str) -> CommitResponse:
+    def get_commit(self, repo_path: str, sha: str) -> CommitResponse:
         commit = (
             self.session.query(SQLCommit)
-            .filter(SQLCommit.repo_url == url, SQLCommit.sha == sha)
+            .filter(SQLCommit.repo_path == repo_path, SQLCommit.sha == sha)
             .options(
                 selectinload(SQLCommit.file_changes).selectinload(SQLFileChange.hunks),
                 selectinload(SQLCommit.file_changes)
@@ -49,5 +59,7 @@ class RepoService:
             )
             .first()
         )
+        if commit is None:
+            raise HTTPException(status_code=404, detail="Commit not found")
 
         return CommitResponse(commit=self.db_adapter.parse_sql_commit(commit))

@@ -1,0 +1,13 @@
+{
+  "name": "git-odyssey",
+  "private": true,
+  "scripts": {
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "frontend:lint": "npm --prefix frontend run lint",
+    "backend:test": "PYTHONPATH=backend/src python3 -m unittest discover -s backend/tests",
+    "desktop:dev": "npm --prefix desktop run dev",
+    "desktop:build": "npm --prefix desktop run build",
+    "desktop:smoke": "npm --prefix desktop run smoke"
+  }
+}

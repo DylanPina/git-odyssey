@@ -33,6 +33,19 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# Node dependencies
+node_modules/
+desktop/node_modules/
+
+# Desktop packaging outputs
+desktop/release/
+desktop/dist/
+desktop/out/
+desktop/*.dmg
+desktop/*.zip
+desktop/*.blockmap
+frontend/dist/
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
@@ -219,7 +232,7 @@ repo.git
 backend/src/core/repos/
 backend/src/core/repos/
 
- Terraform local directories
+# Terraform local directories
 .terraform/
 
 # Terraform state files

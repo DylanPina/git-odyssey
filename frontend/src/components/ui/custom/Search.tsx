@@ -6,17 +6,24 @@ import { filterCommits } from "@/api/api";
 import { toast } from "react-toastify";
 
 interface SearchProps {
-  repoUrl?: string;
+  repoPath?: string;
   onSearchResults?: (commitShas: string[], query?: string) => void;
 }
 
-export default function Search({ repoUrl = "", onSearchResults }: SearchProps) {
+export default function Search({ repoPath = "", onSearchResults }: SearchProps) {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSearch = async () => {
     if (!query.trim()) {
       toast.warning("Please enter a search query", {
+        theme: "dark",
+      });
+      return;
+    }
+
+    if (!repoPath) {
+      toast.warning("Choose a Git project first.", {
         theme: "dark",
       });
       return;
@@ -35,7 +42,7 @@ export default function Search({ repoUrl = "", onSearchResults }: SearchProps) {
           startDate: "",
           endDate: "",
         },
-        repoUrl,
+        repoPath,
       );
 
       const { commit_shas } = response;

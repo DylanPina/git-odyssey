@@ -1,8 +1,21 @@
-from core.embedder import OpenAIEmbedder
-from core.repo import Repo
+import os
 import time
 
-embedder = OpenAIEmbedder()
+from openai import OpenAI
+
+from core.embedder import OpenAIEmbedder
+from core.repo import Repo
+
+
+def get_embedder() -> OpenAIEmbedder:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Set OPENAI_API_KEY before running this smoke test.")
+
+    return OpenAIEmbedder(client=OpenAI(api_key=api_key))
+
+
+embedder = get_embedder()
 
 print("Testing single Embedding")
 print(embedder.embed_query("What is the meaning of life?"))

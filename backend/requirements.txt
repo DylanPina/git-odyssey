@@ -12,18 +12,14 @@ typing-inspection==0.4.1
 
 # Git
 pygit2==1.18.2
-PyGithub==2.1.1
 
 # Database
 sqlalchemy
 psycopg2-binary
 pgvector
 
-# AI/LangChain
-langchain-core
-langchain-openai
-langchain-google-genai
-google-genai
+# AI
+openai
 
 # Low-level dependencies
 cffi==2.0.0
@@ -33,13 +29,5 @@ pycparser==2.22
 python-dotenv
 pydantic-settings
 
-# OAuth
-authlib[starlette]
-itsdangerous
-
-# HTTP and JWT
+# HTTP client + test support
 httpx
-pyjwt
-
-# AWS
-boto3
