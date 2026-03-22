@@ -275,7 +275,6 @@ function RepoWorkspace() {
 										isLoading={isLoading}
 										isIngesting={isIngesting}
 										ingestStatus={ingestStatus}
-										onCommitClick={handleCommitClick}
 										onCommitSummaryUpdate={handleCommitSummaryUpdate}
 									/>
 								)}

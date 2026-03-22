@@ -295,12 +295,14 @@
     transition:
       border-color 150ms ease,
       background-color 150ms ease,
-      box-shadow 150ms ease;
+      box-shadow 150ms ease,
+      transform 150ms ease;
   }
 
-  .commit-list-row:hover {
+  .commit-list-row:hover:not([data-selected="true"]),
+  .commit-list-row:focus-visible:not([data-selected="true"]) {
     border-color: var(--border-strong);
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .commit-list-row[data-selected="true"] {
@@ -312,9 +314,24 @@
   }
 
   .commit-list-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    column-gap: 0.35rem;
+    row-gap: 0.2rem;
+  }
+
+  .commit-list-open-icon {
+    color: var(--text-tertiary);
+    opacity: 0.3;
+    transition:
+      opacity 150ms ease,
+      color 150ms ease,
+      transform 150ms ease;
+  }
+
+  .commit-list-row:hover .commit-list-open-icon,
+  .commit-list-row:focus-visible .commit-list-open-icon {
+    color: var(--text-primary);
+    opacity: 0.95;
+    transform: translate(1px, -1px);
   }
 
   .commit-summary-icon-active {
