@@ -1,25 +1,32 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
 
-import {
-  saveDesktopAiConfig,
-  validateDesktopAiConfig,
-} from "@/api/api";
+import { saveDesktopAiConfig, validateDesktopAiConfig } from "@/api/api";
 import { Button } from "@/components/ui/button";
+import { InlineBanner } from "@/components/ui/inline-banner";
 import { Input } from "@/components/ui/input";
+import { PanelHeader } from "@/components/ui/panel-header";
+import { StatusPill } from "@/components/ui/status-pill";
 import type {
   AIRuntimeConfig,
   AuthMode,
+  DesktopAiValidationResult,
   DesktopHealthStatus,
   DesktopSettingsStatus,
-  DesktopAiValidationResult,
   ProviderType,
 } from "@/lib/definitions/desktop";
+import { cn } from "@/lib/utils";
 
 type DesktopSetupCardProps = {
   desktopSettingsStatus: DesktopSettingsStatus | null;
   desktopHealth: DesktopHealthStatus | null;
   onCredentialsSaved: () => Promise<void>;
+  header?: {
+    eyebrow?: string;
+    title?: ReactNode;
+    description?: ReactNode;
+  };
+  className?: string;
 };
 
 type CapabilityHealthPillProps = {
@@ -57,12 +64,15 @@ function buildApiKeySecretRef(
 
 function HealthPill({ label, summary, healthy }: CapabilityHealthPillProps) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left">
-      <div className="text-xs uppercase tracking-[0.2em] text-white/40">
-        {label}
-      </div>
-      <div className={healthy ? "text-emerald-300" : "text-amber-300"}>
-        {summary}
+    <div className="workspace-panel space-y-3 px-4 py-4 text-left">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="workspace-section-label">{label}</div>
+          <div className="text-sm leading-6 text-text-primary">{summary}</div>
+        </div>
+        <StatusPill tone={healthy ? "success" : "warning"}>
+          {healthy ? "Ready" : "Check"}
+        </StatusPill>
       </div>
     </div>
   );
@@ -79,11 +89,16 @@ function getProfile(
   return config.profiles.find((profile) => profile.id === profileId) ?? null;
 }
 
-function buildInitialState(config: AIRuntimeConfig | null | undefined): SetupFormState {
+function buildInitialState(
+  config: AIRuntimeConfig | null | undefined
+): SetupFormState {
   const textBinding = config?.capabilities.text_generation;
   const textProfile = getProfile(config, textBinding?.provider_profile_id);
   const embeddingsBinding = config?.capabilities.embeddings ?? null;
-  const embeddingsProfile = getProfile(config, embeddingsBinding?.provider_profile_id);
+  const embeddingsProfile = getProfile(
+    config,
+    embeddingsBinding?.provider_profile_id
+  );
 
   return {
     text: {
@@ -116,8 +131,12 @@ function buildProfileConfig(
   return {
     id,
     provider_type: form.providerType,
-    label: form.providerType === "openai" ? "OpenAI" : form.label.trim() || "Custom Provider",
-    base_url: form.providerType === "openai" ? OPENAI_BASE_URL : form.baseUrl.trim(),
+    label:
+      form.providerType === "openai"
+        ? "OpenAI"
+        : form.label.trim() || "Custom Provider",
+    base_url:
+      form.providerType === "openai" ? OPENAI_BASE_URL : form.baseUrl.trim(),
     auth_mode: form.providerType === "openai" ? "bearer" : form.authMode,
     api_key_secret_ref:
       form.providerType === "openai" || form.authMode === "bearer"
@@ -155,7 +174,10 @@ function buildAiConfigInput(state: SetupFormState) {
   );
   const profiles = [textProfile];
   const secretValues: Record<string, string> = {};
-  const textSecretRef = buildApiKeySecretRef(state.text.providerType, textProfileId);
+  const textSecretRef = buildApiKeySecretRef(
+    state.text.providerType,
+    textProfileId
+  );
 
   if (state.text.apiKey.trim()) {
     secretValues[textSecretRef] = state.text.apiKey.trim();
@@ -240,23 +262,12 @@ function validationSummary(
     return null;
   }
 
-  const healthy = result.ready;
   return (
-    <div
-      className={
-        healthy
-          ? "rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
-          : "rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
-      }
-    >
-      <div className="flex items-center gap-2 font-medium">
-        {healthy && <CheckCircle2 className="h-4 w-4" />}
-        <span>{title}</span>
-      </div>
-      <p className="mt-1 text-xs opacity-90">
-        {result.message ?? "No validation details were returned."}
-      </p>
-    </div>
+    <InlineBanner
+      tone={result.ready ? "success" : "warning"}
+      title={title}
+      description={result.message ?? "No validation details were returned."}
+    />
   );
 }
 
@@ -278,23 +289,27 @@ function CapabilityFields({
   const isCompatible = value.providerType === "openai_compatible";
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-950/50 p-4">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-white">{title}</h3>
-        <p className="mt-1 text-sm text-white/55">{description}</p>
-      </div>
+    <section className="workspace-panel space-y-4 p-4">
+      <PanelHeader
+        title={title}
+        description={description}
+        actions={
+          <StatusPill tone={isCompatible ? "warning" : "accent"}>
+            {isCompatible ? "Custom endpoint" : "OpenAI defaults"}
+          </StatusPill>
+        }
+      />
 
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="text-sm text-white/70">
-          Provider
+        <label className="space-y-1.5 text-sm text-text-secondary">
+          <span>Provider</span>
           <select
-            className="mt-1 w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-white outline-none"
+            className="workspace-native-select"
             value={value.providerType}
             onChange={(event) =>
               onChange({
                 providerType: event.target.value as ProviderType,
-                label:
-                  event.target.value === "openai" ? "OpenAI" : value.label,
+                label: event.target.value === "openai" ? "OpenAI" : value.label,
                 baseUrl:
                   event.target.value === "openai"
                     ? OPENAI_BASE_URL
@@ -309,57 +324,53 @@ function CapabilityFields({
           </select>
         </label>
 
-        <label className="text-sm text-white/70">
-          Model Id
+        <label className="space-y-1.5 text-sm text-text-secondary">
+          <span>Model ID</span>
           <Input
             value={value.modelId}
             onChange={(event) => onChange({ modelId: event.target.value })}
             placeholder="gpt-5.4-mini"
-            className="mt-1"
           />
         </label>
 
-        {showTemperature && (
-          <label className="text-sm text-white/70">
-            Temperature
+        {showTemperature ? (
+          <label className="space-y-1.5 text-sm text-text-secondary">
+            <span>Temperature</span>
             <Input
               value={value.temperature ?? "0.2"}
               onChange={(event) => onChange({ temperature: event.target.value })}
               placeholder="0.2"
-              className="mt-1"
             />
           </label>
-        )}
+        ) : null}
 
-        {isCompatible && (
-          <label className="text-sm text-white/70">
-            Label
+        {isCompatible ? (
+          <label className="space-y-1.5 text-sm text-text-secondary">
+            <span>Label</span>
             <Input
               value={value.label}
               onChange={(event) => onChange({ label: event.target.value })}
               placeholder="Local LLM"
-              className="mt-1"
             />
           </label>
-        )}
+        ) : null}
 
-        {isCompatible && (
-          <label className="text-sm text-white/70 md:col-span-2">
-            Base URL
+        {isCompatible ? (
+          <label className="space-y-1.5 text-sm text-text-secondary md:col-span-2">
+            <span>Base URL</span>
             <Input
               value={value.baseUrl}
               onChange={(event) => onChange({ baseUrl: event.target.value })}
               placeholder="http://127.0.0.1:11434"
-              className="mt-1"
             />
           </label>
-        )}
+        ) : null}
 
-        {isCompatible && (
-          <label className="text-sm text-white/70">
-            Auth Mode
+        {isCompatible ? (
+          <label className="space-y-1.5 text-sm text-text-secondary">
+            <span>Auth Mode</span>
             <select
-              className="mt-1 w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-white outline-none"
+              className="workspace-native-select"
               value={value.authMode}
               onChange={(event) =>
                 onChange({ authMode: event.target.value as AuthMode })
@@ -369,29 +380,27 @@ function CapabilityFields({
               <option value="none">No auth</option>
             </select>
           </label>
-        )}
+        ) : null}
 
-        {(value.providerType === "openai" || value.authMode === "bearer") && (
-          <label className="text-sm text-white/70 md:col-span-2">
-            API Key
+        {value.providerType === "openai" || value.authMode === "bearer" ? (
+          <label className="space-y-1.5 text-sm text-text-secondary md:col-span-2">
+            <span>API Key</span>
             <Input
               type="password"
               value={value.apiKey}
               onChange={(event) => onChange({ apiKey: event.target.value })}
               placeholder="Leave blank to reuse the saved key during validation and save"
-              className="mt-1"
             />
           </label>
-        )}
+        ) : null}
       </div>
 
-      {showDisableHint && (
-        <p className="mt-3 text-xs text-white/45">
-          GitOdyssey expects an OpenAI-style `/v1/responses` endpoint for chat and
-          summaries, plus `/v1/embeddings` for semantic search when embeddings are enabled.
+      {showDisableHint ? (
+        <p className="text-xs leading-5 text-text-tertiary">
+          GitOdyssey expects an OpenAI-style <code>/v1/responses</code> endpoint for chat and summaries, plus <code>/v1/embeddings</code> for semantic search when embeddings are enabled.
         </p>
-      )}
-    </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -399,6 +408,8 @@ export function DesktopSetupCard({
   desktopSettingsStatus,
   desktopHealth,
   onCredentialsSaved,
+  header,
+  className,
 }: DesktopSetupCardProps) {
   const [formState, setFormState] = useState<SetupFormState>(() =>
     buildInitialState(desktopSettingsStatus?.aiRuntimeConfig)
@@ -460,9 +471,7 @@ export function DesktopSetupCard({
       }
 
       await saveDesktopAiConfig(input);
-      setFeedback(
-        "AI configuration saved locally. Restarting local services..."
-      );
+      setFeedback("AI configuration saved locally. Restarting local services...");
       setFormState((current) => ({
         ...current,
         text: { ...current.text, apiKey: "" },
@@ -481,18 +490,20 @@ export function DesktopSetupCard({
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl rounded-[2rem] border border-white/15 bg-slate-950/70 p-6 text-left shadow-2xl backdrop-blur-xl">
-      <div className="mb-5">
-        <div className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">
-          Local Desktop Setup
-        </div>
-        <h2 className="mt-2 text-3xl font-semibold text-white">
-          Configure AI by capability
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm text-white/60">
-          Authentication now means the local desktop backend is reachable. AI readiness is configured separately for chat, summaries, and semantic search.
-        </p>
-      </div>
+    <div className={cn("workspace-panel-elevated space-y-5 p-5 sm:p-6", className)}>
+      <PanelHeader
+        eyebrow={header?.eyebrow ?? "Local Desktop Setup"}
+        title={header?.title ?? "Configure AI by capability"}
+        description={
+          header?.description ??
+          "Authentication means the desktop backend is reachable. AI readiness is configured separately for chat, summaries, and semantic search."
+        }
+        actions={
+          <StatusPill tone={desktopHealth?.backend.state === "running" ? "success" : "warning"}>
+            Local runtime
+          </StatusPill>
+        }
+      />
 
       <form className="space-y-4" onSubmit={handleSave}>
         <CapabilityFields
@@ -509,31 +520,33 @@ export function DesktopSetupCard({
           showDisableHint
         />
 
-        <div className="rounded-3xl border border-white/10 bg-slate-950/50 p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-semibold text-white">Embeddings</h3>
-              <p className="mt-1 text-sm text-white/55">
-                Enable semantic search and retrieval with a provider that exposes `/v1/embeddings`.
-              </p>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-white/70">
-              <input
-                type="checkbox"
-                checked={formState.embeddingsEnabled}
-                onChange={(event) =>
-                  setFormState((current) => ({
-                    ...current,
-                    embeddingsEnabled: event.target.checked,
-                  }))
-                }
-              />
-              Enable semantic search
-            </label>
-          </div>
-        </div>
+        <section className="workspace-panel space-y-4 p-4">
+          <PanelHeader
+            title="Embeddings"
+            description="Enable semantic search and retrieval with a provider that exposes `/v1/embeddings`."
+            actions={
+              <StatusPill tone={formState.embeddingsEnabled ? "accent" : "neutral"}>
+                {formState.embeddingsEnabled ? "Enabled" : "Disabled"}
+              </StatusPill>
+            }
+          />
+          <label className="flex items-center gap-3 text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              className="workspace-checkbox"
+              checked={formState.embeddingsEnabled}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  embeddingsEnabled: event.target.checked,
+                }))
+              }
+            />
+            Enable semantic search
+          </label>
+        </section>
 
-        {formState.embeddingsEnabled && (
+        {formState.embeddingsEnabled ? (
           <CapabilityFields
             title="Semantic Search"
             description="Choose the embeddings endpoint GitOdyssey should use for repo indexing and retrieval."
@@ -545,33 +558,28 @@ export function DesktopSetupCard({
               }))
             }
           />
-        )}
+        ) : null}
 
-        <div className="flex flex-col gap-3 pt-1 sm:flex-row">
+        <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:flex-wrap">
           <Button
             type="button"
-            variant="outline"
+            variant="subtle"
             disabled={isValidating || isSaving}
             onClick={() => void runValidation()}
-            className="border-white/20 bg-transparent text-white hover:bg-white/10"
           >
             {isValidating ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
                 Validating
               </>
             ) : (
               "Validate Endpoints"
             )}
           </Button>
-          <Button
-            type="submit"
-            disabled={isSaving || isValidating}
-            className="bg-cyan-500 text-slate-950 hover:bg-cyan-300"
-          >
+          <Button type="submit" variant="accent" disabled={isSaving || isValidating}>
             {isSaving ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
                 Saving
               </>
             ) : (
@@ -580,82 +588,100 @@ export function DesktopSetupCard({
           </Button>
           <Button
             type="button"
-            variant="outline"
+            variant="toolbar"
             onClick={() => void onCredentialsSaved()}
-            className="border-white/20 bg-transparent text-white hover:bg-white/10"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="size-4" />
             Refresh Health
           </Button>
         </div>
       </form>
 
-      {feedback && <p className="mt-4 text-sm text-emerald-300">{feedback}</p>}
-      {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
+      {feedback ? <InlineBanner tone="success" title={feedback} /> : null}
+      {error ? <InlineBanner tone="danger" title={error} /> : null}
 
-      {validationResult && (
-        <div className="mt-5">
-          <p className="mb-3 text-xs uppercase tracking-[0.2em] text-white/45">
-            Draft Validation Results
-          </p>
+      {validationResult ? (
+        <section className="space-y-3">
+          <div className="workspace-section-label">Draft Validation Results</div>
           <div className="grid gap-3 md:grid-cols-2">
-          {validationSummary("Text generation validation", validationResult.text_generation)}
-          {formState.embeddingsEnabled &&
-            validationSummary("Embeddings validation", validationResult.embeddings)}
+            {validationSummary(
+              "Text generation validation",
+              validationResult.text_generation
+            )}
+            {formState.embeddingsEnabled
+              ? validationSummary(
+                  "Embeddings validation",
+                  validationResult.embeddings
+                )
+              : null}
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      <div className="mt-6">
-        <p className="mb-3 text-xs uppercase tracking-[0.2em] text-white/45">
-          Current Saved Runtime Health
-        </p>
-        <div className="grid gap-3 md:grid-cols-4">
-        <HealthPill
-          label="Chat"
-          summary={capabilitySummary(desktopHealth?.ai.textGeneration ?? desktopSettingsStatus?.ai.textGeneration)}
-          healthy={Boolean(desktopHealth?.ai.textGeneration.ready)}
-        />
-        <HealthPill
-          label="Embeddings"
-          summary={capabilitySummary(desktopHealth?.ai.embeddings ?? desktopSettingsStatus?.ai.embeddings)}
-          healthy={Boolean(
-            desktopHealth?.ai.embeddings.ready ||
-              desktopSettingsStatus?.ai.embeddings?.configured === false
-          )}
-        />
-        <HealthPill
-          label="Backend"
-          summary={desktopHealth?.backend.state ?? "unavailable"}
-          healthy={desktopHealth?.backend.state === "running"}
-        />
-        <HealthPill
-          label="Postgres"
-          summary={desktopHealth?.postgres.state ?? "unavailable"}
-          healthy={desktopHealth?.postgres.state === "running"}
-        />
+      <section className="space-y-3">
+        <div className="workspace-section-label">Current Saved Runtime Health</div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <HealthPill
+            label="Chat"
+            summary={capabilitySummary(
+              desktopHealth?.ai.textGeneration ??
+                desktopSettingsStatus?.ai.textGeneration
+            )}
+            healthy={Boolean(desktopHealth?.ai.textGeneration.ready)}
+          />
+          <HealthPill
+            label="Embeddings"
+            summary={capabilitySummary(
+              desktopHealth?.ai.embeddings ??
+                desktopSettingsStatus?.ai.embeddings
+            )}
+            healthy={Boolean(
+              desktopHealth?.ai.embeddings.ready ||
+                desktopSettingsStatus?.ai.embeddings?.configured === false
+            )}
+          />
+          <HealthPill
+            label="Backend"
+            summary={desktopHealth?.backend.state ?? "unavailable"}
+            healthy={desktopHealth?.backend.state === "running"}
+          />
+          <HealthPill
+            label="Postgres"
+            summary={desktopHealth?.postgres.state ?? "unavailable"}
+            healthy={desktopHealth?.postgres.state === "running"}
+          />
         </div>
-        <p className="mt-3 text-xs text-white/45">
+        <p className="text-xs leading-5 text-text-tertiary">
           These cards reflect the configuration currently saved and running in the local backend, not the unsaved draft above.
         </p>
-      </div>
+      </section>
 
       {(desktopHealth?.backend.message ||
         desktopHealth?.postgres.message ||
         desktopHealth?.ai.embeddings.reindexRequired) && (
-        <div className="mt-4 space-y-2 text-sm text-white/55">
-          {desktopHealth?.backend.message && (
-            <p>Backend: {desktopHealth.backend.message}</p>
-          )}
-          {desktopHealth?.postgres.message && (
-            <p>Postgres: {desktopHealth.postgres.message}</p>
-          )}
-          {desktopHealth?.ai.embeddings.reindexRequired && (
-            <p>
-              Semantic search needs a reindex because the active embeddings profile differs from the profile stored on at least one repo.
-            </p>
-          )}
-        </div>
+        <section className="space-y-3">
+          {desktopHealth?.backend.message ? (
+            <InlineBanner
+              tone="info"
+              title="Backend note"
+              description={desktopHealth.backend.message}
+            />
+          ) : null}
+          {desktopHealth?.postgres.message ? (
+            <InlineBanner
+              tone="info"
+              title="Postgres note"
+              description={desktopHealth.postgres.message}
+            />
+          ) : null}
+          {desktopHealth?.ai.embeddings.reindexRequired ? (
+            <InlineBanner
+              tone="warning"
+              title="Semantic search needs a reindex"
+              description="The active embeddings profile differs from the profile stored on at least one repository."
+            />
+          ) : null}
+        </section>
       )}
     </div>
   );

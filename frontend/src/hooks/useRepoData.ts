@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getRepo, ingestRepo } from "@/api/api";
+import { getDesktopRepoSettings, getRepo, ingestRepo } from "@/api/api";
+import type { DesktopRepoSettings } from "@/lib/definitions/desktop";
 import type { Branch, Commit } from "@/lib/definitions/repo";
 import { getRepoStableKey } from "@/lib/repoPaths";
 import { repoCache } from "@/utils/repoCache";
-
-const MAX_COMMITS = 50;
-const CONTEXT_LINES = 3;
 
 type UseRepoDataArgs = {
   repoPath?: string | null;
@@ -54,7 +52,11 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
   }, [repoPath]);
 
   const updateRepoState = useCallback(
-    (nextCommits: Commit[], nextBranches: Branch[]) => {
+    (
+      nextCommits: Commit[],
+      nextBranches: Branch[],
+      repoSettings: DesktopRepoSettings
+    ) => {
       setCommits(nextCommits);
       setBranches(nextBranches);
 
@@ -63,17 +65,31 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
           commits: nextCommits,
           branches: nextBranches,
           timestamp: Date.now(),
+          repoSettings,
         });
       }
     },
     [cacheKey]
   );
 
+  const loadRepoSettings = useCallback(async (): Promise<DesktopRepoSettings> => {
+    if (!repoPath) {
+      throw new Error("Repository settings require a repository path.");
+    }
+
+    return getDesktopRepoSettings(repoPath);
+  }, [repoPath]);
+
   const ingestRepository = useCallback(
-    async (force: boolean = false): Promise<boolean> => {
+    async (
+      force: boolean = false,
+      repoSettings?: DesktopRepoSettings
+    ): Promise<boolean> => {
       if (!repoPath) {
         return false;
       }
+
+      const activeRepoSettings = repoSettings ?? (await loadRepoSettings());
 
       setIsIngesting(true);
       setError(null);
@@ -82,10 +98,15 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
       );
 
       try {
-        const data = await ingestRepo(repoPath, MAX_COMMITS, CONTEXT_LINES, force);
+        const data = await ingestRepo(
+          repoPath,
+          activeRepoSettings.maxCommits,
+          activeRepoSettings.contextLines,
+          force
+        );
         const fetchedCommits = (data?.commits ?? []) as Commit[];
         const fetchedBranches = (data?.branches ?? []) as Branch[];
-        updateRepoState(fetchedCommits, fetchedBranches);
+        updateRepoState(fetchedCommits, fetchedBranches, activeRepoSettings);
         setIngestStatus(
           force ? "Repository refreshed successfully." : "Repository indexed successfully."
         );
@@ -97,36 +118,41 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
         setIsIngesting(false);
       }
     },
-    [repoPath, updateRepoState]
+    [loadRepoSettings, repoPath, updateRepoState]
   );
 
-  const getRepository = useCallback(async (): Promise<boolean> => {
-    if (!repoPath) {
-      return false;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await getRepo(repoPath);
-      const fetchedCommits = response.commits as Commit[];
-      const fetchedBranches = response.branches as Branch[];
-      updateRepoState(fetchedCommits, fetchedBranches);
-      return true;
-    } catch (fetchError: unknown) {
-      if (isRepoMissingError(fetchError)) {
+  const getRepository = useCallback(
+    async (repoSettings?: DesktopRepoSettings): Promise<boolean> => {
+      if (!repoPath) {
         return false;
       }
 
-      setCommits([]);
-      setBranches([]);
-      setError(getErrorMessage(fetchError));
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [repoPath, updateRepoState]);
+      const activeRepoSettings = repoSettings ?? (await loadRepoSettings());
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const response = await getRepo(repoPath, activeRepoSettings);
+        const fetchedCommits = response.commits as Commit[];
+        const fetchedBranches = response.branches as Branch[];
+        updateRepoState(fetchedCommits, fetchedBranches, activeRepoSettings);
+        return true;
+      } catch (fetchError: unknown) {
+        if (isRepoMissingError(fetchError)) {
+          return false;
+        }
+
+        setCommits([]);
+        setBranches([]);
+        setError(getErrorMessage(fetchError));
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [loadRepoSettings, repoPath, updateRepoState]
+  );
 
   const load = useCallback(
     async ({ force = false }: RefreshOptions = {}) => {
@@ -138,30 +164,56 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
         return;
       }
 
-      if (force) {
-        repoCache.clear(cacheKey);
-        await ingestRepository(true);
-        return;
-      }
+      try {
+        const repoSettings = await loadRepoSettings();
 
-      const cached = repoCache.get(cacheKey);
-      if (cached && repoCache.isValid(cached)) {
-        setCommits(cached.commits);
-        setBranches(cached.branches);
-        setError(null);
-        const exists = await getRepository();
-        if (!exists) {
-          await ingestRepository(false);
+        if (force) {
+          repoCache.clear(cacheKey);
+          await ingestRepository(true, repoSettings);
+          return;
         }
-        return;
-      }
 
-      const exists = await getRepository();
-      if (!exists) {
-        await ingestRepository(false);
+        const cached = repoCache.get(cacheKey);
+        if (
+          cached &&
+          repoCache.isValid(cached) &&
+          repoCache.matchesSettings(cached, repoSettings)
+        ) {
+          setCommits(cached.commits);
+          setBranches(cached.branches);
+          setError(null);
+          const exists = await getRepository(repoSettings);
+          if (!exists) {
+            await ingestRepository(false, repoSettings);
+          }
+          return;
+        }
+
+        if (cached && repoCache.isValid(cached)) {
+          repoCache.clear(cacheKey);
+          await ingestRepository(true, repoSettings);
+          return;
+        }
+
+        const exists = await getRepository(repoSettings);
+        if (!exists) {
+          await ingestRepository(false, repoSettings);
+        }
+      } catch (loadError) {
+        setCommits([]);
+        setBranches([]);
+        setError(getErrorMessage(loadError));
+        setIsLoading(false);
+        setIsIngesting(false);
       }
     },
-    [cacheKey, repoPath, getRepository, ingestRepository]
+    [
+      cacheKey,
+      getRepository,
+      ingestRepository,
+      loadRepoSettings,
+      repoPath,
+    ]
   );
 
   useEffect(() => {

@@ -1,113 +1,208 @@
 import {
-	Sidebar,
-	SidebarContent,
-	SidebarFooter,
-	SidebarHeader,
-	SidebarMenu,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+  SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { MessageCircle, Search, Settings as SettingsIcon } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+
 import Filters from "@/components/ui/custom/Filters";
 import Chat from "@/components/ui/custom/Chat";
-import type { Commit, Branch } from "@/lib/definitions/repo";
-import type { ChatMessage } from "@/lib/definitions/chat";
 import SearchResults from "@/components/ui/custom/SearchResults";
+import type { ChatMessage } from "@/lib/definitions/chat";
+import type { Branch, Commit } from "@/lib/definitions/repo";
 import type { FilterFormData } from "@/lib/filter-utils";
-import { Search, MessageCircle } from "lucide-react";
 import { useSidebarTab, type SidebarTab } from "@/hooks/useSidebarTab";
+import { buildSettingsRoute } from "@/lib/repoPaths";
+
+type RepoSidebarTab = Extract<SidebarTab, "search" | "chat">;
+
+const REPO_SIDEBAR_TABS = [
+  { value: "search", label: "Search", icon: Search },
+  { value: "chat", label: "Chat", icon: MessageCircle },
+] satisfies ReadonlyArray<{
+  value: RepoSidebarTab;
+  label: string;
+  icon: typeof Search;
+}>;
+
+const sidebarSettingsButtonClass =
+  "border-transparent bg-transparent text-sidebar-foreground shadow-none hover:bg-transparent hover:text-sidebar-foreground active:bg-transparent active:text-sidebar-foreground data-[active=true]:border-transparent data-[active=true]:bg-transparent data-[active=true]:text-sidebar-foreground data-[active=true]:shadow-none data-[state=open]:hover:bg-transparent data-[state=open]:hover:text-sidebar-foreground";
 
 interface RepoSidebarProps {
-	filteredCommits?: Commit[];
-	filteredBranches?: Branch[];
-	lastSearchQuery?: string;
-	onCommitClick?: (commitSha: string) => void;
-	onFiltersChange?: (filters: FilterFormData) => void;
-	chatMessages?: ChatMessage[];
-	isChatLoading?: boolean;
-	chatError?: string | null;
-	onSendChatMessage?: (message: string) => void;
+  repoPath?: string | null;
+  filteredCommits?: Commit[];
+  filteredBranches?: Branch[];
+  lastSearchQuery?: string;
+  onCommitClick?: (commitSha: string) => void;
+  onFiltersChange?: (filters: FilterFormData) => void;
+  chatMessages?: ChatMessage[];
+  isChatLoading?: boolean;
+  chatError?: string | null;
+  onSendChatMessage?: (message: string) => void;
 }
 
 export function RepoSidebar({
-	filteredCommits = [],
-	filteredBranches = [],
-	lastSearchQuery = "",
-	onCommitClick,
-	onFiltersChange,
-	chatMessages = [],
-	isChatLoading = false,
-	chatError = null,
-	onSendChatMessage,
+  repoPath,
+  filteredCommits = [],
+  filteredBranches = [],
+  lastSearchQuery = "",
+  onCommitClick,
+  onFiltersChange,
+  chatMessages = [],
+  isChatLoading = false,
+  chatError = null,
+  onSendChatMessage,
 }: RepoSidebarProps) {
-	const { selectedTab, setSelectedTab } = useSidebarTab();
+  const navigate = useNavigate();
+  const { selectedTab, setSelectedTab } = useSidebarTab();
+  const { isMobile, setOpen, setOpenMobile, state } = useSidebar();
+  const activeTab: RepoSidebarTab = selectedTab === "chat" ? "chat" : "search";
+  const isCollapsed = !isMobile && state === "collapsed";
 
-	const handleTabChange = (value: string) => {
-		if (
-			value &&
-			(value === "search" || value === "chat" || value === "summary")
-		) {
-			setSelectedTab(value as SidebarTab);
-		}
-	};
+  const openTab = (tab: RepoSidebarTab) => {
+    setSelectedTab(tab);
 
-	return (
-		<Sidebar>
-			<SidebarHeader>
-				<SidebarMenu className="flex items-center justify-center">
-					<ToggleGroup
-						className="flex items-center justify-between gap-2 w-full"
-						type="single"
-						value={selectedTab}
-						onValueChange={handleTabChange}
-					>
-						<ToggleGroupItem
-							value="search"
-							aria-label="Search"
-							className="flex-1 text-white/50 data-[state=on]:text-white data-[state=on]:border-white transition-colors"
-						>
-							<div className="flex items-center gap-2">
-								<Search className="w-4 h-4" />
-								<h3 className="text-sm font-bold">Search</h3>
-							</div>
-						</ToggleGroupItem>
-						<ToggleGroupItem
-							value="chat"
-							aria-label="Chat"
-							className="flex-1 text-white/50 data-[state=on]:text-white data-[state=on]:border-white transition-colors"
-						>
-							<div className="flex items-center gap-2">
-								<MessageCircle className="w-4 h-4" />
-								<h3 className="text-sm font-bold">Chat</h3>
-							</div>
-						</ToggleGroupItem>
-					</ToggleGroup>
-				</SidebarMenu>
-			</SidebarHeader>
-			<SidebarContent className={selectedTab === "chat" ? "flex-1" : ""}>
-				{selectedTab === "search" && (
-					<SearchResults
-						filteredCommits={filteredCommits}
-						query={lastSearchQuery}
-						onCommitClick={onCommitClick ?? (() => {})}
-					/>
-				)}
-				{selectedTab === "chat" && (
-					<Chat
-						messages={chatMessages}
-						isLoading={isChatLoading}
-						error={chatError}
-						onSendMessage={onSendChatMessage}
-						onCommitClick={onCommitClick}
-					/>
-				)}
-			</SidebarContent>
-			{selectedTab !== "chat" && (
-				<SidebarFooter>
-					<Filters
-						onFiltersChange={onFiltersChange}
-						branches={filteredBranches?.map((branch) => branch.name) ?? []}
-					/>
-				</SidebarFooter>
-			)}
-		</Sidebar>
-	);
+    if (isMobile) {
+      setOpenMobile(true);
+      return;
+    }
+
+    setOpen(true);
+  };
+
+  const handleTabChange = (value: string) => {
+    if (value === "search" || value === "chat") {
+      openTab(value);
+    }
+  };
+
+  const handleOpenSettings = () => {
+    navigate(buildSettingsRoute(repoPath));
+  };
+
+  return (
+    <Sidebar variant="inset" collapsible="icon">
+      {isCollapsed ? (
+        <>
+          <SidebarHeader className="items-center gap-2 px-2 py-4">
+            <SidebarMenu className="items-center gap-2">
+              {REPO_SIDEBAR_TABS.map(({ value, label, icon: Icon }) => (
+                <SidebarMenuItem key={value}>
+                  <SidebarMenuButton
+                    type="button"
+                    tooltip={label}
+                    isActive={activeTab === value}
+                    aria-label={label}
+                    className="justify-center"
+                    onClick={() => openTab(value)}
+                  >
+                    <Icon className="size-4" />
+                    <span className="sr-only">{label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarHeader>
+
+          <SidebarFooter className="mt-auto items-center px-2 pb-4 pt-2">
+            <SidebarMenu className="items-center">
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  type="button"
+                  tooltip="Settings"
+                  aria-label="Settings"
+                  className={`justify-center ${sidebarSettingsButtonClass} [&>svg]:size-5`}
+                  onClick={handleOpenSettings}
+                >
+                  <SettingsIcon className="size-4" />
+                  <span className="sr-only">Settings</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarFooter>
+        </>
+      ) : (
+        <>
+          <SidebarHeader className="min-w-0">
+            <SidebarMenu className="gap-0">
+              <ToggleGroup
+                className="w-full"
+                type="single"
+                value={activeTab}
+                onValueChange={handleTabChange}
+              >
+                <ToggleGroupItem value="search" aria-label="Search" className="gap-2">
+                  <Search className="size-4" />
+                  <span>Search</span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="chat" aria-label="Chat" className="gap-2">
+                  <MessageCircle className="size-4" />
+                  <span>Chat</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </SidebarMenu>
+          </SidebarHeader>
+
+          <SidebarSeparator />
+
+          <SidebarContent className="min-h-0">
+            {activeTab === "search" ? (
+              <div className="workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+                <SearchResults
+                  filteredCommits={filteredCommits}
+                  query={lastSearchQuery}
+                  onCommitClick={onCommitClick ?? (() => {})}
+                />
+                <SidebarSeparator />
+                <div className="min-w-0 p-4">
+                  <Filters
+                    onFiltersChange={onFiltersChange}
+                    branches={filteredBranches?.map((branch) => branch.name) ?? []}
+                  />
+                </div>
+              </div>
+            ) : (
+              <Chat
+                messages={chatMessages}
+                isLoading={isChatLoading}
+                error={chatError}
+                onSendMessage={onSendChatMessage}
+                onCommitClick={onCommitClick}
+              />
+            )}
+          </SidebarContent>
+
+          <SidebarSeparator />
+
+          <SidebarFooter className="p-4 pt-3">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  type="button"
+                  size="lg"
+                  tooltip="Settings"
+                  className={`${sidebarSettingsButtonClass} gap-3 px-1 text-[15px] font-medium [&>svg]:size-5`}
+                  onClick={handleOpenSettings}
+                >
+                  <SettingsIcon className="size-4" />
+                  <span>Settings</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarFooter>
+        </>
+      )}
+
+      <SidebarRail />
+    </Sidebar>
+  );
 }

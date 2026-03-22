@@ -1,121 +1,169 @@
+import { ChevronRight, Database, LogOut, RefreshCw, RotateCcw } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { StatusPill } from "@/components/ui/status-pill";
 import {
-	ChevronRight,
-	Database,
-	LogOut,
-	RefreshCw,
-	RotateCcw,
-} from "lucide-react";
-import { getRepoDisplayName } from "@/lib/repoPaths";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { getRepoPathBreadcrumbs } from "@/lib/repoPaths";
 
 type RepoToolbarProps = {
-	repoPath?: string | null;
-	isLoading?: boolean;
-	isIngesting?: boolean;
-	ingestStatus?: string;
-	onExit?: () => void;
-	onClearFilters?: () => void;
-	onRefresh?: () => void;
+  repoPath?: string | null;
+  isLoading?: boolean;
+  isIngesting?: boolean;
+  ingestStatus?: string;
+  onExit?: () => void;
+  onClearFilters?: () => void;
+  onRefresh?: () => void;
 };
 
-export function RepoToolbar({
-	repoPath,
-	isLoading,
-	isIngesting,
-	ingestStatus,
-	onExit,
-	onClearFilters,
-	onRefresh,
-}: RepoToolbarProps) {
-	const repoName = repoPath ? getRepoDisplayName(repoPath) : "Git Project";
+function getRepoBreadcrumbs(repoPath?: string | null) {
+  if (!repoPath) {
+    return [{ label: "Repository", current: true }];
+  }
 
-	return (
-		<>
-			<TooltipProvider>
-				<div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								onClick={onRefresh}
-								className="bg-white/10 backdrop-blur-sm border-white/20 text-white hover:bg-white/20 hover:border-white/40 transition-all duration-200"
-								size="icon"
-								disabled={!onRefresh || isIngesting}
-							>
-								<RefreshCw className="w-4 h-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent className="text-white">
-							Refresh From Disk
-						</TooltipContent>
-					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								onClick={onExit}
-								className="bg-white/10 backdrop-blur-sm border-white/20 text-white hover:bg-white/20 hover:border-white/40 transition-all duration-200"
-								size="sm"
-							>
-								<LogOut className="w-4 h-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent className="text-white">Exit</TooltipContent>
-					</Tooltip>
-				</div>
-			</TooltipProvider>
-			<div className="flex items-center gap-2 absolute top-4 left-4 z-10">
-				<SidebarTrigger className="hover:text-white !hover:bg-neutral-200 !hover:border-0" />
-				<div className="flex items-center gap-2">
-					<span className="px-1.5 py-0.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded text-white/70 text-[10px]">
-						Git Project
-					</span>
-					<ChevronRight className="w-2.5 h-2.5 text-white/50" />
-					<span className="px-1.5 py-0.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded text-white text-[10px] font-medium">
-						{repoName}
-					</span>
-					{repoPath && (
-						<span className="max-w-[24rem] truncate text-[10px] text-white/45">
-							{repoPath}
-						</span>
-					)}
-					{isLoading && !isIngesting && (
-						<div className="flex items-center gap-1 ml-2">
-							<div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-							<span className="text-[10px] text-white/60">Fetching...</span>
-						</div>
-					)}
-					{isIngesting && (
-						<div className="flex items-center gap-1 ml-2">
-							<Database className="w-2 h-2 text-blue-400 animate-pulse" />
-							<span className="text-[10px] text-white/60">Refreshing...</span>
-						</div>
-					)}
-				</div>
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								onClick={onClearFilters}
-								size="icon"
-								className="h-7 w-7 bg-white/10 backdrop-blur-sm border-white/20 text-white hover:bg-white/20 hover:border-white/40 transition-all duration-200"
-							>
-								<RotateCcw className="w-3.5 h-3.5" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent className="text-white">
-							Show All Commits
-						</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			</div>
-			{/* Hidden status holder for potential future use */}
-			{ingestStatus && <div className="sr-only">{ingestStatus}</div>}
-		</>
-	);
+  const segments = getRepoPathBreadcrumbs(repoPath);
+
+  return segments.map((segment, index) => ({
+    label: segment,
+    current: index === segments.length - 1,
+  }));
+}
+
+export function RepoToolbar({
+  repoPath,
+  isLoading,
+  isIngesting,
+  ingestStatus,
+  onExit,
+  onClearFilters,
+  onRefresh,
+}: RepoToolbarProps) {
+  const breadcrumbs = getRepoBreadcrumbs(repoPath);
+
+  const statusTone = isIngesting
+    ? "accent"
+    : isLoading
+      ? "accent"
+      : ingestStatus
+        ? "success"
+        : "neutral";
+  const statusLabel = isIngesting
+    ? "Refreshing"
+    : isLoading
+      ? "Fetching"
+      : ingestStatus
+        ? "Ready"
+        : "Idle";
+
+  return (
+    <header className="workspace-header-frame sticky top-0 z-20 flex h-[var(--header-height)] items-center gap-3 overflow-hidden px-3 py-2 backdrop-blur-md">
+      <div className="flex shrink-0 items-center gap-2">
+        <SidebarTrigger />
+      </div>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap"
+            title={repoPath ?? undefined}
+          >
+            {breadcrumbs.map((crumb, index) => (
+              <div
+                key={`${crumb.label}-${index}`}
+                className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden"
+              >
+                {index > 0 ? (
+                  <ChevronRight className="size-3 shrink-0 text-text-tertiary" />
+                ) : null}
+                <span
+                  className={[
+                    "block truncate font-mono text-sm leading-none",
+                    crumb.current
+                      ? "max-w-[18rem] text-text-primary"
+                      : "max-w-[10rem] text-text-tertiary",
+                  ].join(" ")}
+                >
+                  {crumb.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </TooltipTrigger>
+        {repoPath ? <TooltipContent>{repoPath}</TooltipContent> : null}
+      </Tooltip>
+
+      <div className="flex shrink-0 items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="toolbar"
+                size="toolbar-icon"
+                onClick={onClearFilters}
+                disabled={!onClearFilters}
+                aria-label="Show all commits"
+              >
+                <RotateCcw className="size-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Show all commits</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="toolbar"
+                size="toolbar-icon"
+                onClick={onRefresh}
+                disabled={!onRefresh || isIngesting}
+                aria-label="Refresh from disk"
+              >
+                <RefreshCw className="size-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Refresh from disk</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>
+              <StatusPill
+                tone={statusTone}
+                pulse={Boolean(isLoading || isIngesting)}
+                icon={<Database className="size-3" />}
+                className="cursor-default"
+              >
+                {statusLabel}
+              </StatusPill>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{ingestStatus || "Repository status"}</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="toolbar"
+                size="toolbar-icon"
+                onClick={onExit}
+                disabled={!onExit}
+                aria-label="Exit repository"
+              >
+                <LogOut className="size-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Exit</TooltipContent>
+        </Tooltip>
+      </div>
+    </header>
+  );
 }

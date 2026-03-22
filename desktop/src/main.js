@@ -47,6 +47,20 @@ async function getSettingsStatus() {
   return configStore.getStatus(secretStatus);
 }
 
+function buildRepoQueryParams(repoPath, repoSettings = null) {
+  const params = new URLSearchParams({ repo_path: repoPath });
+
+  if (repoSettings?.maxCommits != null) {
+    params.set("max_commits", String(repoSettings.maxCommits));
+  }
+
+  if (repoSettings?.contextLines != null) {
+    params.set("context_lines", String(repoSettings.contextLines));
+  }
+
+  return params;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -84,6 +98,10 @@ function registerIpcHandlers() {
     return getSettingsStatus();
   });
 
+  ipcMain.handle("git-odyssey:settings:get-repo-settings", async (_event, repoPath) => {
+    return configStore.getRepoSettings(repoPath);
+  });
+
   ipcMain.handle("git-odyssey:settings:validate-ai-config", async (_event, input) => {
     const savedSecrets = await keychain.getSecrets(input.config);
     return backendManager.request("/api/desktop/validate-ai-config", {
@@ -106,6 +124,10 @@ function registerIpcHandlers() {
     });
     await backendManager.restart();
     return getSettingsStatus();
+  });
+
+  ipcMain.handle("git-odyssey:settings:save-repo-settings", async (_event, input) => {
+    return configStore.saveRepoSettings(input);
   });
 
   ipcMain.handle("git-odyssey:health:get-status", async () => {
@@ -134,9 +156,9 @@ function registerIpcHandlers() {
     return configStore.getRecentProjects();
   });
 
-  ipcMain.handle("git-odyssey:api:get-repo", async (_event, repoPath) => {
+  ipcMain.handle("git-odyssey:api:get-repo", async (_event, repoPath, repoSettings) => {
     const project = configStore.recordRecentProject(repoPath);
-    const params = new URLSearchParams({ repo_path: project.path });
+    const params = buildRepoQueryParams(project.path, repoSettings);
     return backendManager.request(`/api/repo?${params.toString()}`);
   });
 
@@ -205,18 +227,18 @@ function registerIpcHandlers() {
 
   ipcMain.handle(
     "git-odyssey:api:get-commit",
-    async (_event, repoPath, commitSha) => {
+    async (_event, repoPath, commitSha, repoSettings) => {
       const project = configStore.recordRecentProject(repoPath);
-      const params = new URLSearchParams({ repo_path: project.path });
+      const params = buildRepoQueryParams(project.path, repoSettings);
       return backendManager.request(
         `/api/repo/commit/${commitSha}?${params.toString()}`
       );
     }
   );
 
-  ipcMain.handle("git-odyssey:api:get-commits", async (_event, repoPath) => {
+  ipcMain.handle("git-odyssey:api:get-commits", async (_event, repoPath, repoSettings) => {
     const project = configStore.recordRecentProject(repoPath);
-    const params = new URLSearchParams({ repo_path: project.path });
+    const params = buildRepoQueryParams(project.path, repoSettings);
     return backendManager.request(`/api/repo/commits?${params.toString()}`);
   });
 

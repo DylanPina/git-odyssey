@@ -1,20 +1,23 @@
 import { Handle, Position } from "@xyflow/react";
-import { Tooltip } from "react-tooltip";
 import { toast } from "react-toastify";
-import { useCallback, useMemo, useState, memo } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
+import { Copy, Loader2, Sparkles } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+import { summarizeCommit } from "@/api/api";
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
-  ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { summarizeCommit } from "@/api/api";
-import Lottie from "lottie-react";
-import aiIcon from "@/assets/ai-icon.json";
-import { Loader2, Sparkles, Copy } from "lucide-react";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { buildCommitRoute, readRepoPathFromSearchParams } from "@/lib/repoPaths";
 
 function CommitNode(props: {
@@ -29,44 +32,24 @@ function CommitNode(props: {
   selected?: boolean;
 }) {
   const { sha, message, author, time, summary, onUpdateSummary } = props.data;
-  const selected = props.selected;
   const [isSummarizing, setIsSummarizing] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const repoPath = readRepoPathFromSearchParams(searchParams);
 
-  // Calculate dynamic text size based on message length
-  const getMessageStyles = useCallback(() => {
-    if (!author) return { textSize: "text-sm" };
-    
-    // Shrink text for longer messages to fit better
-    if (message.length > 100) {
-      return { textSize: "text-xs" }; // Smaller text for long messages
-    }
-    return { textSize: "text-sm" }; // Normal text for shorter messages
-  }, [message, author]);
-
-  const copyToClipboard = useCallback(async (text: string, type: "SHA" | "Message" | "Summary") => {
+  const copyToClipboard = useCallback(async (text: string, type: string) => {
     try {
       await navigator.clipboard.writeText(text);
       toast.success(`${type} copied to clipboard`, {
         position: "top-right",
-        autoClose: 2000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
+        autoClose: 1800,
         theme: "dark",
       });
-    } catch (err) {
-      console.error("Failed to copy text: ", err);
+    } catch (error) {
+      console.error("Failed to copy text:", error);
       toast.error(`Failed to copy ${type.toLowerCase()}`, {
         position: "top-right",
-        autoClose: 3000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
+        autoClose: 2600,
         theme: "dark",
       });
     }
@@ -83,50 +66,26 @@ function CommitNode(props: {
     });
   }, [time]);
 
-  const handleShaClick = useCallback(() => {
-    copyToClipboard(sha, "SHA");
-  }, [sha, copyToClipboard]);
-
-  const handleMessageClick = useCallback(() => {
-    copyToClipboard(message, "Message");
-  }, [message, copyToClipboard]);
-
   const handleSummarizeCommit = useCallback(async () => {
     try {
       setIsSummarizing(true);
-      toast.info(`Generating summary for ${sha.slice(0, 8)}...`, {
-        position: "top-right",
-        autoClose: 2000,
-        theme: "dark",
-      });
-
       const summaryText = await summarizeCommit(sha);
 
-      if (onUpdateSummary) {
-        onUpdateSummary(sha, summaryText);
-      }
-
-      toast.success(`Summary generated for ${sha.slice(0, 8)}!`, {
-        position: "top-right",
-        autoClose: 2000,
+      onUpdateSummary?.(sha, summaryText);
+      toast.success(`Summary generated for ${sha.slice(0, 8)}`, {
+        autoClose: 1800,
         theme: "dark",
       });
     } catch (error) {
       console.error("Failed to generate summary:", error);
       toast.error("Failed to generate summary", {
-        position: "top-right",
-        autoClose: 3000,
+        autoClose: 2600,
         theme: "dark",
       });
     } finally {
       setIsSummarizing(false);
     }
-  }, [sha, onUpdateSummary]);
-
-  const handleCopySummary = useCallback(() => {
-    if (!summary) return;
-    copyToClipboard(summary, "Summary");
-  }, [summary, copyToClipboard]);
+  }, [onUpdateSummary, sha]);
 
   const handleOpenCommitDiff = useCallback(() => {
     if (!repoPath) {
@@ -136,105 +95,107 @@ function CommitNode(props: {
   }, [navigate, repoPath, sha]);
 
   return (
-    <>
-      <div className={`sparkle gradient ${summary ? "!opacity-100" : ""}`}>
-        {summary ? (
-          <Popover>
-            <PopoverTrigger asChild>
-              <div
-                className="cursor-pointer w-full h-full flex items-center justify-center"
-                data-tooltip-id={`sparkle-${sha}`}
-                data-tooltip-content="View Summary"
-              >
-                <Sparkles className="w-4 h-4 text-white" />
-              </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-150 max-h-96 overflow-y-auto bg-neutral-800/95 backdrop-blur-sm border-white/20 text-white relative">
-              <button
-                className="absolute top-2 right-2 flex items-center justify-center rounded hover:bg-white/10 text-white/80 hover:text-white cursor-pointer"
-                aria-label="Copy summary"
-                data-tooltip-id={`copy-summary-${sha}`}
-                data-tooltip-content="Copy summary"
-                onClick={handleCopySummary}
-              >
-                <Copy className="w-4 h-4 text-white" />
-              </button>
-              <div className="space-y-2">
-                <h4 className="font-semibold text-sm text-white/90">Commit Summary</h4>
-                <MarkdownRenderer content={summary as string} />
-              </div>
-            </PopoverContent>
-          </Popover>
-        ) : (
-          <div
-            data-tooltip-id={`sparkle-${sha}`}
-            data-tooltip-content={isSummarizing ? "Generating summary..." : "Generate summary"}
-          >
-            {isSummarizing ? (
-              <div
-                className="flex items-center justify-center"
-                aria-label="Generating summary"
-                aria-busy="true"
-                role="status"
-              >
-                <Loader2 className="h-5 w-5 animate-spin text-white" />
-              </div>
-            ) : (
-              <Lottie
-                animationData={aiIcon}
-                loop={true}
-                autoplay={true}
-                style={{ width: 30, height: 30 }}
-                onClick={handleSummarizeCommit}
-              />
-            )}
-          </div>
-        )}
-      </div>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className={`wrapper gradient ${selected ? "selected" : ""}`}>
-            <div className="inner  max-w-[350px] min-w-[200px]">
-              <span className="flex gap-2">
-                <div
-                  className="absolute top-2 left-4 text-[10px] text-white font-bold cursor-pointer"
-                  data-tooltip-id={`sha-${sha}`}
-                  data-tooltip-content={sha}
-                  onClick={handleShaClick}
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="commit-node-card group relative flex min-h-[118px] flex-col gap-3 rounded-[14px] border border-border-subtle bg-surface px-4 py-3 shadow-[0_12px_26px_rgba(0,0,0,0.18)] transition-[border-color,box-shadow,background-color] duration-150">
+          <div className="flex min-h-9 items-center justify-between gap-3">
+            <button
+              type="button"
+              className="shrink-0 font-mono text-xs leading-none text-text-secondary transition-colors hover:text-text-primary"
+              onClick={() => void copyToClipboard(sha, "SHA")}
+              title="Copy SHA"
+            >
+              {sha.slice(0, 8)}
+            </button>
+
+            <div className="flex shrink-0 items-center gap-2">
+              {formattedTime ? (
+                <span className="font-mono text-[11px] leading-none text-text-tertiary">
+                  {formattedTime}
+                </span>
+              ) : null}
+
+              {summary ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="toolbar"
+                      size="icon-sm"
+                      aria-label="View summary"
+                      title="View summary"
+                    >
+                      <Sparkles className="size-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="workspace-scrollbar w-[24rem] max-h-[22rem] overflow-y-auto p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium text-text-primary">
+                        Commit Summary
+                      </div>
+                      <Button
+                        variant="toolbar"
+                        size="icon-sm"
+                        onClick={() => void copyToClipboard(summary, "Summary")}
+                        aria-label="Copy summary"
+                        title="Copy summary"
+                      >
+                        <Copy className="size-4" />
+                      </Button>
+                    </div>
+                    <MarkdownRenderer content={summary} />
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <Button
+                  variant="toolbar"
+                  size="icon-sm"
+                  onClick={() => void handleSummarizeCommit()}
+                  disabled={isSummarizing}
+                  aria-label="Summarize commit"
+                  title="Summarize commit"
                 >
-                  {sha.slice(0, 8)}
-                </div>
-                {formattedTime && (
-                  <div className="absolute top-2 right-4 text-[10px] text-white/50">
-                    {formattedTime}
-                  </div>
-                )}
-              </span>
-              <span
-                className={`font-medium cursor-pointer rounded transition-colors mt-3 break-words ${getMessageStyles().textSize} ${author ? "pb-6" : ""} ${selected ? "" : "line-clamp-2"}`}
-                data-tooltip-id={`msg-${sha}`}
-                data-tooltip-content={message}
-                onClick={handleMessageClick}
-              >
-                {message}
-              </span>
-              {author && (
-                <div className="absolute bottom-2 right-4 text-[10px] text-white font-medium bg-black/50 px-1 py-0.5 rounded">
-                  {author}
-                </div>
+                  {isSummarizing ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4" />
+                  )}
+                </Button>
               )}
-              <Handle type="source" position={Position.Bottom} />
-              <Handle type="target" position={Position.Top} />
             </div>
           </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent className="w-[200px] p-2">
-          <ContextMenuItem onClick={handleOpenCommitDiff}>Open Commit Diff</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-      <Tooltip id={`sparkle-${sha}`} place="top" className="max-w-xs" delayShow={800} />
-      <Tooltip id={`copy-summary-${sha}`} place="top" className="max-w-xs" delayShow={500} />
-    </>
+
+          <button
+            type="button"
+            className="line-clamp-3 text-left text-sm font-medium leading-6 text-text-primary transition-colors hover:text-white"
+            onClick={() => void copyToClipboard(message, "Message")}
+            title="Copy commit message"
+          >
+            {message}
+          </button>
+
+          <div className="mt-auto flex items-center justify-between gap-3 text-[11px]">
+            <span className="truncate text-text-tertiary">
+              {author || "Unknown author"}
+            </span>
+            {summary ? (
+              <span className="inline-flex items-center gap-1 text-[#c7d8ff]">
+                <Sparkles className="size-3" />
+                Summary ready
+              </span>
+            ) : null}
+          </div>
+
+          <Handle type="source" position={Position.Bottom} />
+          <Handle type="target" position={Position.Top} />
+        </div>
+      </ContextMenuTrigger>
+
+      <ContextMenuContent className="w-[200px]">
+        <ContextMenuItem onClick={handleOpenCommitDiff}>
+          Open Commit Diff
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

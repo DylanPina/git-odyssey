@@ -6,33 +6,47 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-control)] border border-transparent text-[13px] font-medium leading-none text-text-primary transition-[background-color,border-color,color,box-shadow] duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        default:
+          "border-accent bg-accent text-[#08111f] hover:border-[#8bafff] hover:bg-[#8bafff]",
+        accent:
+          "border-accent bg-accent text-[#08111f] hover:border-[#8bafff] hover:bg-[#8bafff]",
+        subtle:
+          "border-border-subtle bg-control text-text-primary hover:border-border-strong hover:bg-control-hover",
+        secondary:
+          "border-border-subtle bg-control text-text-primary hover:border-border-strong hover:bg-control-hover",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-        link: "text-primary underline-offset-4 hover:underline",
+          "border-border-subtle bg-control text-text-primary hover:border-border-strong hover:bg-control-hover",
+        ghost:
+          "bg-transparent text-text-secondary hover:border-border-subtle hover:bg-control hover:text-text-primary",
+        toolbar:
+          "border-border-subtle bg-transparent text-text-secondary hover:border-border-strong hover:bg-control hover:text-text-primary",
+        destructive:
+          "border-[rgba(210,107,107,0.32)] bg-[rgba(210,107,107,0.12)] text-[rgba(255,223,223,0.96)] hover:border-[rgba(210,107,107,0.48)] hover:bg-[rgba(210,107,107,0.2)]",
+        danger:
+          "border-[rgba(210,107,107,0.32)] bg-[rgba(210,107,107,0.12)] text-[rgba(255,223,223,0.96)] hover:border-[rgba(210,107,107,0.48)] hover:bg-[rgba(210,107,107,0.2)]",
+        link:
+          "border-transparent bg-transparent px-0 text-accent underline-offset-4 hover:text-[#9bb9ff] hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
+        default: "h-10 px-4",
+        sm: "h-9 px-3",
+        lg: "h-11 px-5",
+        icon: "size-10",
+        "icon-sm": "size-9",
+        "icon-lg": "size-11",
+        toolbar: "h-9 px-3.5",
+        "toolbar-icon": "size-9",
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: "subtle",
       size: "default",
     },
-  },
+  }
 );
 
 function Button({

@@ -15,6 +15,15 @@ export function getRepoDisplayName(repoPath: string): string {
   return name.endsWith(".git") ? name.slice(0, -4) : name;
 }
 
+export function getRepoPathBreadcrumbs(repoPath: string): string[] {
+  const normalized = normalizeRepoPath(repoPath);
+  if (normalized === "/") {
+    return [normalized];
+  }
+
+  return normalized.split("/").filter(Boolean);
+}
+
 export function getRepoStableKey(repoPath: string): string {
   return encodeURIComponent(normalizeRepoPath(repoPath));
 }
@@ -27,6 +36,15 @@ export function buildRepoRoute(repoPath: string): string {
 export function buildCommitRoute(repoPath: string, commitSha: string): string {
   const params = new URLSearchParams({ path: normalizeRepoPath(repoPath) });
   return `/repo/commit/${commitSha}?${params.toString()}`;
+}
+
+export function buildSettingsRoute(repoPath?: string | null): string {
+  if (!repoPath) {
+    return "/settings";
+  }
+
+  const params = new URLSearchParams({ path: normalizeRepoPath(repoPath) });
+  return `/settings?${params.toString()}`;
 }
 
 export function readRepoPathFromSearchParams(

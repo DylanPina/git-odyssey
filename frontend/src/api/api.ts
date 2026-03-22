@@ -10,6 +10,8 @@ import type { User } from "@/lib/definitions/auth";
 import type {
   DesktopAiConfigInput,
   DesktopAiValidationResult,
+  DesktopRepoSettings,
+  DesktopRepoSettingsSaveInput,
   GitProjectSummary,
   DesktopHealthStatus,
   DesktopSettingsStatus,
@@ -28,9 +30,10 @@ function getDesktopBridge(): GitOdysseyDesktopBridge {
 }
 
 export const getRepo = async (
-  repoPath: string
+  repoPath: string,
+  repoSettings?: DesktopRepoSettings
 ): Promise<RepoResponse> => {
-  return getDesktopBridge().api.getRepo(repoPath);
+  return getDesktopBridge().api.getRepo(repoPath, repoSettings);
 };
 
 export const ingestRepo = async (
@@ -99,13 +102,17 @@ export const dropDatabase = async (): Promise<DatabaseResponse> => {
 
 export const getCommit = async (
   repoPath: string,
-  commitSha: string
+  commitSha: string,
+  repoSettings?: DesktopRepoSettings
 ): Promise<CommitResponse> => {
-  return getDesktopBridge().api.getCommit(repoPath, commitSha);
+  return getDesktopBridge().api.getCommit(repoPath, commitSha, repoSettings);
 };
 
-export const getCommits = async (repoPath: string): Promise<CommitsResponse> => {
-  return getDesktopBridge().api.getCommits(repoPath);
+export const getCommits = async (
+  repoPath: string,
+  repoSettings?: DesktopRepoSettings
+): Promise<CommitsResponse> => {
+  return getDesktopBridge().api.getCommits(repoPath, repoSettings);
 };
 
 export const getCurrentUser = async (): Promise<User> => {
@@ -120,6 +127,12 @@ export const getDesktopSettingsStatus = async (): Promise<DesktopSettingsStatus>
   return getDesktopBridge().settings.getStatus();
 };
 
+export const getDesktopRepoSettings = async (
+  repoPath: string
+): Promise<DesktopRepoSettings> => {
+  return getDesktopBridge().settings.getRepoSettings(repoPath);
+};
+
 export const validateDesktopAiConfig = async (
   input: DesktopAiConfigInput
 ): Promise<DesktopAiValidationResult> => {
@@ -130,6 +143,12 @@ export const saveDesktopAiConfig = async (
   input: DesktopAiConfigInput
 ): Promise<DesktopSettingsStatus> => {
   return getDesktopBridge().settings.saveAiConfig(input);
+};
+
+export const saveDesktopRepoSettings = async (
+  input: DesktopRepoSettingsSaveInput
+): Promise<DesktopRepoSettings> => {
+  return getDesktopBridge().settings.saveRepoSettings(input);
 };
 
 export const getDesktopHealth = async (): Promise<DesktopHealthStatus> => {

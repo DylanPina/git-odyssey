@@ -1,38 +1,46 @@
 import { useState } from "react";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Mic, Send, Loader2 } from "lucide-react";
+import { Loader2, Search as SearchIcon, Send } from "lucide-react";
+import { toast } from "react-toastify";
+
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Button } from "@/components/ui/button";
 import { filterCommits } from "@/api/api";
-import { toast } from "react-toastify";
 
 interface SearchProps {
   repoPath?: string;
   onSearchResults?: (commitShas: string[], query?: string) => void;
+  inputId?: string;
 }
 
-export default function Search({ repoPath = "", onSearchResults }: SearchProps) {
+export default function Search({
+  repoPath = "",
+  onSearchResults,
+  inputId,
+}: SearchProps) {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSearch = async () => {
-    if (!query.trim()) {
-      toast.warning("Please enter a search query", {
-        theme: "dark",
-      });
+    const trimmedQuery = query.trim();
+
+    if (!trimmedQuery) {
+      toast.warning("Enter a query to search commits.", { theme: "dark" });
       return;
     }
 
     if (!repoPath) {
-      toast.warning("Choose a Git project first.", {
-        theme: "dark",
-      });
+      toast.warning("Choose a Git project first.", { theme: "dark" });
       return;
     }
 
     setIsLoading(true);
     try {
       const response = await filterCommits(
-        query.trim(),
+        trimmedQuery,
         {
           message: "",
           branch: "",
@@ -42,24 +50,10 @@ export default function Search({ repoPath = "", onSearchResults }: SearchProps) 
           startDate: "",
           endDate: "",
         },
-        repoPath,
+        repoPath
       );
 
-      const { commit_shas } = response;
-
-      if (onSearchResults) {
-        onSearchResults(commit_shas, query.trim());
-      }
-
-      if (commit_shas.length === 0) {
-        toast.info("No commits found matching your search query", {
-          theme: "dark",
-        });
-      } else {
-        toast.success(`Found ${commit_shas.length} commit(s) matching your search`, {
-          theme: "dark",
-        });
-      }
+      onSearchResults?.(response.commit_shas, trimmedQuery);
     } catch (error) {
       console.error("Search error:", error);
       toast.error("Failed to perform search. Please try again.", {
@@ -70,43 +64,48 @@ export default function Search({ repoPath = "", onSearchResults }: SearchProps) 
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !isLoading) {
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && !isLoading) {
       handleSearch();
     }
   };
 
   return (
-    <InputGroup className="pointer-events-auto w-full h-14 px-4 py-2 rounded-full bg-neutral-900/25 backdrop-blur-lg border-primary-white border-2">
-      <InputGroupInput
-        placeholder="Search using AI..."
-        className="!text-md placeholder:text-white/40"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyPress={handleKeyPress}
-        disabled={isLoading}
-      />
-      <InputGroupAddon align="inline-end">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hover:bg-white hover:text-white"
-          disabled={isLoading}
+    <div className="workspace-dock w-full p-1">
+      <InputGroup className="h-10 border-0 bg-transparent px-1 hover:bg-transparent has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0">
+        <InputGroupAddon
+          align="inline-start"
+          className="pl-3 pr-1 text-text-secondary"
         >
-          <Mic />
-        </Button>
-      </InputGroupAddon>
-      <InputGroupAddon align="inline-end">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hover:bg-white hover:text-white"
-          onClick={handleSearch}
+          <SearchIcon className="size-4" />
+        </InputGroupAddon>
+        <InputGroupInput
+          id={inputId}
+          placeholder="Search commits, files, paths, or summaries"
+          aria-keyshortcuts="Meta+K Control+K"
+          className="px-1.5 text-sm placeholder:text-text-tertiary"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={handleKeyDown}
           disabled={isLoading}
-        >
-          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send />}
-        </Button>
-      </InputGroupAddon>
-    </InputGroup>
+        />
+        <InputGroupAddon align="inline-end" className="pl-1 pr-1">
+          <Button
+            variant="accent"
+            size="icon-sm"
+            className="rounded-full"
+            onClick={handleSearch}
+            disabled={isLoading}
+            aria-label="Run search"
+          >
+            {isLoading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Send className="size-4" />
+            )}
+          </Button>
+        </InputGroupAddon>
+      </InputGroup>
+    </div>
   );
 }

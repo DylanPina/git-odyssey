@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { getCommit, summarizeFileChange, summarizeHunk } from "@/api/api";
+import {
+  getCommit,
+  getDesktopRepoSettings,
+  summarizeFileChange,
+  summarizeHunk,
+} from "@/api/api";
 import type { Commit, FileChange, FileHunk } from "@/lib/definitions/repo";
 
 type UseCommitDetailsArgs = {
@@ -52,7 +57,8 @@ export function useCommitDetails({
       setIsLoading(true);
       setError(null);
       try {
-        const response = await getCommit(repoPath, commitSha);
+        const repoSettings = await getDesktopRepoSettings(repoPath);
+        const response = await getCommit(repoPath, commitSha, repoSettings);
         if (!response.commit) throw new Error("Commit not found");
         setCommit(response.commit);
       } catch (e) {

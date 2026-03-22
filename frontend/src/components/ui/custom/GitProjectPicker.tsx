@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderOpen, Loader2, History } from "lucide-react";
+import { FolderOpen, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { getRecentProjects, pickGitProject } from "@/api/api";
 import { Button } from "@/components/ui/button";
 import type { GitProjectSummary } from "@/lib/definitions/desktop";
 import { buildRepoRoute } from "@/lib/repoPaths";
+
+const browseButtonClass =
+  "h-11 rounded-full border border-[#bccdff]/46 bg-[linear-gradient(180deg,#93adff_0%,#8097ff_100%)] px-5 font-mono font-medium tracking-[0.01em] text-[#07101f] shadow-[0_0_0_1px_rgba(240,245,255,0.06),inset_0_1px_0_rgba(255,255,255,0.18),0_0_10px_rgba(122,162,255,0.1)] hover:border-[#d3ddff]/56 hover:bg-[linear-gradient(180deg,#9db6ff_0%,#8aa0ff_100%)] hover:shadow-[0_0_0_1px_rgba(245,248,255,0.08),inset_0_1px_0_rgba(255,255,255,0.22),0_0_12px_rgba(122,162,255,0.14)] active:bg-[linear-gradient(180deg,#88a2ff_0%,#7890ff_100%)] sm:min-w-32";
 
 export function GitProjectPicker() {
   const navigate = useNavigate();
@@ -62,68 +65,78 @@ export function GitProjectPicker() {
   }, [loadRecentProjects, openProject]);
 
   return (
-    <div className="w-full max-w-2xl rounded-3xl border border-white/15 bg-slate-950/60 p-5 text-left shadow-2xl backdrop-blur-xl">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">
-            Git Project
-          </div>
-          <h2 className="mt-2 text-2xl font-semibold text-white">
-            Open a local repository
+    <div className="workspace-panel relative isolate space-y-6 overflow-hidden border-white/10 bg-[rgba(10,14,21,0.74)] p-6 shadow-[0_30px_90px_rgba(3,8,20,0.34),inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-md sm:p-7">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(122,162,255,0.07),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_24%)]"
+      />
+
+      <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1.5">
+          <h2 className="font-sans text-base font-semibold tracking-[-0.03em] text-text-primary">
+            Open a repository
           </h2>
-          <p className="mt-2 text-sm text-white/60">
-            Browse to any folder inside a repository and GitOdyssey will resolve
-            the repo root automatically.
+          <p className="font-mono text-sm font-normal tracking-[0.01em] text-text-secondary">
+            Pick any folder inside a Git repository.
           </p>
         </div>
         <Button
           onClick={() => void handleBrowse()}
           disabled={isPicking}
-          className="bg-cyan-500 text-slate-950 hover:bg-cyan-300"
+          variant="accent"
+          className={browseButtonClass}
         >
           {isPicking ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
               Browsing
             </>
           ) : (
             <>
-              <FolderOpen className="h-4 w-4" />
+              <FolderOpen className="size-4 -translate-y-px" />
               Browse
             </>
           )}
         </Button>
       </div>
 
-      {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
-
-      <div className="mt-6">
-        <div className="mb-3 flex items-center gap-2 text-sm uppercase tracking-[0.2em] text-white/45">
-          <History className="h-4 w-4" />
-          Recent Projects
+      {error ? (
+        <div className="relative z-10 rounded-[var(--radius-control)] border border-[rgba(210,107,107,0.28)] bg-[rgba(210,107,107,0.1)] px-3 py-2 font-mono text-sm font-normal tracking-[0.01em] text-[rgba(255,223,223,0.96)]">
+          {error}
         </div>
-        {recentProjects.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-5 text-sm text-white/50">
-            No recent Git projects yet. Choose one with Browse to get started.
+      ) : null}
+
+      {recentProjects.length > 0 ? (
+        <div className="relative z-10 space-y-3">
+          <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(255,255,255,0.6)]">
+            Recent
           </div>
-        ) : (
-          <div className="grid gap-3">
+
+          <div className="space-y-1.5 rounded-[calc(var(--radius-panel)-2px)] border border-white/[0.08] bg-black/10 p-2">
             {recentProjects.map((project) => (
               <button
                 key={project.path}
                 type="button"
                 onClick={() => openProject(project.path)}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left transition-colors hover:bg-white/10 hover:border-white/20"
+                className="group flex w-full items-start rounded-[12px] border border-transparent px-4 py-4 text-left font-mono tracking-[0.01em] transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:border-white/[0.09] hover:bg-white/[0.045] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] focus-visible:border-white/[0.12] focus-visible:bg-white/[0.055] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7aa2ff]/35 active:translate-y-px"
               >
-                <div className="text-base font-medium text-white">{project.name}</div>
-                <div className="mt-1 break-all font-mono text-xs text-white/55">
-                  {project.path}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-text-primary transition-colors group-hover:text-white group-focus-visible:text-white">
+                    {project.name}
+                  </div>
+                  <div className="mt-1.5 truncate text-xs leading-5 text-[rgba(255,255,255,0.56)] transition-colors group-hover:text-[rgba(255,255,255,0.74)] group-focus-visible:text-[rgba(255,255,255,0.74)]">
+                    {project.path}
+                  </div>
                 </div>
               </button>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="relative z-10 rounded-[var(--radius-panel)] border border-dashed border-white/[0.08] bg-black/10 px-4 py-6 font-mono text-sm font-normal tracking-[0.01em] text-[rgba(255,255,255,0.58)]">
+          No recent repositories.
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,31 @@
-import type { FileHunk } from "@/lib/definitions/repo";
+import type { FileChange, FileHunk } from "@/lib/definitions/repo";
+
+export type DiffSearchScope = "all" | "files" | "code";
+
+export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+
+type DiffStatusTone = "neutral" | "accent" | "success" | "warning" | "danger";
+
+export type CommitFileTreeItem = {
+  path: string;
+  status: DiffFileStatus;
+};
+
+export type CommitFileTreeNode = {
+  id: string;
+  kind: "folder" | "file";
+  name: string;
+  path: string;
+  children: CommitFileTreeNode[];
+  status?: DiffFileStatus;
+};
+
+export const DIFF_STATUS_ORDER: DiffFileStatus[] = [
+  "added",
+  "modified",
+  "deleted",
+  "renamed",
+];
 
 export function inferLanguage(path?: string): string | undefined {
 	if (!path) return undefined;
@@ -49,6 +76,207 @@ export function inferLanguage(path?: string): string | undefined {
 		default:
 			return undefined;
 	}
+}
+
+export function getFileChangeLabelPath(fileChange: FileChange): string {
+  return fileChange.new_path || fileChange.old_path || "unknown";
+}
+
+export function normalizeDiffFileStatus(status?: string | null): DiffFileStatus {
+  const normalized = (status || "").trim().toLowerCase();
+
+  if (normalized === "added" || normalized === "copy" || normalized === "copied") {
+    return "added";
+  }
+
+  if (normalized === "deleted") {
+    return "deleted";
+  }
+
+  if (normalized === "renamed" || normalized === "rename") {
+    return "renamed";
+  }
+
+  return "modified";
+}
+
+export function getDiffStatusLabel(status: DiffFileStatus): string {
+  switch (status) {
+    case "added":
+      return "Added";
+    case "deleted":
+      return "Deleted";
+    case "renamed":
+      return "Renamed";
+    default:
+      return "Modified";
+  }
+}
+
+export function getDiffStatusTone(status: DiffFileStatus): DiffStatusTone {
+  if (status === "added") {
+    return "success";
+  }
+
+  if (status === "deleted") {
+    return "danger";
+  }
+
+  if (status === "renamed") {
+    return "accent";
+  }
+
+  return "neutral";
+}
+
+export function getFileChangeSearchPaths(fileChange: FileChange): string[] {
+  const paths = [fileChange.new_path, fileChange.old_path].filter(
+    (path): path is string => Boolean(path)
+  );
+
+  if (paths.length === 0) {
+    return ["unknown"];
+  }
+
+  return Array.from(new Set(paths));
+}
+
+function getSnapshotSearchText(fileChange: FileChange): string {
+  return [
+    fileChange.snapshot?.previous_snapshot?.content,
+    fileChange.snapshot?.content,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+}
+
+export function getFileChangeCodeSearchText(fileChange: FileChange): string {
+  const hunkText = (fileChange.hunks || [])
+    .map((hunk) => hunk.content?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+
+  if (hunkText) {
+    return hunkText;
+  }
+
+  return getSnapshotSearchText(fileChange);
+}
+
+export function getFileChangeSearchText(
+  fileChange: FileChange,
+  scope: DiffSearchScope
+): string {
+  const fileText = getFileChangeSearchPaths(fileChange).join("\n");
+  const codeText = getFileChangeCodeSearchText(fileChange);
+
+  if (scope === "files") {
+    return fileText;
+  }
+
+  if (scope === "code") {
+    return codeText;
+  }
+
+  return [fileText, codeText]
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+}
+
+export function fileChangeMatchesQuery(
+  fileChange: FileChange,
+  query: string,
+  scope: DiffSearchScope
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return getFileChangeSearchText(fileChange, scope)
+    .toLowerCase()
+    .includes(normalizedQuery);
+}
+
+function sortTreeNodes(nodes: CommitFileTreeNode[]) {
+  nodes.sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === "folder" ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+
+  nodes.forEach((node) => {
+    if (node.children.length > 0) {
+      sortTreeNodes(node.children);
+    }
+  });
+}
+
+export function buildCommitFileTree(
+  items: CommitFileTreeItem[]
+): CommitFileTreeNode[] {
+  const roots: CommitFileTreeNode[] = [];
+  const nodeMap = new Map<string, CommitFileTreeNode>();
+
+  items.forEach((item) => {
+    const segments = item.path.split("/").filter(Boolean);
+
+    if (segments.length === 0) {
+      return;
+    }
+
+    let children = roots;
+    let currentPath = "";
+
+    segments.forEach((segment, index) => {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      const isFile = index === segments.length - 1;
+      const nodeId = `${isFile ? "file" : "folder"}:${currentPath}`;
+
+      let node = nodeMap.get(nodeId);
+      if (!node) {
+        node = {
+          id: nodeId,
+          kind: isFile ? "file" : "folder",
+          name: segment,
+          path: currentPath,
+          children: [],
+          status: isFile ? item.status : undefined,
+        };
+        nodeMap.set(nodeId, node);
+        children.push(node);
+      }
+
+      if (isFile) {
+        node.status = item.status;
+      }
+
+      children = node.children;
+    });
+  });
+
+  sortTreeNodes(roots);
+
+  return roots;
+}
+
+export function getAncestorFolderPaths(path: string): string[] {
+  const segments = path.split("/").filter(Boolean);
+  const ancestors: string[] = [];
+  let currentPath = "";
+
+  segments.slice(0, -1).forEach((segment) => {
+    currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+    ancestors.push(currentPath);
+  });
+
+  return ancestors;
 }
 
 export function formatHunkLabel(hunk: FileHunk): string {

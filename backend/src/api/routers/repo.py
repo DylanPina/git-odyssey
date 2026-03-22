@@ -17,14 +17,16 @@ async def ensure_fresh_repo_index(
     current_user: User,
     ingest_service: IngestService,
     repo_service: RepoService,
+    max_commits: int = DEFAULT_MAX_COMMITS,
+    context_lines: int = DEFAULT_CONTEXT_LINES,
 ) -> str:
     normalized_repo_path = ingest_service.resolve_repo_path(repo_path)
     if not repo_service.has_repo(normalized_repo_path):
         await ingest_service.ingest_repo(
             IngestRequest(
                 repo_path=normalized_repo_path,
-                max_commits=DEFAULT_MAX_COMMITS,
-                context_lines=DEFAULT_CONTEXT_LINES,
+                max_commits=max_commits,
+                context_lines=context_lines,
                 force=False,
             ),
             current_user.id,
@@ -33,8 +35,8 @@ async def ensure_fresh_repo_index(
         await ingest_service.ingest_repo(
             IngestRequest(
                 repo_path=normalized_repo_path,
-                max_commits=DEFAULT_MAX_COMMITS,
-                context_lines=DEFAULT_CONTEXT_LINES,
+                max_commits=max_commits,
+                context_lines=context_lines,
                 force=True,
             ),
             current_user.id,
@@ -46,6 +48,8 @@ async def ensure_fresh_repo_index(
 @router.get("", response_model=RepoResponse)
 async def get_repo(
     repo_path: str,
+    max_commits: int = DEFAULT_MAX_COMMITS,
+    context_lines: int = DEFAULT_CONTEXT_LINES,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -56,6 +60,8 @@ async def get_repo(
             current_user=current_user,
             ingest_service=ingest_service,
             repo_service=repo_service,
+            max_commits=max_commits,
+            context_lines=context_lines,
         )
         result = repo_service.get_repo(normalized_repo_path)
         if result is None:
@@ -72,6 +78,8 @@ async def get_repo(
 @router.get("/commits", response_model=CommitsResponse)
 async def get_commits(
     repo_path: str,
+    max_commits: int = DEFAULT_MAX_COMMITS,
+    context_lines: int = DEFAULT_CONTEXT_LINES,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -82,6 +90,8 @@ async def get_commits(
             current_user=current_user,
             ingest_service=ingest_service,
             repo_service=repo_service,
+            max_commits=max_commits,
+            context_lines=context_lines,
         )
         return repo_service.get_commits(normalized_repo_path)
     except ValueError as e:
@@ -96,6 +106,8 @@ async def get_commits(
 async def get_commit(
     repo_path: str,
     commit_sha: str,
+    max_commits: int = DEFAULT_MAX_COMMITS,
+    context_lines: int = DEFAULT_CONTEXT_LINES,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -106,6 +118,8 @@ async def get_commit(
             current_user=current_user,
             ingest_service=ingest_service,
             repo_service=repo_service,
+            max_commits=max_commits,
+            context_lines=context_lines,
         )
         return repo_service.get_commit(normalized_repo_path, commit_sha)
     except ValueError as e:

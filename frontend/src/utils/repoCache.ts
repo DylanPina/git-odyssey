@@ -1,13 +1,19 @@
 import type { Commit, Branch, FileChange } from "@/lib/definitions/repo";
+import {
+  DEFAULT_DESKTOP_REPO_SETTINGS,
+  type DesktopRepoSettings,
+} from "@/lib/definitions/desktop";
 
 export interface CachedRepoData {
   commits: Commit[];
   branches: Branch[];
   timestamp: number;
+  repoSettings: DesktopRepoSettings;
 }
 
 export interface CompressedCachedData {
   timestamp: number;
+  repoSettings?: DesktopRepoSettings;
   commits: Array<{
     sha: string;
     repo_path: string;
@@ -46,6 +52,7 @@ class RepoCache {
         // Convert back to full data structure with all required fields
         return {
           timestamp: parsed.timestamp,
+          repoSettings: parsed.repoSettings ?? DEFAULT_DESKTOP_REPO_SETTINGS,
           commits: parsed.commits.map((c) => ({
             ...c,
             file_changes: [] as FileChange[],
@@ -78,6 +85,7 @@ class RepoCache {
       // Compress the data by removing unnecessary fields to reduce size
       const compressedData: CompressedCachedData = {
         timestamp: data.timestamp,
+        repoSettings: data.repoSettings,
         commits: data.commits.map((commit) => ({
           sha: commit.sha,
           repo_path: commit.repo_path,
@@ -130,6 +138,20 @@ class RepoCache {
     if (!cachedData) return false;
     const now = Date.now();
     return now - cachedData.timestamp < this.CACHE_DURATION;
+  }
+
+  matchesSettings(
+    cachedData: CachedRepoData | null,
+    repoSettings: DesktopRepoSettings
+  ): boolean {
+    if (!cachedData) {
+      return false;
+    }
+
+    return (
+      cachedData.repoSettings.maxCommits === repoSettings.maxCommits &&
+      cachedData.repoSettings.contextLines === repoSettings.contextLines
+    );
   }
 
   /**

@@ -1,35 +1,46 @@
 import { Database, Loader2 } from "lucide-react";
 
+import { StatusPill } from "@/components/ui/status-pill";
+
 export function LoadingOverlay({
-	isVisible,
-	isIngesting,
-	ingestStatus,
+  isVisible,
+  isIngesting,
+  ingestStatus,
 }: {
-	isVisible: boolean;
-	isIngesting?: boolean;
-	ingestStatus?: string;
+  isVisible: boolean;
+  isIngesting?: boolean;
+  ingestStatus?: string;
 }) {
-	if (!isVisible) return null;
-	return (
-		<div className="absolute inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
-			<div className="flex flex-col items-center gap-4">
-				{isIngesting ? (
-					<Database className="w-12 h-12 text-blue-400 animate-pulse" />
-				) : (
-					<Loader2 className="w-12 h-12 text-white animate-spin" />
-				)}
-				<div className="text-white text-base font-medium">
-					{isIngesting && "Loading repository data..."}
-				</div>
-				<div className="text-white/70 text-sm">
-					{isIngesting
-						? "This process clones the repository and analyzes its commit history. Large repositories may take a few minutes."
-						: "This may take a moment for large repositories"}
-				</div>
-				{ingestStatus && (
-					<div className="text-white/60 text-sm">{ingestStatus}</div>
-				)}
-			</div>
-		</div>
-	);
+  if (!isVisible) return null;
+
+  const Icon = isIngesting ? Database : Loader2;
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/42 backdrop-blur-[2px]">
+      <div className="workspace-panel-elevated max-w-md space-y-4 px-5 py-5 text-center">
+        <div className="flex items-center justify-center">
+          <div className="flex size-12 items-center justify-center rounded-full border border-border-subtle bg-control text-text-primary">
+            <Icon className={isIngesting ? "size-5" : "size-5 animate-spin"} />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="text-sm font-medium text-text-primary">
+            {isIngesting ? "Loading repository data" : "Loading view"}
+          </div>
+          <p className="text-sm leading-6 text-text-secondary">
+            {isIngesting
+              ? "GitOdyssey is indexing repository history from disk. Large repositories can take a moment."
+              : "Preparing this workspace view."}
+          </p>
+        </div>
+        {ingestStatus ? (
+          <div className="flex justify-center">
+            <StatusPill tone={isIngesting ? "accent" : "neutral"}>
+              {ingestStatus}
+            </StatusPill>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }

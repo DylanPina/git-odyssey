@@ -7,12 +7,58 @@ const {
 } = require("./ai-config");
 const {
   dedupeRecentProjects,
+  normalizePath,
   toGitProjectSummary,
 } = require("./git-projects");
 
 const DEFAULT_BACKEND_PORT = Number(
   process.env.GITODYSSEY_BACKEND_PORT ?? "48120"
 );
+const DEFAULT_REPO_MAX_COMMITS = 50;
+const DEFAULT_REPO_CONTEXT_LINES = 3;
+
+function normalizePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeNonNegativeInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeRepoSettings(rawSettings) {
+  const settings =
+    rawSettings && typeof rawSettings === "object" ? rawSettings : {};
+
+  return {
+    maxCommits: normalizePositiveInteger(
+      settings.maxCommits,
+      DEFAULT_REPO_MAX_COMMITS
+    ),
+    contextLines: normalizeNonNegativeInteger(
+      settings.contextLines,
+      DEFAULT_REPO_CONTEXT_LINES
+    ),
+  };
+}
+
+function normalizeRepoSettingsMap(rawRepoSettings) {
+  const repoSettings =
+    rawRepoSettings && typeof rawRepoSettings === "object" ? rawRepoSettings : {};
+  const normalizedEntries = {};
+
+  for (const [repoPath, settings] of Object.entries(repoSettings)) {
+    const normalizedRepoPath = normalizePath(repoPath);
+    if (!normalizedRepoPath) {
+      continue;
+    }
+
+    normalizedEntries[normalizedRepoPath] = normalizeRepoSettings(settings);
+  }
+
+  return normalizedEntries;
+}
 
 class DesktopConfigStore {
   constructor({ userDataPath }) {
@@ -36,6 +82,7 @@ class DesktopConfigStore {
       aiRuntimeConfig: buildDefaultAiRuntimeConfig(),
       firstRunCompleted: false,
       recentProjects: [],
+      repoSettings: {},
     };
   }
 
@@ -64,6 +111,9 @@ class DesktopConfigStore {
           parsed.aiRuntimeConfig ?? defaults.aiRuntimeConfig
         ),
         recentProjects: dedupeRecentProjects(parsed.recentProjects ?? []),
+        repoSettings: normalizeRepoSettingsMap(
+          parsed.repoSettings ?? defaults.repoSettings
+        ),
       };
       fs.writeFileSync(this.configPath, JSON.stringify(merged, null, 2));
       return merged;
@@ -89,6 +139,12 @@ class DesktopConfigStore {
       aiRuntimeConfig: normalizeAiRuntimeConfig(
         partial.aiRuntimeConfig ?? this.state.aiRuntimeConfig
       ),
+      repoSettings: partial.repoSettings
+        ? {
+            ...(this.state.repoSettings ?? {}),
+            ...normalizeRepoSettingsMap(partial.repoSettings),
+          }
+        : this.state.repoSettings ?? {},
     };
     this.#ensureParentDirs();
     fs.writeFileSync(this.configPath, JSON.stringify(this.state, null, 2));
@@ -118,6 +174,31 @@ class DesktopConfigStore {
     ]);
     this.save({ recentProjects });
     return projectSummary;
+  }
+
+  getRepoSettings(repoPath) {
+    const normalizedRepoPath = normalizePath(repoPath);
+    if (!normalizedRepoPath) {
+      return normalizeRepoSettings();
+    }
+
+    return normalizeRepoSettings(this.state.repoSettings?.[normalizedRepoPath]);
+  }
+
+  saveRepoSettings(input) {
+    const normalizedRepoPath = normalizePath(input?.repoPath);
+    if (!normalizedRepoPath) {
+      throw new Error("A repository path is required to save repo settings.");
+    }
+
+    const nextSettings = normalizeRepoSettings(input);
+    const repoSettings = {
+      ...(this.state.repoSettings ?? {}),
+      [normalizedRepoPath]: nextSettings,
+    };
+
+    this.save({ repoSettings });
+    return nextSettings;
   }
 
   getStatus(secretStatus) {

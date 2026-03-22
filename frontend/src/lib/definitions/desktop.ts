@@ -25,6 +25,20 @@ export interface DesktopServiceHealth {
 export type ProviderType = "openai" | "openai_compatible";
 export type AuthMode = "bearer" | "none";
 
+export interface DesktopRepoSettings {
+  maxCommits: number;
+  contextLines: number;
+}
+
+export interface DesktopRepoSettingsSaveInput extends DesktopRepoSettings {
+  repoPath: string;
+}
+
+export const DEFAULT_DESKTOP_REPO_SETTINGS: DesktopRepoSettings = {
+  maxCommits: 50,
+  contextLines: 3,
+};
+
 export interface ProviderProfileConfig {
   id: string;
   provider_type: ProviderType;
@@ -140,7 +154,10 @@ export interface GitProjectSummary {
 }
 
 export interface GitOdysseyDesktopApi {
-  getRepo(repoPath: string): Promise<RepoResponse>;
+  getRepo(
+    repoPath: string,
+    repoSettings?: DesktopRepoSettings
+  ): Promise<RepoResponse>;
   ingestRepo(input: {
     repoPath: string;
     maxCommits: number;
@@ -165,8 +182,15 @@ export interface GitOdysseyDesktopApi {
   }): Promise<ChatResponse>;
   initDatabase(): Promise<DatabaseResponse>;
   dropDatabase(): Promise<DatabaseResponse>;
-  getCommit(repoPath: string, commitSha: string): Promise<CommitResponse>;
-  getCommits(repoPath: string): Promise<CommitsResponse>;
+  getCommit(
+    repoPath: string,
+    commitSha: string,
+    repoSettings?: DesktopRepoSettings
+  ): Promise<CommitResponse>;
+  getCommits(
+    repoPath: string,
+    repoSettings?: DesktopRepoSettings
+  ): Promise<CommitsResponse>;
   getCurrentUser(): Promise<User>;
   logout(): Promise<{ message: string }>;
 }
@@ -175,8 +199,12 @@ export interface GitOdysseyDesktopBridge {
   api: GitOdysseyDesktopApi;
   settings: {
     getStatus(): Promise<DesktopSettingsStatus>;
+    getRepoSettings(repoPath: string): Promise<DesktopRepoSettings>;
     validateAiConfig(input: DesktopAiConfigInput): Promise<DesktopAiValidationResult>;
     saveAiConfig(input: DesktopAiConfigInput): Promise<DesktopSettingsStatus>;
+    saveRepoSettings(
+      input: DesktopRepoSettingsSaveInput
+    ): Promise<DesktopRepoSettings>;
   };
   health: {
     getStatus(): Promise<DesktopHealthStatus>;
