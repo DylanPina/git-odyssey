@@ -14,12 +14,10 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MessageCircle, Search, Settings as SettingsIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-import Filters from "@/components/ui/custom/Filters";
 import Chat from "@/components/ui/custom/Chat";
 import SearchResults from "@/components/ui/custom/SearchResults";
 import type { ChatMessage } from "@/lib/definitions/chat";
-import type { Branch, Commit } from "@/lib/definitions/repo";
-import type { FilterFormData } from "@/lib/filter-utils";
+import type { Commit } from "@/lib/definitions/repo";
 import { useSidebarTab, type SidebarTab } from "@/hooks/useSidebarTab";
 import { buildSettingsRoute } from "@/lib/repoPaths";
 
@@ -40,10 +38,8 @@ const sidebarSettingsButtonClass =
 interface RepoSidebarProps {
   repoPath?: string | null;
   filteredCommits?: Commit[];
-  filteredBranches?: Branch[];
   lastSearchQuery?: string;
   onCommitClick?: (commitSha: string) => void;
-  onFiltersChange?: (filters: FilterFormData) => void;
   chatMessages?: ChatMessage[];
   isChatLoading?: boolean;
   chatError?: string | null;
@@ -53,10 +49,8 @@ interface RepoSidebarProps {
 export function RepoSidebar({
   repoPath,
   filteredCommits = [],
-  filteredBranches = [],
   lastSearchQuery = "",
   onCommitClick,
-  onFiltersChange,
   chatMessages = [],
   isChatLoading = false,
   chatError = null,
@@ -156,20 +150,11 @@ export function RepoSidebar({
 
           <SidebarContent className="min-h-0">
             {activeTab === "search" ? (
-              <div className="workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
-                <SearchResults
-                  filteredCommits={filteredCommits}
-                  query={lastSearchQuery}
-                  onCommitClick={onCommitClick ?? (() => {})}
-                />
-                <SidebarSeparator />
-                <div className="min-w-0 p-4">
-                  <Filters
-                    onFiltersChange={onFiltersChange}
-                    branches={filteredBranches?.map((branch) => branch.name) ?? []}
-                  />
-                </div>
-              </div>
+              <SearchResults
+                filteredCommits={filteredCommits}
+                query={lastSearchQuery}
+                onCommitClick={onCommitClick ?? (() => {})}
+              />
             ) : (
               <Chat
                 messages={chatMessages}

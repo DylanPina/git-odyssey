@@ -9,19 +9,25 @@ import {
 } from "@/components/ui/input-group";
 import { Button } from "@/components/ui/button";
 import { filterCommits } from "@/api/api";
+import { EMPTY_FILTERS, type FilterFormData } from "@/lib/filter-utils";
 
 interface SearchProps {
   repoPath?: string;
+  filters?: FilterFormData;
+  query?: string;
+  onQueryChange?: (query: string) => void;
   onSearchResults?: (commitShas: string[], query?: string) => void;
   inputId?: string;
 }
 
 export default function Search({
   repoPath = "",
+  filters = EMPTY_FILTERS,
+  query = "",
+  onQueryChange,
   onSearchResults,
   inputId,
 }: SearchProps) {
-  const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSearch = async () => {
@@ -39,19 +45,7 @@ export default function Search({
 
     setIsLoading(true);
     try {
-      const response = await filterCommits(
-        trimmedQuery,
-        {
-          message: "",
-          branch: "",
-          commit: "",
-          file: "",
-          summary: "",
-          startDate: "",
-          endDate: "",
-        },
-        repoPath
-      );
+      const response = await filterCommits(trimmedQuery, filters, repoPath);
 
       onSearchResults?.(response.commit_shas, trimmedQuery);
     } catch (error) {
@@ -85,7 +79,7 @@ export default function Search({
           aria-keyshortcuts="Meta+K Control+K"
           className="px-1.5 text-sm placeholder:text-text-tertiary"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => onQueryChange?.(event.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isLoading}
         />
