@@ -1,6 +1,5 @@
 import type { FileChange, FileHunk } from "@/lib/definitions/repo";
 
-export type DiffSearchScope = "all" | "files" | "code";
 export type DiffNavigationTarget = {
   filePath: string;
   newStart?: number | null;
@@ -169,40 +168,38 @@ export function getFileChangeCodeSearchText(fileChange: FileChange): string {
   return getSnapshotSearchText(fileChange);
 }
 
-export function getFileChangeSearchText(
-  fileChange: FileChange,
-  scope: DiffSearchScope
-): string {
-  const fileText = getFileChangeSearchPaths(fileChange).join("\n");
-  const codeText = getFileChangeCodeSearchText(fileChange);
-
-  if (scope === "files") {
-    return fileText;
-  }
-
-  if (scope === "code") {
-    return codeText;
-  }
-
-  return [fileText, codeText]
-    .filter((value): value is string => Boolean(value))
-    .join("\n");
-}
-
-export function fileChangeMatchesQuery(
-  fileChange: FileChange,
-  query: string,
-  scope: DiffSearchScope
-): boolean {
+function matchesQuery(value: string, query: string): boolean {
   const normalizedQuery = query.trim().toLowerCase();
 
   if (!normalizedQuery) {
     return true;
   }
 
-  return getFileChangeSearchText(fileChange, scope)
-    .toLowerCase()
-    .includes(normalizedQuery);
+  return value.toLowerCase().includes(normalizedQuery);
+}
+
+export function fileChangeMatchesFileQuery(
+  fileChange: FileChange,
+  query: string
+): boolean {
+  return matchesQuery(getFileChangeSearchPaths(fileChange).join("\n"), query);
+}
+
+export function fileChangeMatchesCodeQuery(
+  fileChange: FileChange,
+  query: string
+): boolean {
+  return matchesQuery(getFileChangeCodeSearchText(fileChange), query);
+}
+
+export function fileChangeMatchesQueries(
+  fileChange: FileChange,
+  queries: { fileQuery?: string; codeQuery?: string }
+): boolean {
+  return (
+    fileChangeMatchesFileQuery(fileChange, queries.fileQuery ?? "") &&
+    fileChangeMatchesCodeQuery(fileChange, queries.codeQuery ?? "")
+  );
 }
 
 function sortTreeNodes(nodes: CommitFileTreeNode[]) {
