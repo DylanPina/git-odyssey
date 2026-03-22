@@ -110,7 +110,7 @@ export function CommitListView({
 
   return (
     <div className="relative h-full">
-      <div className="workspace-scrollbar commit-list-view h-full overflow-y-auto px-4 pb-32 pt-4 sm:px-5 sm:pb-40 sm:pt-5">
+      <div className="workspace-scrollbar h-full overflow-y-auto px-4 py-4 sm:px-5 sm:py-5">
         {sortedCommits.length === 0 ? (
           <div className="flex min-h-full items-center justify-center py-8">
             <EmptyState
@@ -148,7 +148,7 @@ export function CommitListView({
                       onCommitClick(commit.sha);
                     }
                   }}
-                  className="workspace-panel commit-list-row scroll-mt-4 scroll-mb-40 cursor-pointer px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  className="workspace-panel commit-list-row scroll-mt-4 cursor-pointer px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">

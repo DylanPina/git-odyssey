@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Search as SearchIcon, Send } from "lucide-react";
+import { Search as SearchIcon } from "lucide-react";
 import { toast } from "react-toastify";
 
 import {
@@ -7,12 +7,11 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { Button } from "@/components/ui/button";
 import { filterCommits } from "@/api/api";
 import { EMPTY_FILTERS, type FilterFormData } from "@/lib/filter-utils";
 
 interface SearchProps {
-  repoPath?: string;
+  repoPath?: string | null;
   filters?: FilterFormData;
   query?: string;
   onQueryChange?: (query: string) => void;
@@ -65,41 +64,23 @@ export default function Search({
   };
 
   return (
-    <div className="workspace-dock w-full p-1">
-      <InputGroup className="h-10 border-0 bg-transparent px-1 hover:bg-transparent has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0">
-        <InputGroupAddon
-          align="inline-start"
-          className="pl-3 pr-1 text-text-secondary"
-        >
-          <SearchIcon className="size-4" />
-        </InputGroupAddon>
-        <InputGroupInput
-          id={inputId}
-          placeholder="Search commits, files, paths, or summaries"
-          aria-keyshortcuts="Meta+K Control+K"
-          className="px-1.5 text-sm placeholder:text-text-tertiary"
-          value={query}
-          onChange={(event) => onQueryChange?.(event.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={isLoading}
-        />
-        <InputGroupAddon align="inline-end" className="pl-1 pr-1">
-          <Button
-            variant="accent"
-            size="icon-sm"
-            className="rounded-full"
-            onClick={handleSearch}
-            disabled={isLoading}
-            aria-label="Run search"
-          >
-            {isLoading ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Send className="size-4" />
-            )}
-          </Button>
-        </InputGroupAddon>
-      </InputGroup>
-    </div>
+    <InputGroup className="min-h-11 rounded-[16px] border-border-strong bg-[rgba(11,13,16,0.78)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <InputGroupAddon
+        align="inline-start"
+        className="pl-3 pr-1 text-text-secondary"
+      >
+        <SearchIcon className="size-4" />
+      </InputGroupAddon>
+      <InputGroupInput
+        id={inputId}
+        placeholder="Search commits, files, paths, or summaries"
+        aria-keyshortcuts="Meta+K Control+K"
+        className="px-1.5 py-3 pr-3 text-sm placeholder:text-text-tertiary"
+        value={query}
+        onChange={(event) => onQueryChange?.(event.target.value)}
+        onKeyDown={handleKeyDown}
+        disabled={isLoading}
+      />
+    </InputGroup>
   );
 }

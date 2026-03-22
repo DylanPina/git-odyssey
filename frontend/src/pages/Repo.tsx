@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { CommitListView } from "@/components/ui/custom/CommitListView";
@@ -9,7 +9,6 @@ import {
 	RepoToolbar,
 	type RepoViewMode,
 } from "@/components/ui/custom/RepoToolbar";
-import Search from "@/components/ui/custom/Search";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { useChat } from "@/hooks/useChat";
@@ -45,18 +44,29 @@ function loadRepoViewMode(): RepoViewMode {
 	return "graph";
 }
 
-function focusRepoSearchInput() {
+function focusRepoSearchInput(remainingAttempts = 4) {
 	const input = document.getElementById(REPO_SEARCH_INPUT_ID);
 	if (input instanceof HTMLInputElement) {
 		input.focus();
 		input.select();
+		return;
 	}
+
+	if (remainingAttempts <= 0) {
+		return;
+	}
+
+	window.requestAnimationFrame(() => {
+		focusRepoSearchInput(remainingAttempts - 1);
+	});
 }
 
 function RepoWorkspace() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const [viewMode, setViewMode] = useState<RepoViewMode>(() => loadRepoViewMode());
+	const previousViewModeRef = useRef<RepoViewMode | null>(null);
+	const shouldZoomFirstNodeOnGraphInitRef = useRef(false);
 	const { isMobile, setOpen, setOpenMobile } = useSidebar();
 	const { setSelectedTab } = useSidebarTab();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
@@ -144,15 +154,34 @@ function RepoWorkspace() {
 		}
 	}, [reactFlowInstanceRef, viewMode]);
 
+	useEffect(() => {
+		if (
+			previousViewModeRef.current === "list" &&
+			viewMode === "graph" &&
+			!focusedCommitSha
+		) {
+			shouldZoomFirstNodeOnGraphInitRef.current = true;
+		}
+
+		previousViewModeRef.current = viewMode;
+	}, [focusedCommitSha, viewMode]);
+
 	const canResetScope =
 		hasActiveFilters || Boolean(searchQuery.trim()) || Boolean(lastSearchQuery);
+	const defaultVisibleCommitSha = filteredCommits[0]?.sha ?? nodes[0]?.id;
 
 	return (
 		<>
 			<RepoSidebar
 				repoPath={repoPath}
+				allCommitsCount={commits.length}
 				filteredCommits={filteredCommits}
+				searchQuery={searchQuery}
+				searchFilters={filters}
 				lastSearchQuery={lastSearchQuery}
+				onSearchQueryChange={setSearchQuery}
+				onSearchResults={handleSearchResults}
+				searchInputId={REPO_SEARCH_INPUT_ID}
 				onCommitClick={handleCommitClick}
 				chatMessages={chatMessages}
 				isChatLoading={isChatLoading}
@@ -214,6 +243,21 @@ function RepoWorkspace() {
 													return;
 												}
 
+												if (
+													shouldZoomFirstNodeOnGraphInitRef.current &&
+													defaultVisibleCommitSha
+												) {
+													shouldZoomFirstNodeOnGraphInitRef.current = false;
+													instance.fitView({
+														nodes: [{ id: defaultVisibleCommitSha }],
+														padding: 0.3,
+														duration: 0,
+													});
+													return;
+												}
+
+												shouldZoomFirstNodeOnGraphInitRef.current = false;
+
 												instance.fitView({ padding: 0.2, duration: 0 });
 											});
 										}}
@@ -236,18 +280,6 @@ function RepoWorkspace() {
 									/>
 								)}
 
-								<div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center px-4">
-									<div className="pointer-events-auto w-full max-w-3xl">
-										<Search
-											inputId={REPO_SEARCH_INPUT_ID}
-											repoPath={repoPath ?? ""}
-											filters={filters}
-											query={searchQuery}
-											onQueryChange={setSearchQuery}
-											onSearchResults={handleSearchResults}
-										/>
-									</div>
-								</div>
 							</div>
 						</div>
 					</div>

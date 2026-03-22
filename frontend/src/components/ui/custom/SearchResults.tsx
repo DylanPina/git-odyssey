@@ -5,25 +5,29 @@ import { SidebarGroup } from "@/components/ui/sidebar";
 import type { Commit } from "@/lib/definitions/repo";
 
 export default function SearchResults({
+  allCommitsCount,
   filteredCommits,
   onCommitClick,
   query,
 }: {
+  allCommitsCount: number;
   filteredCommits: Commit[];
   onCommitClick: (sha: string) => void;
   query?: string;
 }) {
   const visibleCommits = filteredCommits.slice(0, 25);
+  const displayedCount = filteredCommits.length;
+  const totalCount = Math.max(allCommitsCount, displayedCount);
 
   return (
-    <SidebarGroup className="min-h-0 min-w-0 flex-1 py-4">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden">
+    <SidebarGroup className="min-h-0 min-w-0 flex-1 pt-4">
+      <div className="workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto pr-1">
         <div className="space-y-2">
           <div className="workspace-section-label">
-            {query ? "Search Results" : "Visible Commits"}
+            {query ? "Search Results" : `${displayedCount}/${totalCount}`}
           </div>
           <div className="text-sm font-medium text-text-primary">
-            {filteredCommits.length} commit{filteredCommits.length === 1 ? "" : "s"}
+            {displayedCount} commit{displayedCount === 1 ? "" : "s"}
           </div>
         </div>
 
@@ -44,22 +48,24 @@ export default function SearchResults({
         ) : null}
 
         {visibleCommits.length === 0 ? (
-          <EmptyState
-            icon={<Search className="size-4" />}
-            title={query ? "No matching commits" : "No commits available"}
-            description={
-              query
-                ? "Try a different phrase, path, SHA fragment, or summary term."
-                : "Once repository history is available, matching commits will show up here."
-            }
-          />
+          <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center py-4">
+            <EmptyState
+              icon={<Search className="size-4" />}
+              title={query ? "No matching commits" : "No commits available"}
+              description={
+                query
+                  ? "Try a different phrase, path, SHA fragment, or summary term."
+                  : "Once repository history is available, matching commits will show up here."
+              }
+            />
+          </div>
         ) : (
-          <div className="workspace-scrollbar min-h-0 min-w-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto pr-1">
+          <div className="space-y-2">
             {visibleCommits.map((commit) => (
               <button
                 key={commit.sha}
                 type="button"
-                className="workspace-panel flex min-w-0 w-full items-start justify-between gap-3 overflow-hidden px-3 py-3 text-left transition-colors hover:bg-control/60"
+                className="workspace-panel flex w-full min-w-0 items-start justify-between gap-3 overflow-hidden px-3 py-3 text-left transition-colors hover:bg-control/60"
                 onClick={() => onCommitClick?.(commit.sha)}
               >
                 <div className="min-w-0 flex-1">
@@ -75,10 +81,10 @@ export default function SearchResults({
                 </div>
               </button>
             ))}
-            {filteredCommits.length > 25 ? (
+            {displayedCount > 25 ? (
               <div className="px-1 text-xs text-text-tertiary">
-                Showing the first 25 matches. {filteredCommits.length - 25} more commit
-                {filteredCommits.length - 25 === 1 ? "" : "s"} remain in the current result set.
+                Showing the first 25 matches. {displayedCount - 25} more commit
+                {displayedCount - 25 === 1 ? "" : "s"} remain in the current result set.
               </div>
             ) : null}
           </div>

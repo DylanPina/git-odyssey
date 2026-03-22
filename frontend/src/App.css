@@ -237,14 +237,6 @@
     font-size: 12px;
   }
 
-  .workspace-dock {
-    background: rgba(29, 35, 42, 0.92);
-    border: 1px solid var(--border-strong);
-    border-radius: 999px;
-    box-shadow: var(--shadow-overlay);
-    backdrop-filter: blur(18px);
-  }
-
   .workspace-native-select {
     width: 100%;
     height: 40px;
@@ -297,10 +289,6 @@
 
   .workspace-scrollbar::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover);
-  }
-
-  .commit-list-view {
-    scroll-padding-bottom: 9rem;
   }
 
   .commit-list-row {

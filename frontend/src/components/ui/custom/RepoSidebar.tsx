@@ -11,11 +11,17 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { MessageCircle, Search, Settings as SettingsIcon } from "lucide-react";
+import {
+  MessageCircle,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import Chat from "@/components/ui/custom/Chat";
+import RepoSearch from "@/components/ui/custom/Search";
 import SearchResults from "@/components/ui/custom/SearchResults";
+import { EMPTY_FILTERS, type FilterFormData } from "@/lib/filter-utils";
 import type { ChatMessage } from "@/lib/definitions/chat";
 import type { Commit } from "@/lib/definitions/repo";
 import { useSidebarTab, type SidebarTab } from "@/hooks/useSidebarTab";
@@ -24,12 +30,12 @@ import { buildSettingsRoute } from "@/lib/repoPaths";
 type RepoSidebarTab = Extract<SidebarTab, "search" | "chat">;
 
 const REPO_SIDEBAR_TABS = [
-  { value: "search", label: "Search", icon: Search },
+  { value: "search", label: "Search", icon: SearchIcon },
   { value: "chat", label: "Chat", icon: MessageCircle },
 ] satisfies ReadonlyArray<{
   value: RepoSidebarTab;
   label: string;
-  icon: typeof Search;
+  icon: typeof SearchIcon;
 }>;
 
 const sidebarSettingsButtonClass =
@@ -37,8 +43,14 @@ const sidebarSettingsButtonClass =
 
 interface RepoSidebarProps {
   repoPath?: string | null;
+  allCommitsCount?: number;
   filteredCommits?: Commit[];
+  searchQuery?: string;
+  searchFilters?: FilterFormData;
   lastSearchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
+  onSearchResults?: (commitShas: string[], query?: string) => void;
+  searchInputId?: string;
   onCommitClick?: (commitSha: string) => void;
   chatMessages?: ChatMessage[];
   isChatLoading?: boolean;
@@ -48,8 +60,14 @@ interface RepoSidebarProps {
 
 export function RepoSidebar({
   repoPath,
+  allCommitsCount = 0,
   filteredCommits = [],
+  searchQuery = "",
+  searchFilters = EMPTY_FILTERS,
   lastSearchQuery = "",
+  onSearchQueryChange,
+  onSearchResults,
+  searchInputId,
   onCommitClick,
   chatMessages = [],
   isChatLoading = false,
@@ -135,7 +153,7 @@ export function RepoSidebar({
                 onValueChange={handleTabChange}
               >
                 <ToggleGroupItem value="search" aria-label="Search" className="gap-2">
-                  <Search className="size-4" />
+                  <SearchIcon className="size-4" />
                   <span>Search</span>
                 </ToggleGroupItem>
                 <ToggleGroupItem value="chat" aria-label="Chat" className="gap-2">
@@ -150,11 +168,25 @@ export function RepoSidebar({
 
           <SidebarContent className="min-h-0">
             {activeTab === "search" ? (
-              <SearchResults
-                filteredCommits={filteredCommits}
-                query={lastSearchQuery}
-                onCommitClick={onCommitClick ?? (() => {})}
-              />
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="shrink-0 border-b border-sidebar-border px-4 py-4">
+                  <RepoSearch
+                    inputId={searchInputId}
+                    repoPath={repoPath}
+                    filters={searchFilters}
+                    query={searchQuery}
+                    onQueryChange={onSearchQueryChange}
+                    onSearchResults={onSearchResults}
+                  />
+                </div>
+
+                <SearchResults
+                  allCommitsCount={allCommitsCount}
+                  filteredCommits={filteredCommits}
+                  query={lastSearchQuery}
+                  onCommitClick={onCommitClick ?? (() => {})}
+                />
+              </div>
             ) : (
               <Chat
                 messages={chatMessages}
