@@ -291,6 +291,7 @@ export function Review() {
 		[searchParams],
 	);
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
+	const compareRequestIdRef = useRef(0);
 
 	const [baseRef, setBaseRef] = useState(queryBaseRef ?? "");
 	const [headRef, setHeadRef] = useState(queryHeadRef ?? "");
@@ -318,16 +319,11 @@ export function Review() {
 	}, [queryHeadRef]);
 
 	useEffect(() => {
-		if (
-			compare &&
-			(compare.base_ref !== baseRef || compare.head_ref !== headRef)
-		) {
-			setCompare(null);
-			setCompareError(null);
-			setReport(null);
-			setReportError(null);
-		}
-	}, [baseRef, compare, headRef]);
+		setCompare(null);
+		setCompareError(null);
+		setReport(null);
+		setReportError(null);
+	}, [baseRef, headRef, repoPath]);
 
 	useEffect(() => {
 		if (!compare) {
@@ -443,20 +439,24 @@ export function Review() {
 		[baseRef, updateRoute],
 	);
 
-	const loadCompare =
-		useCallback(async (): Promise<ReviewCompareResponse | null> => {
+	const loadCompare = useCallback(
+		async ({
+			baseRef: nextBaseRef = baseRef,
+			headRef: nextHeadRef = headRef,
+		}: {
+			baseRef?: string;
+			headRef?: string;
+		} = {}): Promise<ReviewCompareResponse | null> => {
 			if (!repoPath) {
 				setCompareError("No Git project path was provided.");
 				return null;
 			}
 
-			if (!baseRef || !headRef) {
-				setCompareError(
-					"Select both a base branch and a head branch before loading the diff.",
-				);
+			if (!nextBaseRef || !nextHeadRef) {
 				return null;
 			}
 
+			const requestId = ++compareRequestIdRef.current;
 			setIsCompareLoading(true);
 			setCompareError(null);
 			setReportError(null);
@@ -465,22 +465,42 @@ export function Review() {
 				const repoSettings = await getDesktopRepoSettings(repoPath);
 				const response = await compareReviewTarget({
 					repoPath,
-					baseRef,
-					headRef,
+					baseRef: nextBaseRef,
+					headRef: nextHeadRef,
 					contextLines: repoSettings.contextLines,
 				});
+				if (compareRequestIdRef.current !== requestId) {
+					return null;
+				}
 				setCompare(response);
 				return response;
 			} catch (error) {
+				if (compareRequestIdRef.current !== requestId) {
+					return null;
+				}
 				const message = getErrorMessage(error);
 				setCompare(null);
 				setCompareError(message);
 				setReport(null);
 				return null;
 			} finally {
-				setIsCompareLoading(false);
+				if (compareRequestIdRef.current === requestId) {
+					setIsCompareLoading(false);
+				}
 			}
-		}, [baseRef, headRef, repoPath]);
+		},
+		[baseRef, headRef, repoPath],
+	);
+
+	useEffect(() => {
+		if (!repoPath || !baseRef || !headRef) {
+			compareRequestIdRef.current += 1;
+			setIsCompareLoading(false);
+			return;
+		}
+
+		void loadCompare({ baseRef, headRef });
+	}, [baseRef, headRef, loadCompare, repoPath]);
 
 	const handleGenerateReview = useCallback(async () => {
 		if (!repoPath) {
@@ -488,7 +508,10 @@ export function Review() {
 			return;
 		}
 
-		const activeSelection = await loadCompare();
+		const activeSelection =
+			activeCompare?.base_ref === baseRef && activeCompare?.head_ref === headRef
+				? activeCompare
+				: await loadCompare();
 		if (!activeSelection) {
 			return;
 		}
@@ -511,7 +534,7 @@ export function Review() {
 		} finally {
 			setIsGenerating(false);
 		}
-	}, [baseRef, headRef, loadCompare, repoPath]);
+	}, [activeCompare, baseRef, headRef, loadCompare, repoPath]);
 
 	const handleFindingSelect = useCallback((finding: ReviewFinding) => {
 		diffWorkspaceRef.current?.focusLocation({
@@ -529,7 +552,7 @@ export function Review() {
 		[handleFindingSelect],
 	);
 
-	const canRunCompare = Boolean(
+	const canGenerateReview = Boolean(
 		repoPath && baseRef && headRef && !isCompareLoading && !isGenerating,
 	);
 	const findingsLabel =
@@ -617,28 +640,11 @@ export function Review() {
 
 						<div className="flex flex-wrap items-center gap-2 xl:justify-end">
 							<Button
-								variant="toolbar"
-								size="sm"
-								className="min-w-[8.5rem]"
-								onClick={() => void loadCompare()}
-								disabled={!canRunCompare}
-							>
-								{isCompareLoading ? (
-									<>
-										<Loader2 className="size-4 animate-spin" />
-										Loading diff
-									</>
-								) : (
-									"Load diff"
-								)}
-							</Button>
-
-							<Button
 								variant="accent"
 								size="sm"
 								className="min-w-[9.75rem]"
 								onClick={() => void handleGenerateReview()}
-								disabled={!canRunCompare}
+								disabled={!canGenerateReview}
 							>
 								{isGenerating ? (
 									<>
@@ -824,7 +830,7 @@ export function Review() {
 								topContent={workspaceTopContent}
 								fileSearchInputId="review-file-search-input"
 								codeSearchInputId="review-code-search-input"
-								emptyTitle="Select two local branches, then load the diff."
+								emptyTitle="Select two local branches to load the diff."
 								emptyDescription="Review mode compares merge-base(base, head)...head directly from the live Git repository."
 								chromeDensity="compact"
 								fileTreeCollapsible

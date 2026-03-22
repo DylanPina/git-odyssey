@@ -22,6 +22,7 @@ export type RepoViewMode = "graph" | "list";
 
 type RepoToolbarProps = {
   repoPath?: string | null;
+  viewMode?: RepoViewMode;
   isLoading?: boolean;
   isIngesting?: boolean;
   ingestStatus?: string;
@@ -29,6 +30,7 @@ type RepoToolbarProps = {
   onClearFilters?: () => void;
   onRefresh?: () => void;
   onReview?: () => void;
+  onViewModeChange?: (viewMode: RepoViewMode) => void;
 };
 
 function getRepoBreadcrumbs(repoPath?: string | null) {
@@ -46,6 +48,7 @@ function getRepoBreadcrumbs(repoPath?: string | null) {
 
 export function RepoToolbar({
   repoPath,
+  viewMode,
   isLoading,
   isIngesting,
   ingestStatus,
@@ -53,6 +56,7 @@ export function RepoToolbar({
   onClearFilters,
   onRefresh,
   onReview,
+  onViewModeChange,
 }: RepoToolbarProps) {
 	const breadcrumbs = getRepoBreadcrumbs(repoPath);
 
@@ -70,6 +74,16 @@ export function RepoToolbar({
 			: ingestStatus
 				? "Ready"
 				: "Idle";
+
+	const handleViewModeChange = (nextViewMode: string) => {
+		if (!onViewModeChange) {
+			return;
+		}
+
+		if (nextViewMode === "graph" || nextViewMode === "list") {
+			onViewModeChange(nextViewMode);
+		}
+	};
 
   return (
     <header className="workspace-header-frame sticky top-0 z-20 flex h-[var(--header-height)] items-center gap-3 overflow-hidden px-3 py-2 backdrop-blur-md">
@@ -109,6 +123,23 @@ export function RepoToolbar({
 			</Tooltip>
 
       <div className="flex shrink-0 items-center gap-2">
+				{viewMode ? (
+					<ToggleGroup
+						type="single"
+						size="sm"
+						value={viewMode}
+						onValueChange={handleViewModeChange}
+						aria-label="Repository view mode"
+					>
+						<ToggleGroupItem value="graph" aria-label="Graph view">
+							Graph
+						</ToggleGroupItem>
+						<ToggleGroupItem value="list" aria-label="List view">
+							List
+						</ToggleGroupItem>
+					</ToggleGroup>
+				) : null}
+
         <Tooltip>
           <TooltipTrigger asChild>
             <span>
