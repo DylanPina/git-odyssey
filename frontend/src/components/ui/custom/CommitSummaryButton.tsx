@@ -10,21 +10,28 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 type CommitSummaryButtonProps = {
   sha: string;
   summary?: string | null;
   onUpdateSummary?: (sha: string, summary: string) => void;
+  compact?: boolean;
 };
 
 export function CommitSummaryButton({
   sha,
   summary,
   onUpdateSummary,
+  compact = false,
 }: CommitSummaryButtonProps) {
   const [isSummarizing, setIsSummarizing] = useState(false);
 
   const shortSha = useMemo(() => sha.slice(0, 8), [sha]);
+  const triggerClassName = cn(
+    "nodrag",
+    compact && "h-7 w-7 rounded-full p-0 [&_svg]:size-3.5"
+  );
 
   const copyToClipboard = useCallback(async (text: string, type: string) => {
     try {
@@ -72,7 +79,7 @@ export function CommitSummaryButton({
           <Button
             variant="toolbar"
             size="icon-sm"
-            className="nodrag"
+            className={triggerClassName}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
             aria-label="View summary"
@@ -108,7 +115,7 @@ export function CommitSummaryButton({
     <Button
       variant="toolbar"
       size="icon-sm"
-      className="nodrag"
+      className={triggerClassName}
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
