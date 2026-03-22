@@ -7,10 +7,13 @@ import { Repo } from "@/pages/Repo";
 import { Commit } from "@/pages/Commit";
 import { Review } from "@/pages/Review";
 import { Settings } from "@/pages/Settings";
+import { useRepoNavigationShortcuts } from "@/hooks/useRepoNavigationShortcuts";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 function App() {
+	useRepoNavigationShortcuts();
+
 	return (
 		<div className="min-h-full w-full">
 			<Routes>
