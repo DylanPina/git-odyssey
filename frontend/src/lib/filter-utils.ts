@@ -10,6 +10,16 @@ export interface FilterFormData {
 	endDate: string;
 }
 
+export const EMPTY_FILTERS: FilterFormData = {
+	message: "",
+	branch: "",
+	commit: "",
+	file: "",
+	summary: "",
+	startDate: "",
+	endDate: "",
+};
+
 /**
  * Filters commits based on the provided filter criteria
  * @param commits - Array of commits to filter

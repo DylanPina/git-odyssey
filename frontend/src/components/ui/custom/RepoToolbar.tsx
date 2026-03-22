@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   Database,
+  Filter as FilterIcon,
   GitPullRequest,
   LogOut,
   RefreshCw,
@@ -8,6 +9,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import Filters from "@/components/ui/custom/Filters";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -16,6 +19,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { FilterFormData } from "@/lib/filter-utils";
 import { getRepoPathBreadcrumbs } from "@/lib/repoPaths";
 
 export type RepoViewMode = "graph" | "list";
@@ -23,11 +27,16 @@ export type RepoViewMode = "graph" | "list";
 type RepoToolbarProps = {
   repoPath?: string | null;
   viewMode?: RepoViewMode;
+  filters: FilterFormData;
+  hasActiveFilters?: boolean;
+  canResetScope?: boolean;
+  branchOptions?: string[];
   isLoading?: boolean;
   isIngesting?: boolean;
   ingestStatus?: string;
   onExit?: () => void;
   onClearFilters?: () => void;
+  onFiltersChange?: (filters: FilterFormData) => void;
   onRefresh?: () => void;
   onReview?: () => void;
   onViewModeChange?: (viewMode: RepoViewMode) => void;
@@ -49,11 +58,16 @@ function getRepoBreadcrumbs(repoPath?: string | null) {
 export function RepoToolbar({
   repoPath,
   viewMode,
+  filters,
+  hasActiveFilters = false,
+  canResetScope = false,
+  branchOptions = [],
   isLoading,
   isIngesting,
   ingestStatus,
   onExit,
   onClearFilters,
+  onFiltersChange,
   onRefresh,
   onReview,
   onViewModeChange,
@@ -157,22 +171,57 @@ export function RepoToolbar({
           <TooltipContent>Review branches</TooltipContent>
         </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={hasActiveFilters ? "accent" : "toolbar"}
+                  size="toolbar-icon"
+                  aria-label="Open commit filters"
+                >
+                  <FilterIcon className="size-4" />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Filters</TooltipContent>
+          </Tooltip>
+          <PopoverContent
+            align="end"
+            collisionPadding={16}
+            className="flex w-[min(28rem,calc(100vw-2rem))] max-h-(--radix-popover-content-available-height) flex-col overflow-hidden p-0"
+          >
+            <div className="shrink-0 border-b border-border-subtle px-4 py-4">
+              <div className="workspace-section-label">Filters</div>
+              <p className="mt-1 text-sm font-medium text-text-primary">
+                Narrow the visible commit set
+              </p>
+            </div>
+            <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
+              <Filters
+                values={filters}
+                onChange={onFiltersChange}
+                branches={branchOptions}
+              />
+            </div>
+            <div className="shrink-0 border-t border-border-subtle px-4 py-4">
               <Button
                 variant="toolbar"
-                size="toolbar-icon"
+                size="sm"
+                className="w-full justify-center gap-2"
                 onClick={onClearFilters}
-                disabled={!onClearFilters}
-                aria-label="Show all commits"
+                disabled={!onClearFilters || !canResetScope}
               >
                 <RotateCcw className="size-4" />
+                Reset Filters
               </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>Show all commits</TooltipContent>
-        </Tooltip>
+              <p className="mt-2 text-xs leading-5 text-text-tertiary">
+                Clears active filters and returns the repository to the full
+                commit view.
+              </p>
+            </div>
+          </PopoverContent>
+        </Popover>
 
 				<Tooltip>
 					<TooltipTrigger asChild>

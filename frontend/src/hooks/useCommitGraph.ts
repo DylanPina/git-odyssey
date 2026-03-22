@@ -19,8 +19,9 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
+  EMPTY_FILTERS,
   filterCommits,
-  hasActiveFilters,
+  hasActiveFilters as hasActiveFilterValues,
   type FilterFormData,
 } from "@/lib/filter-utils";
 import {
@@ -30,6 +31,7 @@ import {
 } from "@/lib/graph/layout";
 
 type UseCommitGraphArgs = {
+  repoPath?: string | null;
   commits: Commit[];
   branches: Branch[];
 };
@@ -38,8 +40,12 @@ type UseCommitGraph = {
   nodes: Node[];
   edges: Edge[];
   filteredCommits: Commit[];
+  filters: FilterFormData;
+  hasActiveFilters: boolean;
   focusedCommitSha: string | null;
+  searchQuery: string;
   lastSearchQuery: string;
+  setSearchQuery: (query: string) => void;
   layoutDirection: LayoutDirection;
   toggleLayoutDirection: () => void;
   onNodesChange: (changes: NodeChange[]) => void;
@@ -113,26 +119,24 @@ function panToCommit(instance: ReactFlowInstance, commitSha: string, duration: n
 }
 
 export function useCommitGraph({
+  repoPath,
   commits,
   branches,
 }: UseCommitGraphArgs): UseCommitGraph {
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [filteredCommitShas, setFilteredCommitShas] = useState<string[] | null>(
-    null
-  );
+  const [filters, setFilters] = useState<FilterFormData>({ ...EMPTY_FILTERS });
   const [focusedCommitSha, setFocusedCommitSha] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [lastSearchQuery, setLastSearchQuery] = useState<string>("");
+  const [searchResultCommitShas, setSearchResultCommitShas] = useState<
+    string[] | null
+  >(null);
   const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("TB");
   const [hasAnimated, setHasAnimated] = useState<boolean>(false);
   const [summaryBySha, setSummaryBySha] = useState<Record<string, string | null>>(
     {}
-  );
-
-  const highlightedCommitShas = useMemo(
-    () => (filteredCommitShas ? new Set(filteredCommitShas) : null),
-    [filteredCommitShas]
   );
 
   const commitsWithLocalSummary = useMemo(
@@ -149,6 +153,39 @@ export function useCommitGraph({
       }),
     [commits, summaryBySha]
   );
+
+  const hasActiveFilters = useMemo(
+    () => hasActiveFilterValues(filters),
+    [filters]
+  );
+
+  const filterMatchedCommits = useMemo(() => {
+    if (!hasActiveFilters) {
+      return commitsWithLocalSummary;
+    }
+
+    return filterCommits(commitsWithLocalSummary, filters, branches);
+  }, [branches, commitsWithLocalSummary, filters, hasActiveFilters]);
+
+  const visibleCommitShas = useMemo<string[] | null>(() => {
+    if (lastSearchQuery) {
+      return searchResultCommitShas ?? [];
+    }
+
+    if (hasActiveFilters) {
+      return filterMatchedCommits.map((commit) => commit.sha);
+    }
+
+    return null;
+  }, [filterMatchedCommits, hasActiveFilters, lastSearchQuery, searchResultCommitShas]);
+
+  const highlightedCommitShas = useMemo(() => {
+    if (visibleCommitShas === null) {
+      return null;
+    }
+
+    return new Set(visibleCommitShas);
+  }, [visibleCommitShas]);
 
   const filteredCommits = useMemo(() => {
     if (!highlightedCommitShas) {
@@ -217,6 +254,15 @@ export function useCommitGraph({
   }, [commitsWithLocalSummary, handleCommitSummaryUpdate]);
 
   useEffect(() => {
+    setFilters({ ...EMPTY_FILTERS });
+    setFocusedCommitSha(null);
+    setSearchQuery("");
+    setLastSearchQuery("");
+    setSearchResultCommitShas(null);
+    setHasAnimated(false);
+  }, [repoPath]);
+
+  useEffect(() => {
     const visibleCommitShas = new Set(commits.map((commit) => commit.sha));
 
     setSummaryBySha((current) => {
@@ -235,8 +281,6 @@ export function useCommitGraph({
       return changed ? next : current;
     });
 
-    setFilteredCommitShas(null);
-    setLastSearchQuery("");
     setFocusedCommitSha((current) =>
       current && visibleCommitShas.has(current) ? current : null
     );
@@ -319,9 +363,11 @@ export function useCommitGraph({
   }, [focusedCommitSha, highlightedCommitShas]);
 
   const handleClearFilters = useCallback(() => {
-    setFilteredCommitShas(null);
+    setFilters({ ...EMPTY_FILTERS });
     setFocusedCommitSha(null);
+    setSearchQuery("");
     setLastSearchQuery("");
+    setSearchResultCommitShas(null);
     setNodes((current) => clearSelectedNodes(current));
 
     setTimeout(() => {
@@ -346,22 +392,26 @@ export function useCommitGraph({
 
   const handleFiltersChange = useCallback(
     (filters: FilterFormData) => {
-      const hasFilters = hasActiveFilters(filters);
-      const filtered = hasFilters
-        ? filterCommits(commitsWithLocalSummary, filters, branches)
-        : commitsWithLocalSummary;
-
-      setFilteredCommitShas(hasFilters ? filtered.map((commit) => commit.sha) : null);
+      setFilters(filters);
       setFocusedCommitSha(null);
+      setSearchQuery("");
       setLastSearchQuery("");
+      setSearchResultCommitShas(null);
     },
-    [branches, commitsWithLocalSummary]
+    []
   );
 
   const handleSearchResults = useCallback((commitShas: string[], query?: string) => {
-    setFilteredCommitShas(commitShas);
+    const nextQuery = query ?? "";
+
+    setSearchResultCommitShas(commitShas);
     setFocusedCommitSha(null);
-    setLastSearchQuery(query ?? "");
+    setSearchQuery(nextQuery);
+    setLastSearchQuery(nextQuery);
+  }, []);
+
+  const handleSearchQueryChange = useCallback((query: string) => {
+    setSearchQuery(query);
   }, []);
 
   const handleCommitClick = useCallback(
@@ -413,8 +463,12 @@ export function useCommitGraph({
     nodes,
     edges,
     filteredCommits,
+    filters,
+    hasActiveFilters,
     focusedCommitSha,
+    searchQuery,
     lastSearchQuery,
+    setSearchQuery: handleSearchQueryChange,
     layoutDirection,
     toggleLayoutDirection,
     onNodesChange,

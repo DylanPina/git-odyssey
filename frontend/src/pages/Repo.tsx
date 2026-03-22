@@ -78,8 +78,12 @@ function RepoWorkspace() {
 		nodes,
 		edges,
 		filteredCommits,
+		filters,
+		hasActiveFilters,
 		focusedCommitSha,
+		searchQuery,
 		lastSearchQuery,
+		setSearchQuery,
 		layoutDirection,
 		toggleLayoutDirection,
 		onNodesChange,
@@ -91,7 +95,7 @@ function RepoWorkspace() {
 		handleSearchResults,
 		handleClearFilters,
 		reactFlowInstanceRef,
-	} = useCommitGraph({ commits, branches });
+	} = useCommitGraph({ repoPath, commits, branches });
 
 	const { chatMessages, isChatLoading, chatError, sendMessage } = useChat({
 		repoPath,
@@ -140,14 +144,15 @@ function RepoWorkspace() {
 		}
 	}, [reactFlowInstanceRef, viewMode]);
 
+	const canResetScope =
+		hasActiveFilters || Boolean(searchQuery.trim()) || Boolean(lastSearchQuery);
+
 	return (
 		<>
 			<RepoSidebar
 				repoPath={repoPath}
 				filteredCommits={filteredCommits}
-				filteredBranches={branches}
 				lastSearchQuery={lastSearchQuery}
-				onFiltersChange={handleFiltersChange}
 				onCommitClick={handleCommitClick}
 				chatMessages={chatMessages}
 				isChatLoading={isChatLoading}
@@ -160,11 +165,16 @@ function RepoWorkspace() {
 					<RepoToolbar
 						repoPath={repoPath}
 						viewMode={viewMode}
+						filters={filters}
+						hasActiveFilters={hasActiveFilters}
+						canResetScope={canResetScope}
+						branchOptions={branches.map((branch) => branch.name)}
 						isLoading={isLoading}
 						isIngesting={isIngesting}
 						ingestStatus={ingestStatus}
 						onExit={() => navigate("/")}
 						onClearFilters={handleClearFilters}
+						onFiltersChange={handleFiltersChange}
 						onRefresh={() => void refresh({ force: true })}
 						onReview={
 							repoPath ? () => navigate(buildReviewRoute(repoPath)) : undefined
@@ -231,6 +241,9 @@ function RepoWorkspace() {
 										<Search
 											inputId={REPO_SEARCH_INPUT_ID}
 											repoPath={repoPath ?? ""}
+											filters={filters}
+											query={searchQuery}
+											onQueryChange={setSearchQuery}
 											onSearchResults={handleSearchResults}
 										/>
 									</div>
