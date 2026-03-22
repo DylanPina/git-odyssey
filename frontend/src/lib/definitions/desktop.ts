@@ -7,6 +7,10 @@ import type {
   FilterResponse,
   RepoResponse,
 } from "@/lib/definitions/api";
+import type {
+  ReviewCompareResponse,
+  ReviewReport,
+} from "@/lib/definitions/review";
 import type { User } from "@/lib/definitions/auth";
 
 export type DesktopServiceState =
@@ -191,6 +195,18 @@ export interface GitOdysseyDesktopApi {
     repoPath: string,
     repoSettings?: DesktopRepoSettings
   ): Promise<CommitsResponse>;
+  compareReviewTarget(input: {
+    repoPath: string;
+    baseRef: string;
+    headRef: string;
+    contextLines: number;
+  }): Promise<ReviewCompareResponse>;
+  generateReview(input: {
+    repoPath: string;
+    baseRef: string;
+    headRef: string;
+    contextLines: number;
+  }): Promise<ReviewReport>;
   getCurrentUser(): Promise<User>;
   logout(): Promise<{ message: string }>;
 }

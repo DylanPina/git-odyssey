@@ -18,8 +18,6 @@ type UseCommitDetails = {
   isLoading: boolean;
   error: string | null;
   commit: Commit | null;
-  expanded: Record<string, boolean>;
-  setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   fileSummaries: Record<string, SummaryState>;
   setFileSummaries: React.Dispatch<React.SetStateAction<Record<string, SummaryState>>>;
   summaryOpen: Record<string, boolean>;
@@ -39,8 +37,6 @@ export function useCommitDetails({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [commit, setCommit] = useState<Commit | null>(null);
-
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [fileSummaries, setFileSummaries] = useState<Record<string, SummaryState>>({});
   const [summaryOpen, setSummaryOpen] = useState<Record<string, boolean>>({});
 
@@ -70,18 +66,6 @@ export function useCommitDetails({
     };
     void load();
   }, [repoPath, commitSha]);
-
-  // Initialize expanded per file
-  useEffect(() => {
-    if (!commit) return;
-    const files = commit.file_changes || [];
-    const initial: Record<string, boolean> = {};
-    for (const fc of files) {
-      const labelPath = fc.new_path || fc.old_path || "unknown";
-      initial[labelPath] = true;
-    }
-    setExpanded(initial);
-  }, [commit]);
 
   // Seed summaries from payload
   useEffect(() => {
@@ -161,8 +145,6 @@ export function useCommitDetails({
     isLoading,
     error,
     commit,
-    expanded,
-    setExpanded,
     fileSummaries,
     setFileSummaries,
     summaryOpen,

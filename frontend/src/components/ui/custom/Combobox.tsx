@@ -23,10 +23,14 @@ export function Combobox({
   options,
   onSelect,
   value,
+  disabled = false,
+  placeholder = "Filter by branch...",
 }: {
   options: string[];
   onSelect: (value: string) => void;
   value?: string;
+  disabled?: boolean;
+  placeholder?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const selectedOption = value
@@ -40,6 +44,7 @@ export function Combobox({
           variant="subtle"
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className="min-w-0 w-full justify-between overflow-hidden"
         >
           <span
@@ -48,7 +53,7 @@ export function Combobox({
               selectedOption ? "text-text-primary" : "text-text-tertiary"
             )}
           >
-            {selectedOption ?? "Filter by branch..."}
+            {selectedOption ?? placeholder}
           </span>
           <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-70" />
         </Button>

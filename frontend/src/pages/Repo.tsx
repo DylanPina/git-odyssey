@@ -1,10 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import { CommitListView } from "@/components/ui/custom/CommitListView";
 import CommitNode from "@/components/ui/custom/CommitNode";
 import { GraphView } from "@/components/ui/custom/GraphView";
 import { RepoSidebar } from "@/components/ui/custom/RepoSidebar";
-import { RepoToolbar } from "@/components/ui/custom/RepoToolbar";
+import {
+	RepoToolbar,
+	type RepoViewMode,
+} from "@/components/ui/custom/RepoToolbar";
 import Search from "@/components/ui/custom/Search";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
@@ -12,13 +16,34 @@ import { useChat } from "@/hooks/useChat";
 import { useCommitGraph } from "@/hooks/useCommitGraph";
 import { useRepoData } from "@/hooks/useRepoData";
 import { useSidebarTab } from "@/hooks/useSidebarTab";
-import { readRepoPathFromSearchParams } from "@/lib/repoPaths";
+import {
+	buildReviewRoute,
+	readRepoPathFromSearchParams,
+} from "@/lib/repoPaths";
 
 const nodeTypes = {
 	commit: CommitNode,
 };
 
 const REPO_SEARCH_INPUT_ID = "repo-search-input";
+const REPO_VIEW_MODE_STORAGE_KEY = "git-odyssey-repo-view-mode";
+
+function loadRepoViewMode(): RepoViewMode {
+	if (typeof window === "undefined") {
+		return "graph";
+	}
+
+	try {
+		const stored = window.localStorage.getItem(REPO_VIEW_MODE_STORAGE_KEY);
+		if (stored === "graph" || stored === "list") {
+			return stored;
+		}
+	} catch {
+		// Ignore storage issues and keep the default.
+	}
+
+	return "graph";
+}
 
 function focusRepoSearchInput() {
 	const input = document.getElementById(REPO_SEARCH_INPUT_ID);
@@ -31,6 +56,7 @@ function focusRepoSearchInput() {
 function RepoWorkspace() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
+	const [viewMode, setViewMode] = useState<RepoViewMode>(() => loadRepoViewMode());
 	const { isMobile, setOpen, setOpenMobile } = useSidebar();
 	const { setSelectedTab } = useSidebarTab();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
@@ -52,6 +78,7 @@ function RepoWorkspace() {
 		nodes,
 		edges,
 		filteredCommits,
+		focusedCommitSha,
 		lastSearchQuery,
 		layoutDirection,
 		toggleLayoutDirection,
@@ -59,6 +86,7 @@ function RepoWorkspace() {
 		onEdgesChange,
 		onConnect,
 		handleCommitClick,
+		handleCommitSummaryUpdate,
 		handleFiltersChange,
 		handleSearchResults,
 		handleClearFilters,
@@ -98,6 +126,20 @@ function RepoWorkspace() {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [isMobile, setOpen, setOpenMobile, setSelectedTab]);
 
+	useEffect(() => {
+		try {
+			window.localStorage.setItem(REPO_VIEW_MODE_STORAGE_KEY, viewMode);
+		} catch {
+			// Ignore storage issues and keep the current session state.
+		}
+	}, [viewMode]);
+
+	useEffect(() => {
+		if (viewMode !== "graph") {
+			reactFlowInstanceRef.current = null;
+		}
+	}, [reactFlowInstanceRef, viewMode]);
+
 	return (
 		<>
 			<RepoSidebar
@@ -117,12 +159,17 @@ function RepoWorkspace() {
 				<div className="flex h-full flex-col overflow-hidden">
 					<RepoToolbar
 						repoPath={repoPath}
+						viewMode={viewMode}
 						isLoading={isLoading}
 						isIngesting={isIngesting}
 						ingestStatus={ingestStatus}
 						onExit={() => navigate("/")}
 						onClearFilters={handleClearFilters}
 						onRefresh={() => void refresh({ force: true })}
+						onReview={
+							repoPath ? () => navigate(buildReviewRoute(repoPath)) : undefined
+						}
+						onViewModeChange={setViewMode}
 					/>
 
 					<div className="min-h-0 flex-1 pt-4">
@@ -134,22 +181,50 @@ function RepoWorkspace() {
 							) : null}
 
 							<div className="relative min-h-0 flex-1">
-								<GraphView
-									nodes={nodes}
-									edges={edges}
-									nodeTypes={nodeTypes}
-									onNodesChange={onNodesChange}
-									onEdgesChange={onEdgesChange}
-									onConnect={onConnect}
-									onInit={(instance) => {
-										reactFlowInstanceRef.current = instance;
-									}}
-									isLoading={isLoading}
-									isIngesting={isIngesting}
-									ingestStatus={ingestStatus}
-									layoutDirection={layoutDirection}
-									toggleLayoutDirection={toggleLayoutDirection}
-								/>
+								{viewMode === "graph" ? (
+									<GraphView
+										nodes={nodes}
+										edges={edges}
+										nodeTypes={nodeTypes}
+										onNodesChange={onNodesChange}
+										onEdgesChange={onEdgesChange}
+										onConnect={onConnect}
+										onNodeClick={(_event, node) => {
+											handleCommitClick(node.id);
+										}}
+										onInit={(instance) => {
+											reactFlowInstanceRef.current = instance;
+											window.requestAnimationFrame(() => {
+												if (focusedCommitSha) {
+													instance.fitView({
+														nodes: [{ id: focusedCommitSha }],
+														padding: 0.3,
+														duration: 0,
+													});
+													return;
+												}
+
+												instance.fitView({ padding: 0.2, duration: 0 });
+											});
+										}}
+										isLoading={isLoading}
+										isIngesting={isIngesting}
+										ingestStatus={ingestStatus}
+										layoutDirection={layoutDirection}
+										toggleLayoutDirection={toggleLayoutDirection}
+									/>
+								) : (
+									<CommitListView
+										commits={filteredCommits}
+										repoPath={repoPath}
+										focusedCommitSha={focusedCommitSha}
+										isLoading={isLoading}
+										isIngesting={isIngesting}
+										ingestStatus={ingestStatus}
+										onCommitClick={handleCommitClick}
+										onCommitSummaryUpdate={handleCommitSummaryUpdate}
+									/>
+								)}
 
 								<div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center px-4">
 									<div className="pointer-events-auto w-full max-w-3xl">

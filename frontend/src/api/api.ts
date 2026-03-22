@@ -6,6 +6,10 @@ import type {
   CommitResponse,
   CommitsResponse,
 } from "../lib/definitions/api";
+import type {
+  ReviewCompareResponse,
+  ReviewReport,
+} from "@/lib/definitions/review";
 import type { User } from "@/lib/definitions/auth";
 import type {
   DesktopAiConfigInput,
@@ -113,6 +117,24 @@ export const getCommits = async (
   repoSettings?: DesktopRepoSettings
 ): Promise<CommitsResponse> => {
   return getDesktopBridge().api.getCommits(repoPath, repoSettings);
+};
+
+export const compareReviewTarget = async (input: {
+  repoPath: string;
+  baseRef: string;
+  headRef: string;
+  contextLines: number;
+}): Promise<ReviewCompareResponse> => {
+  return getDesktopBridge().api.compareReviewTarget(input);
+};
+
+export const generateReview = async (input: {
+  repoPath: string;
+  baseRef: string;
+  headRef: string;
+  contextLines: number;
+}): Promise<ReviewReport> => {
+  return getDesktopBridge().api.generateReview(input);
 };
 
 export const getCurrentUser = async (): Promise<User> => {

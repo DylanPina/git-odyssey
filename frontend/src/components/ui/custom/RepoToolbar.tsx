@@ -1,8 +1,16 @@
-import { ChevronRight, Database, LogOut, RefreshCw, RotateCcw } from "lucide-react";
+import {
+  ChevronRight,
+  Database,
+  GitPullRequest,
+  LogOut,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { StatusPill } from "@/components/ui/status-pill";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
@@ -10,14 +18,19 @@ import {
 } from "@/components/ui/tooltip";
 import { getRepoPathBreadcrumbs } from "@/lib/repoPaths";
 
+export type RepoViewMode = "graph" | "list";
+
 type RepoToolbarProps = {
   repoPath?: string | null;
+  viewMode: RepoViewMode;
   isLoading?: boolean;
   isIngesting?: boolean;
   ingestStatus?: string;
   onExit?: () => void;
   onClearFilters?: () => void;
   onRefresh?: () => void;
+  onReview?: () => void;
+  onViewModeChange?: (viewMode: RepoViewMode) => void;
 };
 
 function getRepoBreadcrumbs(repoPath?: string | null) {
@@ -35,12 +48,15 @@ function getRepoBreadcrumbs(repoPath?: string | null) {
 
 export function RepoToolbar({
   repoPath,
+  viewMode,
   isLoading,
   isIngesting,
   ingestStatus,
   onExit,
   onClearFilters,
   onRefresh,
+  onReview,
+  onViewModeChange,
 }: RepoToolbarProps) {
   const breadcrumbs = getRepoBreadcrumbs(repoPath);
 
@@ -58,6 +74,12 @@ export function RepoToolbar({
       : ingestStatus
         ? "Ready"
         : "Idle";
+
+  const handleViewModeChange = (value: string) => {
+    if (value === "graph" || value === "list") {
+      onViewModeChange?.(value);
+    }
+  };
 
   return (
     <header className="workspace-header-frame sticky top-0 z-20 flex h-[var(--header-height)] items-center gap-3 overflow-hidden px-3 py-2 backdrop-blur-md">
@@ -97,6 +119,38 @@ export function RepoToolbar({
       </Tooltip>
 
       <div className="flex shrink-0 items-center gap-2">
+        <ToggleGroup
+          type="single"
+          value={viewMode}
+          onValueChange={handleViewModeChange}
+          aria-label="Repository view mode"
+          className="min-w-[8.5rem]"
+        >
+          <ToggleGroupItem value="graph" aria-label="Show graph view">
+            Graph
+          </ToggleGroupItem>
+          <ToggleGroupItem value="list" aria-label="Show list view">
+            List
+          </ToggleGroupItem>
+        </ToggleGroup>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="toolbar"
+                size="toolbar-icon"
+                onClick={onReview}
+                disabled={!onReview}
+                aria-label="Open review page"
+              >
+                <GitPullRequest className="size-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Review branches</TooltipContent>
+        </Tooltip>
+
         <Tooltip>
           <TooltipTrigger asChild>
             <span>

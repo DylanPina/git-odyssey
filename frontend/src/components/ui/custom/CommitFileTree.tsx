@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { FileChange } from "@/lib/definitions/repo";
 import {
+	getAncestorFolderPaths,
 	buildCommitFileTree,
 	getFileChangeLabelPath,
 	normalizeDiffFileStatus,
@@ -92,6 +93,25 @@ export function CommitFileTree({
 			return next;
 		});
 	}, [folderPaths]);
+
+	useEffect(() => {
+		if (!selectedFilePath) {
+			return;
+		}
+
+		const ancestorPaths = getAncestorFolderPaths(selectedFilePath);
+		if (ancestorPaths.length === 0) {
+			return;
+		}
+
+		setOpenFolders((prev) => {
+			const next = { ...prev };
+			ancestorPaths.forEach((path) => {
+				next[path] = true;
+			});
+			return next;
+		});
+	}, [selectedFilePath]);
 
 	const renderNodes = (nodes: CommitFileTreeNode[], depth = 0) =>
 		nodes.map((node) => {

@@ -242,6 +242,32 @@ function registerIpcHandlers() {
     return backendManager.request(`/api/repo/commits?${params.toString()}`);
   });
 
+  ipcMain.handle("git-odyssey:api:compare-review-target", async (_event, input) => {
+    const project = configStore.recordRecentProject(input.repoPath);
+    return backendManager.request("/api/review/compare", {
+      method: "POST",
+      body: {
+        repo_path: project.path,
+        base_ref: input.baseRef,
+        head_ref: input.headRef,
+        context_lines: input.contextLines,
+      },
+    });
+  });
+
+  ipcMain.handle("git-odyssey:api:generate-review", async (_event, input) => {
+    const project = configStore.recordRecentProject(input.repoPath);
+    return backendManager.request("/api/review/generate", {
+      method: "POST",
+      body: {
+        repo_path: project.path,
+        base_ref: input.baseRef,
+        head_ref: input.headRef,
+        context_lines: input.contextLines,
+      },
+    });
+  });
+
   ipcMain.handle("git-odyssey:api:get-current-user", async () => {
     return backendManager.request("/api/auth/me");
   });

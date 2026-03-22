@@ -11,6 +11,7 @@ import { getRepoPathBreadcrumbs } from "@/lib/repoPaths";
 type CommitToolbarProps = {
   repoPath?: string | null;
   shortSha?: string;
+  detailLabel?: string;
   onExit?: () => void;
   onCollapseAll?: () => void;
 };
@@ -31,11 +32,12 @@ function getRepoBreadcrumbs(repoPath?: string | null) {
 export function CommitToolbar({
   repoPath,
   shortSha,
+  detailLabel,
   onExit,
   onCollapseAll,
 }: CommitToolbarProps) {
   const breadcrumbs = getRepoBreadcrumbs(repoPath);
-  const commitLabel = shortSha || "Commit";
+  const commitLabel = detailLabel || shortSha || "Commit";
   const breadcrumbTitle = repoPath ? `${repoPath} @ ${commitLabel}` : commitLabel;
 
   return (

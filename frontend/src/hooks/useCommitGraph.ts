@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Commit, Branch } from "@/lib/definitions/repo";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
+import type { Branch, Commit } from "@/lib/definitions/repo";
 import {
   type Connection,
   type Edge,
@@ -31,6 +38,7 @@ type UseCommitGraph = {
   nodes: Node[];
   edges: Edge[];
   filteredCommits: Commit[];
+  focusedCommitSha: string | null;
   lastSearchQuery: string;
   layoutDirection: LayoutDirection;
   toggleLayoutDirection: () => void;
@@ -38,11 +46,71 @@ type UseCommitGraph = {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (params: Connection) => void;
   handleCommitClick: (commitSha: string) => void;
+  handleCommitSummaryUpdate: (commitSha: string, summary: string) => void;
   handleFiltersChange: (filters: FilterFormData) => void;
   handleSearchResults: (commitShas: string[], query?: string) => void;
   handleClearFilters: () => void;
-  reactFlowInstanceRef: React.MutableRefObject<ReactFlowInstance | null>;
+  reactFlowInstanceRef: MutableRefObject<ReactFlowInstance | null>;
 };
+
+function applySelectedCommitShas(nodes: Node[], selectedCommitShas: Set<string>) {
+  let changed = false;
+
+  const nextNodes = nodes.map((node) => {
+    const selected = selectedCommitShas.has(node.id);
+    if (node.selected === selected) {
+      return node;
+    }
+
+    changed = true;
+    return {
+      ...node,
+      selected,
+    };
+  });
+
+  return changed ? nextNodes : nodes;
+}
+
+function clearSelectedNodes(nodes: Node[]) {
+  let changed = false;
+
+  const nextNodes = nodes.map((node) => {
+    if (!node.selected) {
+      return node;
+    }
+
+    changed = true;
+    return {
+      ...node,
+      selected: false,
+    };
+  });
+
+  return changed ? nextNodes : nodes;
+}
+
+const FOCUSED_COMMIT_ZOOM = 0.65;
+
+function panToCommit(instance: ReactFlowInstance, commitSha: string, duration: number) {
+  const target = instance.getInternalNode(commitSha);
+  if (!target) {
+    return;
+  }
+
+  const width = target.measured.width ?? target.width ?? 0;
+  const height = target.measured.height ?? target.height ?? 0;
+  const viewport = instance.getViewport();
+
+  void instance.setCenter(
+    target.internals.positionAbsolute.x + width / 2,
+    target.internals.positionAbsolute.y + height / 2,
+    {
+      zoom: Math.max(viewport.zoom, FOCUSED_COMMIT_ZOOM),
+      duration,
+    }
+  );
+}
 
 export function useCommitGraph({
   commits,
@@ -51,17 +119,73 @@ export function useCommitGraph({
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [filteredCommits, setFilteredCommits] = useState<Commit[]>(commits);
-  const [lastSearchQuery, setLastSearchQuery] = useState<string>("");
-  const [filterSelectedNodes, setFilterSelectedNodes] = useState<Set<string>>(
-    new Set()
+  const [filteredCommitShas, setFilteredCommitShas] = useState<string[] | null>(
+    null
   );
+  const [focusedCommitSha, setFocusedCommitSha] = useState<string | null>(null);
+  const [lastSearchQuery, setLastSearchQuery] = useState<string>("");
   const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("TB");
   const [hasAnimated, setHasAnimated] = useState<boolean>(false);
+  const [summaryBySha, setSummaryBySha] = useState<Record<string, string | null>>(
+    {}
+  );
 
-  // Convert commits to nodes/edges, memoized to avoid re-creating on unrelated changes
+  const highlightedCommitShas = useMemo(
+    () => (filteredCommitShas ? new Set(filteredCommitShas) : null),
+    [filteredCommitShas]
+  );
+
+  const commitsWithLocalSummary = useMemo(
+    () =>
+      commits.map((commit) => {
+        if (summaryBySha[commit.sha] === undefined) {
+          return commit;
+        }
+
+        return {
+          ...commit,
+          summary: summaryBySha[commit.sha],
+        };
+      }),
+    [commits, summaryBySha]
+  );
+
+  const filteredCommits = useMemo(() => {
+    if (!highlightedCommitShas) {
+      return commitsWithLocalSummary;
+    }
+
+    return commitsWithLocalSummary.filter((commit) =>
+      highlightedCommitShas.has(commit.sha)
+    );
+  }, [commitsWithLocalSummary, highlightedCommitShas]);
+
+  const handleCommitSummaryUpdate = useCallback(
+    (commitSha: string, summary: string) => {
+      setSummaryBySha((current) => ({
+        ...current,
+        [commitSha]: summary,
+      }));
+
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === commitSha
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  summary,
+                },
+              }
+            : node
+        )
+      );
+    },
+    []
+  );
+
   const graphFromCommits = useMemo(() => {
-    const nodesFromCommits: Node[] = commits.map((commit) => ({
+    const nodesFromCommits: Node[] = commitsWithLocalSummary.map((commit) => ({
       id: commit.sha,
       position: { x: 0, y: 0 },
       data: {
@@ -70,22 +194,14 @@ export function useCommitGraph({
         author: commit.author,
         time: commit.time,
         summary: commit.summary || null,
-        onUpdateSummary: (sha: string, summary: string) => {
-          setNodes((current) =>
-            current.map((node) =>
-              node.id === sha
-                ? { ...node, data: { ...node.data, summary } }
-                : node
-            )
-          );
-        },
+        onUpdateSummary: handleCommitSummaryUpdate,
       },
       type: "commit",
       ...nodeDefaults,
     }));
 
     const edgesFromCommits: Edge[] = [];
-    commits.forEach((commit) => {
+    commitsWithLocalSummary.forEach((commit) => {
       if (commit.parents && commit.parents.length > 0) {
         commit.parents.forEach((parentSha, index) => {
           edgesFromCommits.push({
@@ -98,46 +214,78 @@ export function useCommitGraph({
     });
 
     return { nodes: nodesFromCommits, edges: edgesFromCommits };
+  }, [commitsWithLocalSummary, handleCommitSummaryUpdate]);
+
+  useEffect(() => {
+    const visibleCommitShas = new Set(commits.map((commit) => commit.sha));
+
+    setSummaryBySha((current) => {
+      let changed = false;
+      const next: Record<string, string | null> = {};
+
+      Object.entries(current).forEach(([sha, summary]) => {
+        if (visibleCommitShas.has(sha)) {
+          next[sha] = summary;
+          return;
+        }
+
+        changed = true;
+      });
+
+      return changed ? next : current;
+    });
+
+    setFilteredCommitShas(null);
+    setLastSearchQuery("");
+    setFocusedCommitSha((current) =>
+      current && visibleCommitShas.has(current) ? current : null
+    );
   }, [commits]);
 
-  // Build and layout graph whenever commits or direction change
   useEffect(() => {
     const { nodes: layoutedNodes, edges: layoutedEdges } = layoutGraph(
       graphFromCommits.nodes,
       graphFromCommits.edges,
       layoutDirection
     );
-    setNodes(layoutedNodes);
-    setEdges(layoutedEdges);
-    setFilteredCommits(commits);
 
-    // Trigger initial zoom animation on first load
+    if (focusedCommitSha) {
+      setNodes(applySelectedCommitShas(layoutedNodes, new Set([focusedCommitSha])));
+    } else if (highlightedCommitShas) {
+      setNodes(applySelectedCommitShas(layoutedNodes, highlightedCommitShas));
+    } else {
+      setNodes(clearSelectedNodes(layoutedNodes));
+    }
+
+    setEdges(layoutedEdges);
+
     if (!hasAnimated && commits.length > 0) {
       setHasAnimated(true);
       setTimeout(() => {
         const instance = reactFlowInstanceRef.current;
         if (instance) {
-          // First, fit the entire graph to show the whole structure and get centered position
           instance.fitView({ padding: 0.1, duration: 0 });
-          
-          // Then zoom out while keeping the centered position
+
           setTimeout(() => {
             const currentViewport = instance.getViewport();
-            instance.setViewport({ 
-              x: currentViewport.x, 
-              y: currentViewport.y, 
-              zoom: 0.1 
-            }, { duration: 0 });
-            
-            // Find the 3 most recent commits by timestamp
-            const sortedCommits = [...commits].sort((a, b) => (b.time || 0) - (a.time || 0));
+            instance.setViewport(
+              {
+                x: currentViewport.x,
+                y: currentViewport.y,
+                zoom: 0.1,
+              },
+              { duration: 0 }
+            );
+
+            const sortedCommits = [...commits].sort(
+              (a, b) => (b.time || 0) - (a.time || 0)
+            );
             const mostRecentCommits = sortedCommits.slice(0, 5);
-            
+
             if (mostRecentCommits.length > 0) {
-              // Animate to focus on the most recent commits
               setTimeout(() => {
                 instance.fitView({
-                  nodes: mostRecentCommits.map(commit => ({ id: commit.sha })),
+                  nodes: mostRecentCommits.map((commit) => ({ id: commit.sha })),
                   padding: 0.3,
                   duration: 2000,
                 });
@@ -145,36 +293,54 @@ export function useCommitGraph({
             }
           }, 50);
         }
-      }, 300); // Small delay to ensure the graph is rendered
+      }, 300);
     }
-  }, [graphFromCommits, layoutDirection, commits, hasAnimated]);
+  }, [
+    commits,
+    focusedCommitSha,
+    graphFromCommits,
+    hasAnimated,
+    highlightedCommitShas,
+    layoutDirection,
+  ]);
 
-  const updateNodeSelection = useCallback((selectedShas: Set<string>) => {
-    setFilterSelectedNodes(selectedShas);
-    setNodes((currentNodes) =>
-      currentNodes.map((node) => ({
-        ...node,
-        selected: selectedShas.has(node.id),
-      }))
-    );
-  }, []);
+  useEffect(() => {
+    setNodes((current) => {
+      if (focusedCommitSha) {
+        return applySelectedCommitShas(current, new Set([focusedCommitSha]));
+      }
+
+      if (highlightedCommitShas) {
+        return applySelectedCommitShas(current, highlightedCommitShas);
+      }
+
+      return clearSelectedNodes(current);
+    });
+  }, [focusedCommitSha, highlightedCommitShas]);
 
   const handleClearFilters = useCallback(() => {
-    setFilteredCommits(commits);
-    updateNodeSelection(new Set());
+    setFilteredCommitShas(null);
+    setFocusedCommitSha(null);
     setLastSearchQuery("");
+    setNodes((current) => clearSelectedNodes(current));
+
     setTimeout(() => {
       const instance = reactFlowInstanceRef.current;
-      if (instance) instance.fitView({ padding: 0.3, duration: 800 });
+      if (instance) {
+        instance.fitView({ padding: 0.3, duration: 800 });
+      }
     }, 100);
-  }, [commits, updateNodeSelection]);
+  }, []);
 
   const toggleLayoutDirection = useCallback(() => {
     const next = layoutDirection === "TB" ? "LR" : "TB";
     setLayoutDirection(next);
+
     setTimeout(() => {
       const instance = reactFlowInstanceRef.current;
-      if (instance) instance.fitView({ padding: 0.3, duration: 800 });
+      if (instance) {
+        instance.fitView({ padding: 0.3, duration: 800 });
+      }
     }, 100);
   }, [layoutDirection]);
 
@@ -182,61 +348,54 @@ export function useCommitGraph({
     (filters: FilterFormData) => {
       const hasFilters = hasActiveFilters(filters);
       const filtered = hasFilters
-        ? filterCommits(commits, filters, branches)
-        : commits;
-      setFilteredCommits(filtered);
+        ? filterCommits(commitsWithLocalSummary, filters, branches)
+        : commitsWithLocalSummary;
+
+      setFilteredCommitShas(hasFilters ? filtered.map((commit) => commit.sha) : null);
+      setFocusedCommitSha(null);
       setLastSearchQuery("");
-      const selectedShas = hasFilters
-        ? new Set(filtered.map((c) => c.sha))
-        : new Set<string>();
-      updateNodeSelection(selectedShas);
     },
-    [commits, branches, updateNodeSelection]
+    [branches, commitsWithLocalSummary]
   );
 
-  const handleSearchResults = useCallback(
-    (commitShas: string[], query?: string) => {
-      const filtered = commits.filter((c) => commitShas.includes(c.sha));
-      setFilteredCommits(filtered);
-      setLastSearchQuery(query ?? "");
-      updateNodeSelection(new Set(commitShas));
-    },
-    [commits, updateNodeSelection]
-  );
+  const handleSearchResults = useCallback((commitShas: string[], query?: string) => {
+    setFilteredCommitShas(commitShas);
+    setFocusedCommitSha(null);
+    setLastSearchQuery(query ?? "");
+  }, []);
 
   const handleCommitClick = useCallback(
     (commitSha: string) => {
+      setFocusedCommitSha(commitSha);
+      setNodes((current) => applySelectedCommitShas(current, new Set([commitSha])));
+
       const instance = reactFlowInstanceRef.current;
-      if (!instance) return;
-      const target = nodes.find((n) => n.id === commitSha);
-      if (!target) return;
-      setNodes((current) =>
-        current.map((n) => ({ ...n, selected: n.id === commitSha }))
-      );
-      instance.fitView({
-        nodes: [{ id: commitSha }],
-        padding: 0.3,
-        duration: 800,
-      });
+      if (!instance) {
+        return;
+      }
+
+      panToCommit(instance, commitSha, 800);
     },
-    [nodes]
+    []
   );
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       setNodes((snapshot) => {
-        let updated = applyNodeChanges(changes, snapshot);
-        // Always maintain filter highlighting for filtered commits
-        if (filterSelectedNodes.size > 0) {
-          updated = updated.map((node) => ({
-            ...node,
-            selected: filterSelectedNodes.has(node.id),
-          }));
+        const updated = applyNodeChanges(changes, snapshot);
+
+        if (focusedCommitSha) {
+          return applySelectedCommitShas(updated, new Set([focusedCommitSha]));
         }
+
+        if (highlightedCommitShas) {
+          return applySelectedCommitShas(updated, highlightedCommitShas);
+        }
+
         return updated;
       });
     },
-    [filterSelectedNodes]
+    [focusedCommitSha, highlightedCommitShas]
   );
 
   const onEdgesChange = useCallback(
@@ -254,6 +413,7 @@ export function useCommitGraph({
     nodes,
     edges,
     filteredCommits,
+    focusedCommitSha,
     lastSearchQuery,
     layoutDirection,
     toggleLayoutDirection,
@@ -261,6 +421,7 @@ export function useCommitGraph({
     onEdgesChange,
     onConnect,
     handleCommitClick,
+    handleCommitSummaryUpdate,
     handleFiltersChange,
     handleSearchResults,
     handleClearFilters,

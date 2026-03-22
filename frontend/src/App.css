@@ -298,6 +298,42 @@
   .workspace-scrollbar::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover);
   }
+
+  .commit-list-view {
+    scroll-padding-bottom: 9rem;
+  }
+
+  .commit-list-row {
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .commit-list-row:hover {
+    border-color: var(--border-strong);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .commit-list-row[data-selected="true"] {
+    border-color: rgba(122, 162, 255, 0.72);
+    background: linear-gradient(180deg, rgba(122, 162, 255, 0.12), rgba(122, 162, 255, 0.06));
+    box-shadow:
+      0 0 0 1px rgba(122, 162, 255, 0.5),
+      0 16px 36px rgba(0, 0, 0, 0.22);
+  }
+
+  .commit-list-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .commit-summary-icon-active {
+    color: #cfe1ff;
+    filter: drop-shadow(0 0 0.4rem rgba(122, 162, 255, 0.52));
+    animation: commit-summary-glow 1800ms ease-in-out infinite alternate;
+  }
 }
 
 #root {
@@ -478,9 +514,22 @@
   }
 }
 
+@keyframes commit-summary-glow {
+  0% {
+    color: #a8c6ff;
+    filter: drop-shadow(0 0 0.28rem rgba(122, 162, 255, 0.34));
+  }
+
+  100% {
+    color: #eef5ff;
+    filter: drop-shadow(0 0 0.75rem rgba(122, 162, 255, 0.82));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .home-space-glow,
-  .home-space-grain {
+  .home-space-grain,
+  .commit-summary-icon-active {
     animation: none;
   }
 }

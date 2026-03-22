@@ -38,6 +38,24 @@ export function buildCommitRoute(repoPath: string, commitSha: string): string {
   return `/repo/commit/${commitSha}?${params.toString()}`;
 }
 
+export function buildReviewRoute(
+  repoPath: string,
+  baseRef?: string | null,
+  headRef?: string | null
+): string {
+  const params = new URLSearchParams({ path: normalizeRepoPath(repoPath) });
+
+  if (baseRef) {
+    params.set("base", baseRef);
+  }
+
+  if (headRef) {
+    params.set("head", headRef);
+  }
+
+  return `/repo/review?${params.toString()}`;
+}
+
 export function buildSettingsRoute(repoPath?: string | null): string {
   if (!repoPath) {
     return "/settings";
@@ -54,13 +72,24 @@ export function readRepoPathFromSearchParams(
   return repoPath ? normalizeRepoPath(repoPath) : null;
 }
 
+export function readReviewRefsFromSearchParams(searchParams: URLSearchParams): {
+  baseRef: string | null;
+  headRef: string | null;
+} {
+  return {
+    baseRef: searchParams.get("base"),
+    headRef: searchParams.get("head"),
+  };
+}
+
 export function buildMonacoModelUri(
   repoPath: string,
-  commitSha: string,
+  revisionId: string,
   filePath: string,
   side: MonacoSide
 ): string {
   const repoKey = getRepoStableKey(repoPath);
+  const revisionKey = encodeURIComponent(revisionId);
   const fileKey = encodeURIComponent(filePath);
-  return `file:///git-odyssey/${repoKey}/${commitSha}/${fileKey}?side=${side}`;
+  return `file:///git-odyssey/${repoKey}/${revisionKey}/${fileKey}?side=${side}`;
 }

@@ -1,6 +1,12 @@
 import type { FileChange, FileHunk } from "@/lib/definitions/repo";
 
 export type DiffSearchScope = "all" | "files" | "code";
+export type DiffNavigationTarget = {
+  filePath: string;
+  newStart?: number | null;
+  oldStart?: number | null;
+  token: number;
+};
 
 export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
 
@@ -283,4 +289,38 @@ export function formatHunkLabel(hunk: FileHunk): string {
 	const oldRange = `${hunk.old_start}${hunk.old_lines ? "," + hunk.old_lines : ""}`;
 	const newRange = `${hunk.new_start}${hunk.new_lines ? "," + hunk.new_lines : ""}`;
 	return `-${oldRange} +${newRange}`;
+}
+
+export function findClosestHunk(
+  hunks: FileHunk[],
+  target: Pick<DiffNavigationTarget, "newStart" | "oldStart">
+): FileHunk | null {
+  if (hunks.length === 0) {
+    return null;
+  }
+
+  const targetNew = target.newStart ?? null;
+  const targetOld = target.oldStart ?? null;
+
+  if (targetNew == null && targetOld == null) {
+    return hunks[0];
+  }
+
+  let bestHunk: FileHunk | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  hunks.forEach((hunk) => {
+    const newScore =
+      targetNew == null ? Number.POSITIVE_INFINITY : Math.abs(hunk.new_start - targetNew);
+    const oldScore =
+      targetOld == null ? Number.POSITIVE_INFINITY : Math.abs(hunk.old_start - targetOld);
+    const score = Math.min(newScore, oldScore);
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestHunk = hunk;
+    }
+  });
+
+  return bestHunk ?? hunks[0];
 }

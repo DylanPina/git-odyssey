@@ -33,6 +33,7 @@ from services.chat_service import ChatService
 from services.filter_service import FilterService
 from services.ingest_service import IngestService
 from services.repo_service import RepoService
+from services.review_service import ReviewCompareService, ReviewGenerationService
 from services.summarize_service import SummarizeService
 
 
@@ -234,3 +235,14 @@ def get_filter_service(
     retriever: Retriever = Depends(get_retriever),
 ) -> FilterService:
     return FilterService(retriever)
+
+
+def get_review_compare_service() -> ReviewCompareService:
+    return ReviewCompareService()
+
+
+def get_review_generation_service(
+    compare_service: ReviewCompareService = Depends(get_review_compare_service),
+    ai_engine: AIEngine = Depends(get_ai_engine),
+) -> ReviewGenerationService:
+    return ReviewGenerationService(compare_service=compare_service, ai_engine=ai_engine)

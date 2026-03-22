@@ -1,6 +1,9 @@
+from datetime import datetime
+from typing import Any, Dict, List, Literal
+
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any
-from data.data_model import Commit, Branch
+
+from data.data_model import Branch, Commit, FileChange
 from infrastructure.ai_runtime import AIRuntimeConfig
 
 
@@ -57,3 +60,50 @@ class CommitsResponse(BaseModel):
 
 class CommitResponse(BaseModel):
     commit: Commit = Field(default_factory=Commit)
+
+
+class ReviewCompareRequest(BaseModel):
+    repo_path: str = ""
+    base_ref: str = ""
+    head_ref: str = ""
+    context_lines: int = 3
+
+
+class ReviewStats(BaseModel):
+    files_changed: int = 0
+    additions: int = 0
+    deletions: int = 0
+
+
+class ReviewCompareResponse(BaseModel):
+    repo_path: str
+    base_ref: str
+    head_ref: str
+    merge_base_sha: str
+    stats: ReviewStats = Field(default_factory=ReviewStats)
+    file_changes: List[FileChange] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class GenerateReviewRequest(BaseModel):
+    repo_path: str = ""
+    base_ref: str = ""
+    head_ref: str = ""
+    context_lines: int = 3
+
+
+class ReviewFinding(BaseModel):
+    id: str
+    severity: Literal["high", "medium", "low"]
+    title: str
+    body: str
+    file_path: str
+    new_start: int | None = None
+    old_start: int | None = None
+
+
+class ReviewReport(BaseModel):
+    summary: str
+    findings: List[ReviewFinding] = Field(default_factory=list)
+    partial: bool = False
+    generated_at: datetime

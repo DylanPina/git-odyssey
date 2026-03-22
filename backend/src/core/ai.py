@@ -29,6 +29,9 @@ class AIEngine:
             input_text=input_text,
         )
 
+    def generate_text(self, instructions: str, input_text: str) -> str:
+        return self._invoke(instructions, input_text)
+
     def answer_question(self, question: str, context: str) -> str:
         instructions, input_text = build_question_prompt(question, context)
         return self._invoke(instructions, input_text)

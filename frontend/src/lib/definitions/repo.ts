@@ -41,6 +41,7 @@ export type Commit = {
 	repo_path: string;
 	message: string;
 	author: string | null;
+	email?: string | null;
 	time: number;
 	file_changes: FileChange[];
 	parents: string[];

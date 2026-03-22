@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import {
@@ -14,53 +14,65 @@ import { Button } from "@/components/ui/button";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
 import { StatusPill } from "@/components/ui/status-pill";
-import { cn } from "@/lib/utils";
-import type { Commit, FileChange, FileHunk } from "@/lib/definitions/repo";
 import {
+	findClosestHunk,
 	formatHunkLabel,
 	getDiffStatusLabel,
 	getDiffStatusTone,
 	getFileChangeLabelPath,
 	inferLanguage,
 	normalizeDiffFileStatus,
+	type DiffNavigationTarget,
 } from "@/lib/diff";
+import type { FileChange, FileHunk } from "@/lib/definitions/repo";
 import { registerGitOdysseyMonacoTheme } from "@/lib/monacoTheme";
 import { buildMonacoModelUri } from "@/lib/repoPaths";
+import { cn } from "@/lib/utils";
 
 type SummaryState = { loading: boolean; text?: string; error?: string };
 
 type CommitFilePanelProps = {
 	repoPath?: string | null;
-	commit: Commit;
+	viewerId: string;
 	fileChange: FileChange;
 	isExpanded: boolean;
 	onToggleExpanded: () => void;
-	fileSummary: SummaryState | undefined;
-	isFileSummaryOpen: boolean;
-	onToggleFileSummary: () => void;
-	onSummarizeFile: () => void;
-	hunkSummaries: Record<string, SummaryState>;
-	hunkSummaryOpen: Record<string, boolean>;
-	onToggleHunkSummary: (hunkId: string) => void;
-	onSummarizeHunk: (hunk: FileHunk) => void;
+	fileSummary?: SummaryState;
+	isFileSummaryOpen?: boolean;
+	onToggleFileSummary?: () => void;
+	onSummarizeFile?: () => void;
+	hunkSummaries?: Record<string, SummaryState>;
+	hunkSummaryOpen?: Record<string, boolean>;
+	onToggleHunkSummary?: (hunkId: string) => void;
+	onSummarizeHunk?: (hunk: FileHunk) => void;
 	isSelected?: boolean;
+	navigationTarget?: DiffNavigationTarget | null;
+	onNavigationTargetHandled?: () => void;
 };
+
+function getHunkAnchorKey(hunk: FileHunk, index: number): string {
+	return hunk.id != null
+		? `id:${hunk.id}`
+		: `range:${index}:${hunk.old_start}:${hunk.new_start}`;
+}
 
 export function CommitFilePanel({
 	repoPath,
-	commit,
+	viewerId,
 	fileChange,
 	isExpanded,
 	onToggleExpanded,
 	fileSummary,
-	isFileSummaryOpen,
+	isFileSummaryOpen = false,
 	onToggleFileSummary,
 	onSummarizeFile,
-	hunkSummaries,
-	hunkSummaryOpen,
+	hunkSummaries = {},
+	hunkSummaryOpen = {},
 	onToggleHunkSummary,
 	onSummarizeHunk,
 	isSelected = false,
+	navigationTarget = null,
+	onNavigationTargetHandled,
 }: CommitFilePanelProps) {
 	const diffEditorsRef = useRef<
 		Record<string, MonacoEditor.IStandaloneDiffEditor | undefined>
@@ -68,6 +80,7 @@ export function CommitFilePanel({
 	const pendingScrollRef = useRef<
 		Record<string, { side: "original" | "modified"; line: number } | undefined>
 	>({});
+	const hunkRefs = useRef<Record<string, HTMLDivElement | null>>({});
 	const [isViewerExpanded, setIsViewerExpanded] = useState(false);
 
 	const diffOptions = useMemo(
@@ -112,14 +125,14 @@ export function CommitFilePanel({
 
 	const labelPath = getFileChangeLabelPath(fileChange);
 	const originalModelPath = buildMonacoModelUri(
-		repoPath ?? commit.repo_path,
-		commit.sha,
+		repoPath ?? "",
+		viewerId,
 		labelPath,
 		"original",
 	);
 	const modifiedModelPath = buildMonacoModelUri(
-		repoPath ?? commit.repo_path,
-		commit.sha,
+		repoPath ?? "",
+		viewerId,
 		labelPath,
 		"modified",
 	);
@@ -127,6 +140,66 @@ export function CommitFilePanel({
 	const diffHeight = isViewerExpanded
 		? "max(440px, calc(100dvh - var(--header-height) - 12rem))"
 		: 440;
+	const canShowFileSummaryControls = Boolean(
+		onToggleFileSummary || onSummarizeFile || fileSummary?.text || fileSummary?.error,
+	);
+	const hunkList = useMemo(() => fileChange.hunks || [], [fileChange.hunks]);
+
+	const revealHunk = useCallback(
+		(hunk: FileHunk) => {
+			const side: "original" | "modified" =
+				status === "deleted" ? "original" : "modified";
+			const line = side === "original" ? hunk.old_start : hunk.new_start;
+			const editor = diffEditorsRef.current[labelPath];
+			if (editor) {
+				const target =
+					side === "original"
+						? editor.getOriginalEditor()
+						: editor.getModifiedEditor();
+				target?.revealLineInCenter(line);
+				target?.setPosition({ lineNumber: line, column: 1 });
+				target?.focus();
+			} else {
+				pendingScrollRef.current[labelPath] = { side, line };
+			}
+		},
+		[labelPath, status],
+	);
+
+	useEffect(() => {
+		if (!navigationTarget || !isExpanded) {
+			return;
+		}
+
+		if (hunkList.length === 0) {
+			onNavigationTargetHandled?.();
+			return;
+		}
+
+		const closestHunk = findClosestHunk(hunkList, navigationTarget);
+		if (!closestHunk) {
+			onNavigationTargetHandled?.();
+			return;
+		}
+
+		const hunkIndex = hunkList.findIndex((candidate) => candidate === closestHunk);
+		const anchorKey = getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
+
+		revealHunk(closestHunk);
+		window.requestAnimationFrame(() => {
+			hunkRefs.current[anchorKey]?.scrollIntoView({
+				behavior: "smooth",
+				block: "center",
+			});
+		});
+		onNavigationTargetHandled?.();
+	}, [
+		hunkList,
+		isExpanded,
+		navigationTarget,
+		onNavigationTargetHandled,
+		revealHunk,
+	]);
 
 	return (
 		<section
@@ -192,52 +265,57 @@ export function CommitFilePanel({
 						</span>
 					</Button>
 
-					<Button
-						variant={fileSummary?.text ? "toolbar" : "subtle"}
-						size="sm"
-						disabled={
-							summaryLoading || (!fileSummary?.text && fileChange.id == null)
-						}
-						onClick={(event) => {
-							event.stopPropagation();
-							if (fileSummary?.text) onToggleFileSummary();
-							else onSummarizeFile();
-						}}
-						title={
-							fileSummary?.text
-								? isFileSummaryOpen
-									? "Hide summary"
-									: "View summary"
-								: fileChange.id == null
-									? "File change ID not available"
-									: "Summarize file change"
-						}
-					>
-						{summaryLoading ? (
-							<>
-								<Loader2 className="size-4 animate-spin" />
-								Summarizing
-							</>
-						) : fileSummary?.text ? (
-							<>
-								{isFileSummaryOpen ? (
-									<ChevronDown className="size-4" />
-								) : (
-									<ChevronRight className="size-4" />
-								)}
-								Summary
-							</>
-						) : (
-							<>
-								<Sparkles className="size-4" />
-								Summarize
-							</>
-						)}
-					</Button>
+					{canShowFileSummaryControls ? (
+						<Button
+							variant={fileSummary?.text ? "toolbar" : "subtle"}
+							size="sm"
+							disabled={
+								summaryLoading ||
+								(!fileSummary?.text && typeof onSummarizeFile !== "function")
+							}
+							onClick={(event) => {
+								event.stopPropagation();
+								if (fileSummary?.text) onToggleFileSummary?.();
+								else onSummarizeFile?.();
+							}}
+							title={
+								fileSummary?.text
+									? isFileSummaryOpen
+										? "Hide summary"
+										: "View summary"
+									: typeof onSummarizeFile !== "function"
+										? "File summaries are unavailable for this diff"
+										: "Summarize file change"
+							}
+						>
+							{summaryLoading ? (
+								<>
+									<Loader2 className="size-4 animate-spin" />
+									Summarizing
+								</>
+							) : fileSummary?.text ? (
+								<>
+									{isFileSummaryOpen ? (
+										<ChevronDown className="size-4" />
+									) : (
+										<ChevronRight className="size-4" />
+									)}
+									Summary
+								</>
+							) : (
+								<>
+									<Sparkles className="size-4" />
+									Summarize
+								</>
+							)}
+						</Button>
+					) : null}
 				</div>
 			</div>
 
-			{isFileSummaryOpen && (fileSummary?.text || fileSummary?.error) ? (
+			{canShowFileSummaryControls &&
+			isFileSummaryOpen &&
+			(fileSummary?.text || fileSummary?.error) ? (
 				<div className="space-y-3 border-b border-border-subtle bg-[rgba(255,255,255,0.02)] px-4 py-4">
 					{fileSummary?.error ? (
 						<InlineBanner tone="danger" title={fileSummary.error} />
@@ -279,83 +357,85 @@ export function CommitFilePanel({
 				</div>
 			) : null}
 
-			{fileChange.hunks?.length ? (
+			{hunkList.length ? (
 				<div className="space-y-2 px-4 py-4">
 					<div className="workspace-section-label">Hunks</div>
-					{fileChange.hunks.map((hunk) => {
+					{hunkList.map((hunk, index) => {
 						const hKey = hunk.id != null ? String(hunk.id) : undefined;
 						const hState = hKey ? hunkSummaries[hKey] : undefined;
 						const hOpen = hKey ? (hunkSummaryOpen[hKey] ?? false) : false;
 						const label = formatHunkLabel(hunk);
-
-						const handleJump = () => {
-							const side: "original" | "modified" =
-								status === "deleted" ? "original" : "modified";
-							const line =
-								side === "original" ? hunk.old_start : hunk.new_start;
-							const editor = diffEditorsRef.current[labelPath];
-							if (editor) {
-								const target =
-									side === "original"
-										? editor.getOriginalEditor()
-										: editor.getModifiedEditor();
-								target?.revealLineInCenter(line);
-								target?.setPosition({ lineNumber: line, column: 1 });
-								target?.focus();
-							} else {
-								pendingScrollRef.current[labelPath] = { side, line };
-							}
-						};
+						const anchorKey = getHunkAnchorKey(hunk, index);
+						const canShowHunkSummaryControls = Boolean(
+							hKey &&
+								(onToggleHunkSummary ||
+									onSummarizeHunk ||
+									hState?.text ||
+									hState?.error),
+						);
 
 						return (
 							<div
-								key={`${commit.sha}-${labelPath}-${label}-${hKey ?? label}`}
+								key={`${viewerId}-${labelPath}-${anchorKey}`}
+								ref={(node) => {
+									hunkRefs.current[anchorKey] = node;
+								}}
 								className="rounded-[12px] border border-border-subtle bg-control/40"
 							>
 								<div className="flex items-center justify-between gap-3 px-3 py-2.5">
 									<button
 										type="button"
 										className="font-mono text-xs text-text-secondary transition-colors hover:text-text-primary"
-										onClick={handleJump}
+										onClick={() => revealHunk(hunk)}
 										title="Jump to hunk in diff"
 									>
 										{label}
 									</button>
-									<Button
-										variant={hState?.text ? "toolbar" : "ghost"}
-										size="sm"
-										disabled={hState?.loading || hKey == null}
-										onClick={(event) => {
-											event.stopPropagation();
-											if (!hKey) return;
-											if (hState?.text) onToggleHunkSummary(hKey);
-											else onSummarizeHunk(hunk);
-										}}
-									>
-										{hState?.loading ? (
-											<>
-												<Loader2 className="size-4 animate-spin" />
-												Summarizing
-											</>
-										) : hState?.text ? (
-											<>
-												{hOpen ? (
-													<ChevronDown className="size-4" />
-												) : (
-													<ChevronRight className="size-4" />
-												)}
-												Summary
-											</>
-										) : (
-											<>
-												<Sparkles className="size-4" />
-												Summarize
-											</>
-										)}
-									</Button>
+
+									{canShowHunkSummaryControls ? (
+										<Button
+											variant={hState?.text ? "toolbar" : "ghost"}
+											size="sm"
+											disabled={
+												Boolean(hState?.loading) ||
+												(hState?.text
+													? typeof onToggleHunkSummary !== "function"
+													: typeof onSummarizeHunk !== "function")
+											}
+											onClick={(event) => {
+												event.stopPropagation();
+												if (!hKey) return;
+												if (hState?.text) onToggleHunkSummary?.(hKey);
+												else onSummarizeHunk?.(hunk);
+											}}
+										>
+											{hState?.loading ? (
+												<>
+													<Loader2 className="size-4 animate-spin" />
+													Summarizing
+												</>
+											) : hState?.text ? (
+												<>
+													{hOpen ? (
+														<ChevronDown className="size-4" />
+													) : (
+														<ChevronRight className="size-4" />
+													)}
+													Summary
+												</>
+											) : (
+												<>
+													<Sparkles className="size-4" />
+													Summarize
+												</>
+											)}
+										</Button>
+									) : null}
 								</div>
 
-								{hOpen && (hState?.text || hState?.error) ? (
+								{canShowHunkSummaryControls &&
+								hOpen &&
+								(hState?.text || hState?.error) ? (
 									<div className="space-y-3 border-t border-border-subtle px-3 py-3">
 										{hState?.error ? (
 											<InlineBanner tone="danger" title={hState.error} />

@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld("gitOdysseyDesktop", {
       invoke("git-odyssey:api:get-commit", repoPath, commitSha, repoSettings),
     getCommits: (repoPath, repoSettings) =>
       invoke("git-odyssey:api:get-commits", repoPath, repoSettings),
+    compareReviewTarget: (input) =>
+      invoke("git-odyssey:api:compare-review-target", input),
+    generateReview: (input) =>
+      invoke("git-odyssey:api:generate-review", input),
     getCurrentUser: () => invoke("git-odyssey:api:get-current-user"),
     logout: () => invoke("git-odyssey:api:logout"),
   },

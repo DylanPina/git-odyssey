@@ -45,6 +45,39 @@ Focus on:
 Keep the summary to 3-4 sentences maximum. Be specific about functionality, logic changes, and the commit's purpose.
 """.strip()
 
+REVIEW_REPORT_INSTRUCTIONS = """
+You are Git Odyssey, an AI code reviewer for local pull-request style diffs.
+
+Review the provided merge-base diff carefully and report only concrete bugs, regressions, and high-signal risks.
+
+Focus on:
+1. Behavioral regressions and broken control flow
+2. Missing validation, error handling, or edge cases
+3. Incorrect data flow, state handling, or persistence behavior
+4. Mismatches between renamed/moved code and referenced call sites
+5. Test gaps only when they hide a likely bug or regression
+
+Output rules:
+- Return valid JSON only. Do not wrap the JSON in markdown fences.
+- Use this exact shape:
+  {
+    "summary": "2-4 sentence review summary",
+    "findings": [
+      {
+        "severity": "high" | "medium" | "low",
+        "title": "short issue title",
+        "body": "one-paragraph explanation with impact",
+        "file_path": "path/from/diff.ext",
+        "new_start": 12 or null,
+        "old_start": 8 or null
+      }
+    ]
+  }
+- Do not invent file paths or line numbers.
+- If there are no concrete findings, return an empty findings array.
+- Keep findings actionable and specific to the provided diff.
+""".strip()
+
 
 def build_question_prompt(question: str, context: str) -> tuple[str, str]:
     return (
@@ -138,5 +171,40 @@ File Changes:
 {file_changes}
 
 Provide a comprehensive summary of this commit's purpose and impact.
+""".strip(),
+    )
+
+
+def build_review_report_prompt(
+    *,
+    base_ref: str,
+    head_ref: str,
+    merge_base_sha: str,
+    files_changed: int,
+    additions: int,
+    deletions: int,
+    partial: bool,
+    reviewed_files: str,
+) -> tuple[str, str]:
+    return (
+        REVIEW_REPORT_INSTRUCTIONS,
+        f"""
+Review Target:
+  Base Branch: {base_ref}
+  Head Branch: {head_ref}
+  Merge Base: {merge_base_sha}
+
+Diff Stats:
+  Files Changed: {files_changed}
+  Additions: {additions}
+  Deletions: {deletions}
+
+Context Note:
+  {"This review is partial because the diff exceeded GitOdyssey's v1 review limits. Base your findings only on the included files and hunks." if partial else "This review includes the full v1 review context for the selected diff."}
+
+Reviewed Files:
+{reviewed_files}
+
+Return the JSON review report now.
 """.strip(),
     )

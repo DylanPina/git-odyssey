@@ -7,6 +7,7 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
+  type NodeMouseHandler,
   type Node,
   type NodeChange,
   type NodeTypes,
@@ -25,6 +26,7 @@ type GraphViewProps = {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (params: Connection) => void;
   onInit: (instance: ReactFlowInstance) => void;
+  onNodeClick: NodeMouseHandler;
   isLoading: boolean;
   isIngesting: boolean;
   ingestStatus: string;
@@ -40,6 +42,7 @@ export function GraphView({
   onEdgesChange,
   onConnect,
   onInit,
+  onNodeClick,
   isLoading,
   isIngesting,
   ingestStatus,
@@ -55,6 +58,7 @@ export function GraphView({
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
       onInit={onInit}
+      onNodeClick={onNodeClick}
       fitView={false}
       className="h-full w-full"
       defaultViewport={{ x: 0, y: 0, zoom: 0.1 }}

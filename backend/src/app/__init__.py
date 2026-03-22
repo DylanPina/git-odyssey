@@ -122,6 +122,7 @@ def create_app() -> FastAPI:
     from api.routers.repo import router as repo_router
     from api.routers.filter import router as filter_router
     from api.routers.chat import router as chat_router
+    from api.routers.review import router as review_router
     from api.routers.summarize import router as summarize_router
     from api.routers.desktop import router as desktop_router
 
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
     api_router.include_router(repo_router, prefix="/repo", tags=["repo"])
     api_router.include_router(filter_router, prefix="/filter", tags=["filter"])
     api_router.include_router(chat_router, prefix="/chat", tags=["chat"])
+    api_router.include_router(review_router, prefix="/review", tags=["review"])
     api_router.include_router(
         summarize_router, prefix="/summarize", tags=["summarize"])
     api_router.include_router(desktop_router, prefix="/desktop", tags=["desktop"])
