@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
+import { GitCommitHorizontal } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -58,6 +59,8 @@ export function Commit() {
 		commitSubject ||
 		(targetCommit?.sha ? `Commit ${targetCommit.sha.slice(0, 12)}` : "Commit");
 	const fullSha = targetCommit?.sha || shortSha || "Unknown commit";
+	const compactSha =
+		fullSha && fullSha !== "Unknown commit" ? fullSha.slice(0, 8) : null;
 	const authorLabel = targetCommit?.author || "Unknown author";
 	const formattedTime = useMemo(
 		() =>
@@ -91,7 +94,7 @@ export function Commit() {
 		}
 	}, []);
 
-	const topContent = targetCommit ? (
+	const pageTopContent = targetCommit ? (
 		<div className="rounded-[22px] border border-border-strong bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:p-4">
 			<div className="flex flex-col items-start gap-3">
 				<div className="w-full max-w-5xl space-y-2">
@@ -137,9 +140,40 @@ export function Commit() {
 		</div>
 	) : null;
 
+	const changedFilesLabel = targetCommit
+		? `${allFiles.length} file${allFiles.length === 1 ? "" : "s"} changed`
+		: isLoading
+			? "Loading commit diff"
+			: "Commit diff";
+	const workspaceTopContent = (
+		<div className="flex min-w-0 items-center gap-3">
+			<div className="flex size-9 shrink-0 items-center justify-center rounded-[12px] border border-border-subtle bg-[rgba(255,255,255,0.035)]">
+				<GitCommitHorizontal className="size-4 text-text-secondary" />
+			</div>
+
+			<div className="min-w-0">
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+					<div className="text-sm font-semibold text-text-primary">
+						{changedFilesLabel}
+					</div>
+					{compactSha ? (
+						<span className="font-mono text-[11px] text-text-secondary">
+							{compactSha}
+						</span>
+					) : null}
+				</div>
+				<div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+					<span className="truncate text-text-primary">{commitTitle}</span>
+					<span>{authorLabel}</span>
+					<span>{formattedTime}</span>
+				</div>
+			</div>
+		</div>
+	);
+
 	return (
-		<div className="workspace-shell">
-			<div className="flex h-screen flex-col overflow-hidden">
+		<div className="workspace-shell min-h-screen">
+			<div className="flex min-h-screen flex-col pb-4">
 				<div className="px-4 pt-4">
 					<CommitToolbar
 						repoPath={repoPath}
@@ -153,41 +187,47 @@ export function Commit() {
 					/>
 				</div>
 
-				<div className="min-h-0 flex-1 px-4 pb-4 pt-4">
-					<DiffWorkspace
-						ref={diffWorkspaceRef}
-						repoPath={repoPath ?? targetCommit?.repo_path}
-						viewerId={targetCommit?.sha ?? commitSha ?? "commit"}
-						files={allFiles}
-						isLoading={Boolean(isLoading)}
-						error={pageError}
-						topContent={topContent}
-						searchInputId="commit-search-input"
-						emptyTitle="No file changes in this commit."
-						emptyDescription="This commit does not contain diffable file content."
-						summaryActions={
-							targetCommit
-								? {
-										fileSummaries,
-										summaryOpen,
-										onToggleFileSummary: (summaryKey) =>
-											setSummaryOpen((prev) => ({
-												...prev,
-												[summaryKey]: !(prev[summaryKey] ?? false),
-											})),
-										onSummarizeFile: handleSummarizeFile,
-										hunkSummaries,
-										hunkSummaryOpen,
-										onToggleHunkSummary: (hunkKey) =>
-											setHunkSummaryOpen((prev) => ({
-												...prev,
-												[hunkKey]: !(prev[hunkKey] ?? false),
-											})),
-										onSummarizeHunk: handleSummarizeHunk,
-									}
-								: undefined
-						}
-					/>
+				{pageTopContent ? <div className="px-4 pt-4">{pageTopContent}</div> : null}
+
+				<div className="px-4 pb-4 pt-4">
+					<div className="sticky top-[calc(var(--header-height)+1rem)] z-10 h-[calc(100dvh-var(--header-height)-2rem)]">
+						<DiffWorkspace
+							ref={diffWorkspaceRef}
+							repoPath={repoPath ?? targetCommit?.repo_path}
+							viewerId={targetCommit?.sha ?? commitSha ?? "commit"}
+							files={allFiles}
+							isLoading={Boolean(isLoading)}
+							error={pageError}
+							topContent={workspaceTopContent}
+							fileSearchInputId="commit-file-search-input"
+							codeSearchInputId="commit-code-search-input"
+							emptyTitle="No file changes in this commit."
+							emptyDescription="This commit does not contain diffable file content."
+							chromeDensity="compact"
+							summaryActions={
+								targetCommit
+									? {
+											fileSummaries,
+											summaryOpen,
+											onToggleFileSummary: (summaryKey) =>
+												setSummaryOpen((prev) => ({
+													...prev,
+													[summaryKey]: !(prev[summaryKey] ?? false),
+												})),
+											onSummarizeFile: handleSummarizeFile,
+											hunkSummaries,
+											hunkSummaryOpen,
+											onToggleHunkSummary: (hunkKey) =>
+												setHunkSummaryOpen((prev) => ({
+													...prev,
+													[hunkKey]: !(prev[hunkKey] ?? false),
+												})),
+											onSummarizeHunk: handleSummarizeHunk,
+										}
+									: undefined
+							}
+						/>
+					</div>
 				</div>
 			</div>
 		</div>

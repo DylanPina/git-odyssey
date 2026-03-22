@@ -100,6 +100,10 @@ export function CommitFilePanel({
 			scrollbar: {
 				verticalScrollbarSize: 10,
 				horizontalScrollbarSize: 10,
+				// Let the workspace keep scrolling once the editor itself
+				// can no longer move, which is especially important when
+				// the viewer is expanded to nearly full height.
+				alwaysConsumeMouseWheel: false,
 			},
 			padding: {
 				top: 14,
