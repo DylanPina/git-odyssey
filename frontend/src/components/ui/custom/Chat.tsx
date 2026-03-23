@@ -52,7 +52,6 @@ export default function Chat({
 				<div className="workspace-scrollbar min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto pr-5">
 					{messages.length === 0 && !isLoading ? (
 						<EmptyState
-							icon={<Bot className="size-4" />}
 							title="Ask about this repository"
 							description="Use chat to explain commits, summarize the current result set, or investigate what changed across branches."
 						/>

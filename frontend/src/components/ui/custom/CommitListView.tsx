@@ -123,8 +123,7 @@ export function CommitListView({
 				{sortedCommits.length === 0 ? (
 					<div className="flex min-h-full items-center justify-center py-8">
 						<EmptyState
-							icon={<List className="size-4" />}
-							title="No visible commits"
+							title="No commits found"
 							description="Try clearing filters or searching with a broader phrase to bring matching commits back into view."
 							className="max-w-md items-center text-center"
 						/>
