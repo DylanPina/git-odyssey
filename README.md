@@ -2,8 +2,6 @@
 
 GitOdyssey is now a desktop-first, fully local codebase analysis app. The React UI runs inside Electron, the backend runs as a local FastAPI sidecar, and repository analysis stays on your machine.
 
-[![Watch the Demo](https://img.youtube.com/vi/DYcpnQevTuk/0.jpg)](https://youtu.be/DYcpnQevTuk)
-
 ## What Changed
 
 - Browser deployment, hosted auth, and cloud infrastructure settings have been removed.
