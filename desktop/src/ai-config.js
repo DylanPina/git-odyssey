@@ -68,8 +68,8 @@ function normalizeAiRuntimeConfig(rawConfig) {
   const profiles =
     Array.isArray(config.profiles) && config.profiles.length > 0
       ? config.profiles.map((profile) =>
-          normalizeProviderProfile(profile, fallback.profiles[0])
-        )
+        normalizeProviderProfile(profile, fallback.profiles[0])
+      )
       : fallback.profiles;
 
   const textBinding = config.capabilities?.text_generation || {};
@@ -98,13 +98,13 @@ function normalizeAiRuntimeConfig(rawConfig) {
         embeddingsBinding === null
           ? null
           : {
-              provider_profile_id:
-                embeddingsBinding?.provider_profile_id ||
-                fallback.capabilities.embeddings.provider_profile_id,
-              model_id:
-                embeddingsBinding?.model_id ||
-                fallback.capabilities.embeddings.model_id,
-            },
+            provider_profile_id:
+              embeddingsBinding?.provider_profile_id ||
+              fallback.capabilities.embeddings.provider_profile_id,
+            model_id:
+              embeddingsBinding?.model_id ||
+              fallback.capabilities.embeddings.model_id,
+          },
     },
   };
 }

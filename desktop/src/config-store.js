@@ -16,6 +16,18 @@ const DEFAULT_BACKEND_PORT = Number(
 );
 const DEFAULT_REPO_MAX_COMMITS = 50;
 const DEFAULT_REPO_CONTEXT_LINES = 3;
+const DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey";
+const DEFAULT_DATABASE_SSLMODE = "disable";
+
+function getOptionalEnv(name) {
+  const value = process.env[name];
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
 function normalizePositiveInteger(value, fallback) {
   const parsed = Number.parseInt(String(value), 10);
@@ -73,10 +85,9 @@ class DesktopConfigStore {
 
     return {
       backendPort: DEFAULT_BACKEND_PORT,
-      databaseUrl:
-        process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey",
-      databaseSslMode: process.env.DATABASE_SSLMODE ?? "disable",
+      databaseUrl: getOptionalEnv("DATABASE_URL") ?? DEFAULT_DATABASE_URL,
+      databaseSslMode:
+        getOptionalEnv("DATABASE_SSLMODE") ?? DEFAULT_DATABASE_SSLMODE,
       dataDir,
       logDir,
       aiRuntimeConfig: buildDefaultAiRuntimeConfig(),
@@ -107,6 +118,12 @@ class DesktopConfigStore {
       const merged = {
         ...defaults,
         ...parsed,
+        databaseUrl:
+          getOptionalEnv("DATABASE_URL") ?? parsed.databaseUrl ?? defaults.databaseUrl,
+        databaseSslMode:
+          getOptionalEnv("DATABASE_SSLMODE") ??
+          parsed.databaseSslMode ??
+          defaults.databaseSslMode,
         aiRuntimeConfig: normalizeAiRuntimeConfig(
           parsed.aiRuntimeConfig ?? defaults.aiRuntimeConfig
         ),

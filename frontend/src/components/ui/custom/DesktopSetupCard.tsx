@@ -414,6 +414,7 @@ export function DesktopSetupCard({
   const [formState, setFormState] = useState<SetupFormState>(() =>
     buildInitialState(desktopSettingsStatus?.aiRuntimeConfig)
   );
+  const [hasLocalChanges, setHasLocalChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -422,8 +423,38 @@ export function DesktopSetupCard({
     useState<DesktopAiValidationResult | null>(null);
 
   useEffect(() => {
+    if (hasLocalChanges) {
+      return;
+    }
+
     setFormState(buildInitialState(desktopSettingsStatus?.aiRuntimeConfig));
-  }, [desktopSettingsStatus?.aiRuntimeConfig]);
+  }, [desktopSettingsStatus?.aiRuntimeConfig, hasLocalChanges]);
+
+  const updateText = (
+    next: Partial<CapabilityFormState & { temperature?: string }>
+  ) => {
+    setHasLocalChanges(true);
+    setFormState((current) => ({
+      ...current,
+      text: { ...current.text, ...next },
+    }));
+  };
+
+  const updateEmbeddings = (next: Partial<CapabilityFormState>) => {
+    setHasLocalChanges(true);
+    setFormState((current) => ({
+      ...current,
+      embeddings: { ...current.embeddings, ...next },
+    }));
+  };
+
+  const updateEmbeddingsEnabled = (embeddingsEnabled: boolean) => {
+    setHasLocalChanges(true);
+    setFormState((current) => ({
+      ...current,
+      embeddingsEnabled,
+    }));
+  };
 
   const runValidation = async () => {
     const input = buildAiConfigInput(formState);
@@ -472,6 +503,7 @@ export function DesktopSetupCard({
 
       await saveDesktopAiConfig(input);
       setFeedback("AI configuration saved locally. Restarting local services...");
+      setHasLocalChanges(false);
       setFormState((current) => ({
         ...current,
         text: { ...current.text, apiKey: "" },
@@ -510,12 +542,7 @@ export function DesktopSetupCard({
           title="Chat And Summaries"
           description="Choose the provider and model GitOdyssey should use for Responses-based text generation."
           value={formState.text}
-          onChange={(next) =>
-            setFormState((current) => ({
-              ...current,
-              text: { ...current.text, ...next },
-            }))
-          }
+          onChange={updateText}
           showTemperature
           showDisableHint
         />
@@ -535,12 +562,7 @@ export function DesktopSetupCard({
               type="checkbox"
               className="workspace-checkbox"
               checked={formState.embeddingsEnabled}
-              onChange={(event) =>
-                setFormState((current) => ({
-                  ...current,
-                  embeddingsEnabled: event.target.checked,
-                }))
-              }
+              onChange={(event) => updateEmbeddingsEnabled(event.target.checked)}
             />
             Enable semantic search
           </label>
@@ -551,12 +573,7 @@ export function DesktopSetupCard({
             title="Semantic Search"
             description="Choose the embeddings endpoint GitOdyssey should use for repo indexing and retrieval."
             value={formState.embeddings}
-            onChange={(next) =>
-              setFormState((current) => ({
-                ...current,
-                embeddings: { ...current.embeddings, ...next },
-              }))
-            }
+            onChange={updateEmbeddings}
           />
         ) : null}
 

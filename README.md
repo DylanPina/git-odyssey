@@ -19,37 +19,25 @@ GitOdyssey is now a desktop-first, fully local codebase analysis app. The React 
 - macOS
 - Node.js 20+
 - Docker Desktop
-- Conda or another Python 3.13 environment manager
+- `uv`
 
-### 1. Install JavaScript dependencies
-
-```bash
-npm install --prefix frontend
-npm install --prefix desktop
-```
-
-### 2. Create the Python environment
-
-Use the provided Conda environment so the native Python dependencies stay on the supported Python 3.13 toolchain:
+### 1. Install dependencies
 
 ```bash
-conda env create -f backend/environment.yml
-conda activate git-odyssey
+./install.sh
 ```
 
-### 3. Start the local database
+This creates the development environment at `backend/.venv`, which the Electron shell will pick up automatically in local development.
 
-Development currently uses a local PostgreSQL + pgvector container:
+### 2. Launch the app
 
 ```bash
-docker compose up -d db
+./start.sh
 ```
 
-### 4. Launch the desktop app
+The root `.env` file can point GitOdyssey at an existing PostgreSQL instance. The checked-in example is already set up to use `DATABASE_URL` from `.env` and skip the bundled Docker database.
 
-```bash
-npm run desktop:dev
-```
+If you want the bundled local database instead, either remove `SKIP_DB_CONTAINER=1` from `.env` or run `./start.sh` after updating `.env` back to the default connection string.
 
 On first launch, GitOdyssey will prompt for:
 
@@ -78,6 +66,11 @@ AI_SECRET_VALUES_JSON={"provider:openai-default:api-key":"your-openai-api-key"}
 ## Useful Commands
 
 ```bash
+./install.sh
+./start.sh
+./start.sh --skip-db
+uv sync --project backend
+uv run --project backend python backend/src/main.py
 npm run desktop:dev
 npm run desktop:build
 npm run desktop:smoke
@@ -106,6 +99,7 @@ docker compose down -v
 
 - The repo is desktop-only now; there is no supported browser deployment path.
 - The root Compose file is only for local Postgres during development.
+- Python dependencies are managed with `uv` from `backend/pyproject.toml`.
 - `desktop:build` packages the Electron shell and renderer. Bundling the FastAPI sidecar and PostgreSQL distribution into a clean-machine macOS build is still the remaining packaging milestone.
 
 ## Contributors

@@ -2,10 +2,12 @@
   "name": "git-odyssey",
   "private": true,
   "scripts": {
+    "setup": "bash ./install.sh",
+    "start": "bash ./start.sh",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
     "frontend:lint": "npm --prefix frontend run lint",
-    "backend:test": "PYTHONPATH=backend/src python3 -m unittest discover -s backend/tests",
+    "backend:test": "PYTHONPATH=backend/src uv run --project backend python -m unittest discover -s backend/tests",
     "desktop:test": "node --test desktop/tests/*.test.js",
     "desktop:dev": "npm --prefix desktop run dev",
     "desktop:build": "npm --prefix desktop run build",

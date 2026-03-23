@@ -39,12 +39,6 @@ class BackendManager {
       process.env.VIRTUAL_ENV
         ? path.join(process.env.VIRTUAL_ENV, "bin", "python")
         : null,
-      process.env.CONDA_PREFIX
-        ? path.join(process.env.CONDA_PREFIX, "bin", "python3")
-        : null,
-      process.env.CONDA_PREFIX
-        ? path.join(process.env.CONDA_PREFIX, "bin", "python")
-        : null,
     ].filter(Boolean);
 
     const activatedEnvPython = activatedEnvCandidates.find((candidate) =>

@@ -102,3 +102,57 @@ test("repo settings loaded from disk are normalized back to safe defaults", () =
     cleanupUserDataPath(userDataPath);
   }
 });
+
+test("DATABASE_URL and DATABASE_SSLMODE environment variables override saved config", () => {
+  const userDataPath = createUserDataPath();
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  const originalDatabaseSslMode = process.env.DATABASE_SSLMODE;
+
+  try {
+    const configPath = path.join(userDataPath, "desktop-config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          backendPort: 48120,
+          databaseUrl: "postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey",
+          databaseSslMode: "require",
+          dataDir: path.join(userDataPath, "data"),
+          logDir: path.join(userDataPath, "logs"),
+          aiRuntimeConfig: undefined,
+          firstRunCompleted: false,
+          recentProjects: [],
+          repoSettings: {},
+        },
+        null,
+        2
+      )
+    );
+
+    process.env.DATABASE_URL =
+      "postgresql://dpina:postgres@127.0.0.1:5432/gitodyssey";
+    process.env.DATABASE_SSLMODE = "disable";
+
+    const store = new DesktopConfigStore({ userDataPath });
+
+    assert.equal(
+      store.getState().databaseUrl,
+      "postgresql://dpina:postgres@127.0.0.1:5432/gitodyssey"
+    );
+    assert.equal(store.getState().databaseSslMode, "disable");
+  } finally {
+    if (originalDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+
+    if (originalDatabaseSslMode === undefined) {
+      delete process.env.DATABASE_SSLMODE;
+    } else {
+      process.env.DATABASE_SSLMODE = originalDatabaseSslMode;
+    }
+
+    cleanupUserDataPath(userDataPath);
+  }
+});
