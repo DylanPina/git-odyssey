@@ -8,7 +8,9 @@ import type {
 } from "../lib/definitions/api";
 import type {
   ReviewCompareResponse,
+  ReviewRun,
   ReviewReport,
+  ReviewSession,
 } from "@/lib/definitions/review";
 import type { User } from "@/lib/definitions/auth";
 import type {
@@ -135,6 +137,59 @@ export const generateReview = async (input: {
   contextLines: number;
 }): Promise<ReviewReport> => {
   return getDesktopBridge().api.generateReview(input);
+};
+
+export const createReviewSession = async (input: {
+  repoPath: string;
+  baseRef: string;
+  headRef: string;
+  contextLines: number;
+}): Promise<ReviewSession> => {
+  return getDesktopBridge().api.createReviewSession(input);
+};
+
+export const getReviewSession = async (
+  sessionId: string
+): Promise<ReviewSession> => {
+  return getDesktopBridge().api.getReviewSession(sessionId);
+};
+
+export const startReviewRun = async (input: {
+  sessionId: string;
+  customInstructions?: string | null;
+}): Promise<ReviewRun> => {
+  return getDesktopBridge().api.startReviewRun(input);
+};
+
+export const getReviewRun = async (input: {
+  sessionId: string;
+  runId: string;
+}): Promise<ReviewRun> => {
+  return getDesktopBridge().api.getReviewRun(input);
+};
+
+export const cancelReviewRun = async (input: {
+  sessionId: string;
+  runId: string;
+}): Promise<ReviewRun> => {
+  return getDesktopBridge().api.cancelReviewRun(input);
+};
+
+export const respondReviewApproval = async (input: {
+  sessionId: string;
+  runId: string;
+  approvalId: string;
+  decision: "accept" | "acceptForSession" | "decline" | "cancel";
+}): Promise<ReviewRun> => {
+  return getDesktopBridge().api.respondReviewApproval(input);
+};
+
+export const onReviewRuntimeEvent = (
+  listener: (
+    event: import("@/lib/definitions/review").ReviewRuntimeEvent
+  ) => void
+): (() => void) => {
+  return getDesktopBridge().review.onEvent(listener);
 };
 
 export const getCurrentUser = async (): Promise<User> => {

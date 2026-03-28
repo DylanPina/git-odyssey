@@ -23,6 +23,7 @@ function withMockedModuleLoads(mocks, fn) {
 test("preload exposes review IPC bridge methods", async () => {
   const exposed = {};
   const invocations = [];
+  const listeners = [];
   const preloadPath = path.join(__dirname, "..", "src", "preload.js");
 
   delete require.cache[require.resolve(preloadPath)];
@@ -40,6 +41,10 @@ test("preload exposes review IPC bridge methods", async () => {
             invocations.push(args);
             return Promise.resolve(null);
           },
+          on: (...args) => {
+            listeners.push(args);
+          },
+          removeListener: () => {},
         },
       },
     },
@@ -57,14 +62,70 @@ test("preload exposes review IPC bridge methods", async () => {
 
   await exposed.gitOdysseyDesktop.api.compareReviewTarget(input);
   await exposed.gitOdysseyDesktop.api.generateReview(input);
+  await exposed.gitOdysseyDesktop.api.createReviewSession(input);
+  await exposed.gitOdysseyDesktop.api.getReviewSession("rev_sess_123");
+  await exposed.gitOdysseyDesktop.api.startReviewRun({
+    sessionId: "rev_sess_123",
+    customInstructions: "Focus on bugs",
+  });
+  await exposed.gitOdysseyDesktop.api.getReviewRun({
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+  });
+  await exposed.gitOdysseyDesktop.api.cancelReviewRun({
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+  });
+  await exposed.gitOdysseyDesktop.api.respondReviewApproval({
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+    approvalId: "approval_1",
+    decision: "accept",
+  });
+  const unsubscribe = exposed.gitOdysseyDesktop.review.onEvent(() => {});
+  unsubscribe();
 
   assert.deepEqual(invocations[0], ["git-odyssey:api:compare-review-target", input]);
   assert.deepEqual(invocations[1], ["git-odyssey:api:generate-review", input]);
+  assert.deepEqual(invocations[2], ["git-odyssey:api:create-review-session", input]);
+  assert.deepEqual(invocations[3], ["git-odyssey:api:get-review-session", "rev_sess_123"]);
+  assert.deepEqual(invocations[4], [
+    "git-odyssey:api:start-review-run",
+    {
+      sessionId: "rev_sess_123",
+      customInstructions: "Focus on bugs",
+    },
+  ]);
+  assert.deepEqual(invocations[5], [
+    "git-odyssey:api:get-review-run",
+    {
+      sessionId: "rev_sess_123",
+      runId: "rev_run_456",
+    },
+  ]);
+  assert.deepEqual(invocations[6], [
+    "git-odyssey:api:cancel-review-run",
+    {
+      sessionId: "rev_sess_123",
+      runId: "rev_run_456",
+    },
+  ]);
+  assert.deepEqual(invocations[7], [
+    "git-odyssey:api:respond-review-approval",
+    {
+      sessionId: "rev_sess_123",
+      runId: "rev_run_456",
+      approvalId: "approval_1",
+      decision: "accept",
+    },
+  ]);
+  assert.equal(listeners[0][0], "git-odyssey:review:event");
 });
 
 test("main process review handlers forward requests to the backend", async () => {
   const handlers = new Map();
   let backendManagerInstance = null;
+  let reviewRuntimeManagerInstance = null;
   const mainPath = path.join(__dirname, "..", "src", "main.js");
 
   delete require.cache[require.resolve(mainPath)];
@@ -160,6 +221,33 @@ test("main process review handlers forward requests to the backend", async () =>
     async stop() {}
   }
 
+  class MockReviewRuntimeManager {
+    constructor() {
+      this.startCalls = [];
+      this.cancelCalls = [];
+      this.approvalCalls = [];
+      reviewRuntimeManagerInstance = this;
+    }
+
+    on() {}
+
+    async startRun(input) {
+      this.startCalls.push(input);
+      return { id: "rev_run_456" };
+    }
+
+    async cancelRun(input) {
+      this.cancelCalls.push(input);
+      return { id: input.runId };
+    }
+
+    async respondToApproval(input) {
+      this.approvalCalls.push(input);
+    }
+
+    async dispose() {}
+  }
+
   await withMockedModuleLoads(
     {
       electron: {
@@ -193,6 +281,9 @@ test("main process review handlers forward requests to the backend", async () =>
       "./backend-manager": {
         BackendManager: MockBackendManager,
       },
+      "./review-runtime": {
+        ReviewRuntimeManager: MockReviewRuntimeManager,
+      },
       "./git-projects": {
         findGitProjectRoot: (repoPath) => repoPath,
       },
@@ -205,6 +296,12 @@ test("main process review handlers forward requests to the backend", async () =>
 
   const compareHandler = handlers.get("git-odyssey:api:compare-review-target");
   const generateHandler = handlers.get("git-odyssey:api:generate-review");
+  const createSessionHandler = handlers.get("git-odyssey:api:create-review-session");
+  const getSessionHandler = handlers.get("git-odyssey:api:get-review-session");
+  const startRunHandler = handlers.get("git-odyssey:api:start-review-run");
+  const getRunHandler = handlers.get("git-odyssey:api:get-review-run");
+  const cancelRunHandler = handlers.get("git-odyssey:api:cancel-review-run");
+  const respondApprovalHandler = handlers.get("git-odyssey:api:respond-review-approval");
   const input = {
     repoPath: "/tmp/example-repo",
     baseRef: "main",
@@ -214,6 +311,26 @@ test("main process review handlers forward requests to the backend", async () =>
 
   await compareHandler({}, input);
   await generateHandler({}, input);
+  await createSessionHandler({}, input);
+  await getSessionHandler({}, "rev_sess_123");
+  await startRunHandler({}, {
+    sessionId: "rev_sess_123",
+    customInstructions: "Focus on auth flows",
+  });
+  await getRunHandler({}, {
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+  });
+  await cancelRunHandler({}, {
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+  });
+  await respondApprovalHandler({}, {
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+    approvalId: "approval_1",
+    decision: "accept",
+  });
 
   assert.deepEqual(backendManagerInstance.requests[0], {
     apiPath: "/api/review/compare",
@@ -238,5 +355,43 @@ test("main process review handlers forward requests to the backend", async () =>
         context_lines: 7,
       },
     },
+  });
+  assert.deepEqual(backendManagerInstance.requests[2], {
+    apiPath: "/api/review/sessions",
+    options: {
+      method: "POST",
+      body: {
+        repo_path: "/tmp/example-repo",
+        base_ref: "main",
+        head_ref: "feature",
+        context_lines: 7,
+      },
+    },
+  });
+  assert.deepEqual(backendManagerInstance.requests[3], {
+    apiPath: "/api/review/sessions/rev_sess_123",
+    options: undefined,
+  });
+  assert.deepEqual(backendManagerInstance.requests[4], {
+    apiPath: "/api/review/sessions/rev_sess_123/runs/rev_run_456",
+    options: undefined,
+  });
+  assert.deepEqual(backendManagerInstance.requests[5], {
+    apiPath: "/api/review/sessions/rev_sess_123/runs/rev_run_456",
+    options: undefined,
+  });
+  assert.deepEqual(reviewRuntimeManagerInstance.startCalls[0], {
+    sessionId: "rev_sess_123",
+    customInstructions: "Focus on auth flows",
+  });
+  assert.deepEqual(reviewRuntimeManagerInstance.cancelCalls[0], {
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+  });
+  assert.deepEqual(reviewRuntimeManagerInstance.approvalCalls[0], {
+    sessionId: "rev_sess_123",
+    runId: "rev_run_456",
+    approvalId: "approval_1",
+    decision: "accept",
   });
 });

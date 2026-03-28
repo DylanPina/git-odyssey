@@ -1,5 +1,3 @@
-import { Search } from "lucide-react";
-
 import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarGroup } from "@/components/ui/sidebar";
 import type { Commit } from "@/lib/definitions/repo";
@@ -8,7 +6,7 @@ export default function SearchResults({
 	allCommitsCount,
 	filteredCommits,
 	onCommitClick,
-	query,
+	query: _query,
 }: {
 	allCommitsCount: number;
 	filteredCommits: Commit[];

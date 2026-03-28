@@ -6,8 +6,11 @@ from fastapi import HTTPException
 
 from api.api_model import (
     GenerateReviewRequest,
+    ReviewRunStartRequest,
     ReviewCompareRequest,
     ReviewCompareResponse,
+    ReviewSessionCreateRequest,
+    ReviewSessionResponse,
     ReviewReport,
 )
 from api.routers import review as review_router
@@ -119,6 +122,71 @@ class ReviewRouterTests(unittest.TestCase):
             context.exception.detail,
             "No changes were found between the selected branches.",
         )
+
+    def test_create_review_session_returns_service_payload(self) -> None:
+        review_session_service = Mock()
+        expected = ReviewSessionResponse(
+            id="rev_sess_123",
+            repo_path="/tmp/example-repo",
+            base_ref="main",
+            head_ref="feature",
+            merge_base_sha="abc123",
+            base_head_sha="def456",
+            head_head_sha="789abc",
+            stats={"files_changed": 1, "additions": 1, "deletions": 0},
+            file_changes=[],
+            truncated=False,
+            status="ready",
+            created_at="2026-03-28T12:00:00Z",
+            updated_at="2026-03-28T12:00:00Z",
+            runs=[],
+        )
+        review_session_service.create_session.return_value = expected
+
+        result = asyncio.run(
+            review_router.create_review_session(
+                request=ReviewSessionCreateRequest(
+                    repo_path="/tmp/example-repo",
+                    base_ref="main",
+                    head_ref="feature",
+                    context_lines=3,
+                ),
+                review_session_service=review_session_service,
+            )
+        )
+
+        self.assertEqual(result, expected)
+        review_session_service.create_session.assert_called_once()
+
+    def test_create_review_run_returns_service_payload(self) -> None:
+        review_session_service = Mock()
+        review_session_service.create_run.return_value = {
+            "id": "rev_run_456",
+            "session_id": "rev_sess_123",
+            "engine": "codex_cli",
+            "mode": "native_review",
+            "status": "pending",
+            "created_at": "2026-03-28T12:00:00Z",
+            "updated_at": "2026-03-28T12:00:00Z",
+            "events": [],
+            "approvals": [],
+            "result": None,
+        }
+
+        result = asyncio.run(
+            review_router.create_review_run(
+                session_id="rev_sess_123",
+                request=ReviewRunStartRequest(
+                    engine="codex_cli",
+                    mode="native_review",
+                    custom_instructions="Focus on auth flows.",
+                ),
+                review_session_service=review_session_service,
+            )
+        )
+
+        self.assertEqual(result["id"], "rev_run_456")
+        review_session_service.create_run.assert_called_once()
 
 
 if __name__ == "__main__":

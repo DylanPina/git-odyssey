@@ -11,6 +11,7 @@ const { DesktopConfigStore } = require("./config-store");
 const { MacKeychainStore } = require("./keychain");
 const { BackendManager } = require("./backend-manager");
 const { findGitProjectRoot } = require("./git-projects");
+const { ReviewRuntimeManager } = require("./review-runtime");
 
 const APP_NAME = "GitOdyssey";
 
@@ -18,6 +19,7 @@ let mainWindow = null;
 let configStore = null;
 let keychain = null;
 let backendManager = null;
+let reviewRuntimeManager = null;
 
 function getRendererEntry() {
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -90,6 +92,12 @@ function createWindow() {
     }
   } else {
     void mainWindow.loadFile(rendererEntry.value);
+  }
+}
+
+function broadcastReviewRuntimeEvent(payload) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("git-odyssey:review:event", payload);
   }
 }
 
@@ -268,6 +276,50 @@ function registerIpcHandlers() {
     });
   });
 
+  ipcMain.handle("git-odyssey:api:create-review-session", async (_event, input) => {
+    const project = configStore.recordRecentProject(input.repoPath);
+    return backendManager.request("/api/review/sessions", {
+      method: "POST",
+      body: {
+        repo_path: project.path,
+        base_ref: input.baseRef,
+        head_ref: input.headRef,
+        context_lines: input.contextLines,
+      },
+    });
+  });
+
+  ipcMain.handle("git-odyssey:api:get-review-session", async (_event, sessionId) => {
+    return backendManager.request(`/api/review/sessions/${sessionId}`);
+  });
+
+  ipcMain.handle(
+    "git-odyssey:api:start-review-run",
+    async (_event, input) => {
+      return reviewRuntimeManager.startRun(input);
+    }
+  );
+
+  ipcMain.handle("git-odyssey:api:get-review-run", async (_event, input) => {
+    return backendManager.request(
+      `/api/review/sessions/${input.sessionId}/runs/${input.runId}`
+    );
+  });
+
+  ipcMain.handle("git-odyssey:api:cancel-review-run", async (_event, input) => {
+    return reviewRuntimeManager.cancelRun(input);
+  });
+
+  ipcMain.handle(
+    "git-odyssey:api:respond-review-approval",
+    async (_event, input) => {
+      await reviewRuntimeManager.respondToApproval(input);
+      return backendManager.request(
+        `/api/review/sessions/${input.sessionId}/runs/${input.runId}`
+      );
+    }
+  );
+
   ipcMain.handle("git-odyssey:api:get-current-user", async () => {
     return backendManager.request("/api/auth/me");
   });
@@ -299,6 +351,24 @@ app.whenReady().then(async () => {
     configStore,
     keychain,
   });
+  reviewRuntimeManager = new ReviewRuntimeManager({
+    app,
+    backendManager,
+    configStore,
+    keychain,
+  });
+  reviewRuntimeManager.on("state-changed", (payload) => {
+    broadcastReviewRuntimeEvent({
+      type: "review-runtime-changed",
+      ...payload,
+    });
+  });
+  reviewRuntimeManager.on("log", (payload) => {
+    broadcastReviewRuntimeEvent({
+      type: "review-runtime-log",
+      ...payload,
+    });
+  });
 
   registerIpcHandlers();
   createWindow();
@@ -318,11 +388,13 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    void reviewRuntimeManager?.dispose();
     void backendManager?.stop();
     app.quit();
   }
 });
 
 app.on("before-quit", () => {
+  void reviewRuntimeManager?.dispose();
   void backendManager?.stop();
 });

@@ -1,16 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	AlertTriangle,
+	ChevronDown,
+	ChevronRight,
 	GitCommitHorizontal,
 	Loader2,
 	PanelRightOpen,
-	Sparkles,
+	Play,
+	ShieldAlert,
+	Square,
+	Terminal,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
-	compareReviewTarget,
-	generateReview,
+	cancelReviewRun,
+	createReviewSession,
 	getDesktopRepoSettings,
+	getReviewRun,
+	getReviewSession,
+	onReviewRuntimeEvent,
+	respondReviewApproval,
+	startReviewRun,
 } from "@/api/api";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/custom/Combobox";
@@ -29,12 +40,18 @@ import {
 	SheetTitle,
 } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Textarea } from "@/components/ui/textarea";
 import { useRepoData } from "@/hooks/useRepoData";
 import type { Commit } from "@/lib/definitions/repo";
 import type {
-	ReviewCompareResponse,
+	ReviewApproval,
+	ReviewApprovalDecision,
 	ReviewFinding,
-	ReviewReport,
+	ReviewResult,
+	ReviewRun,
+	ReviewRunEvent,
+	ReviewRuntimeEvent,
+	ReviewSession,
 } from "@/lib/definitions/review";
 import {
 	buildRepoRoute,
@@ -43,8 +60,8 @@ import {
 	readReviewRefsFromSearchParams,
 } from "@/lib/repoPaths";
 
-const REVIEW_CACHE_PREFIX = "git-odyssey:review-report:";
 const DETACHED_HEAD_LABEL = "HEAD (detached)";
+const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "awaiting_approval"]);
 
 type ReviewBranchTipCardProps = {
 	label: string;
@@ -58,6 +75,27 @@ type ReviewMetaPillProps = {
 	value: string;
 	isMono?: boolean;
 };
+
+type CommandTraceEntry = {
+	id: string;
+	command: string;
+	cwd: string;
+	output: string;
+	exitCode: number | null;
+	durationMs: number | null;
+};
+
+type ReasoningTraceEntry = {
+	id: string;
+	method: string | null;
+	text: string;
+	sequence: number;
+	createdAt: string | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Something went wrong.";
@@ -75,20 +113,47 @@ function getSeverityTone(severity: ReviewFinding["severity"]) {
 	return "accent";
 }
 
+function getRunStatusTone(status?: ReviewRun["status"] | ReviewSession["status"] | null) {
+	if (status === "completed") {
+		return "success";
+	}
+
+	if (status === "failed" || status === "cancelled") {
+		return "danger";
+	}
+
+	if (status === "running" || status === "awaiting_approval" || status === "pending") {
+		return "warning";
+	}
+
+	return "neutral";
+}
+
+function getApprovalTone(status: ReviewApproval["status"]) {
+	if (status === "accepted" || status === "accepted_for_session") {
+		return "success";
+	}
+
+	if (status === "declined" || status === "cancelled") {
+		return "danger";
+	}
+
+	return "warning";
+}
+
+function formatLabel(value: string) {
+	return value
+		.split(/[_-]/g)
+		.filter(Boolean)
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(" ");
+}
+
 function formatSeverityLabel(severity: ReviewFinding["severity"]) {
 	return severity.charAt(0).toUpperCase() + severity.slice(1);
 }
 
-function getCommitSubject(message?: string | null) {
-	return (
-		(message || "")
-			.split(/\r?\n/)
-			.map((line) => line.trim())
-			.find(Boolean) || null
-	);
-}
-
-function formatGeneratedAt(value?: string) {
+function formatGeneratedAt(value?: string | null) {
 	if (!value) {
 		return "Unknown";
 	}
@@ -130,41 +195,181 @@ function formatShortSha(value?: string | null) {
 	return value ? value.slice(0, 8) : "Unavailable";
 }
 
-function getReviewCacheKey(compare: ReviewCompareResponse) {
-	return [
-		REVIEW_CACHE_PREFIX,
-		compare.repo_path,
-		compare.base_ref,
-		compare.head_ref,
-		compare.merge_base_sha,
-	].join("::");
+function getCommitSubject(message?: string | null) {
+	return (
+		(message || "")
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.find(Boolean) || null
+	);
 }
 
-function readCachedReview(compare: ReviewCompareResponse): ReviewReport | null {
-	try {
-		const raw = window.localStorage.getItem(getReviewCacheKey(compare));
-		if (!raw) {
-			return null;
-		}
+function formatDuration(durationMs: number | null) {
+	if (typeof durationMs !== "number" || durationMs < 0) {
+		return "Unknown";
+	}
 
-		return JSON.parse(raw) as ReviewReport;
-	} catch {
+	if (durationMs < 1000) {
+		return `${durationMs} ms`;
+	}
+
+	return `${(durationMs / 1000).toFixed(1)} s`;
+}
+
+function getPayloadMethod(event: ReviewRunEvent) {
+	if (!isRecord(event.payload)) {
 		return null;
 	}
+
+	return typeof event.payload.method === "string" ? event.payload.method : null;
 }
 
-function writeCachedReview(
-	compare: ReviewCompareResponse,
-	report: ReviewReport,
-) {
-	try {
-		window.localStorage.setItem(
-			getReviewCacheKey(compare),
-			JSON.stringify(report),
-		);
-	} catch {
-		// Ignore localStorage write failures.
+function getPayloadParams(event: ReviewRunEvent) {
+	if (!isRecord(event.payload)) {
+		return null;
 	}
+
+	return isRecord(event.payload.params) ? event.payload.params : null;
+}
+
+function getStringField(record: Record<string, unknown> | null, key: string) {
+	if (!record) {
+		return null;
+	}
+
+	const value = record[key];
+	return typeof value === "string" ? value : null;
+}
+
+function extractSummaryText(value: unknown) {
+	if (!Array.isArray(value)) {
+		return null;
+	}
+
+	const parts = value.flatMap((entry) => {
+		if (!isRecord(entry)) {
+			return [];
+		}
+
+		return typeof entry.text === "string" && entry.text.trim()
+			? [entry.text.trim()]
+			: [];
+	});
+
+	return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+function isReasoningMethod(method: string | null) {
+	return Boolean(method && method.toLowerCase().includes("reason"));
+}
+
+function isReasoningItem(item: Record<string, unknown> | null) {
+	const itemType = getStringField(item, "type");
+	return Boolean(itemType && itemType.toLowerCase().includes("reason"));
+}
+
+function extractReasoningText(item: Record<string, unknown> | null, params: Record<string, unknown>) {
+	return (
+		extractSummaryText(item?.summary) ||
+		extractSummaryText(params.summary) ||
+		getStringField(item, "text")?.trim() ||
+		getStringField(params, "text")?.trim() ||
+		getStringField(params, "delta") ||
+		null
+	);
+}
+
+function extractCompletedCommands(events: ReviewRunEvent[]): CommandTraceEntry[] {
+	return events
+		.filter((event) => event.event_type === "codex_notification")
+		.flatMap((event) => {
+			const method = getPayloadMethod(event);
+			const params = getPayloadParams(event);
+			const item = params && isRecord(params.item) ? params.item : null;
+			if (method !== "item/completed" || !item || item.type !== "commandExecution") {
+				return [];
+			}
+
+			return [
+				{
+					id:
+						typeof item.id === "string"
+							? item.id
+							: `command-${event.id}`,
+					command: typeof item.command === "string" ? item.command : "",
+					cwd: typeof item.cwd === "string" ? item.cwd : "",
+					output:
+						typeof item.aggregatedOutput === "string"
+							? item.aggregatedOutput
+							: "",
+					exitCode:
+						typeof item.exitCode === "number" ? item.exitCode : null,
+					durationMs:
+						typeof item.durationMs === "number" ? item.durationMs : null,
+				},
+			];
+		});
+}
+
+function extractReasoningTraces(events: ReviewRunEvent[]): ReasoningTraceEntry[] {
+	const tracesById = new Map<string, ReasoningTraceEntry>();
+	const standaloneTraces: ReasoningTraceEntry[] = [];
+
+	for (const event of events) {
+		if (event.event_type !== "codex_notification") {
+			continue;
+		}
+
+		const method = getPayloadMethod(event);
+		const params = getPayloadParams(event);
+		if (!params) {
+			continue;
+		}
+
+		const item = isRecord(params.item) ? params.item : null;
+		if (!isReasoningMethod(method) && !isReasoningItem(item)) {
+			continue;
+		}
+
+		const text = extractReasoningText(item, params);
+		if (!text?.trim()) {
+			continue;
+		}
+
+		const itemId =
+			getStringField(params, "itemId") || getStringField(item, "id");
+		const isDeltaUpdate = Boolean(
+			method?.toLowerCase().includes("delta") && getStringField(params, "delta"),
+		);
+
+		if (!itemId) {
+			standaloneTraces.push({
+				id: `reasoning-${event.id}`,
+				method,
+				text: text.trim(),
+				sequence: event.sequence,
+				createdAt: event.created_at,
+			});
+			continue;
+		}
+
+		const existingTrace = tracesById.get(itemId);
+		const nextText = isDeltaUpdate
+			? `${existingTrace?.text || ""}${text}`.trim()
+			: text.trim();
+
+		tracesById.set(itemId, {
+			id: itemId,
+			method,
+			text: nextText,
+			sequence: event.sequence,
+			createdAt: event.created_at,
+		});
+	}
+
+	return [...tracesById.values(), ...standaloneTraces]
+		.filter((trace) => trace.text.trim())
+		.sort((left, right) => right.sequence - left.sequence);
 }
 
 function ReviewMetaPill({ label, value, isMono = true }: ReviewMetaPillProps) {
@@ -246,7 +451,7 @@ function ReviewFindingsList({
 	if (findings.length === 0) {
 		return (
 			<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
-				No structured findings were generated for this diff.
+				No structured findings were generated for this review run.
 			</div>
 		);
 	}
@@ -282,6 +487,195 @@ function ReviewFindingsList({
 	);
 }
 
+function PendingApprovals({
+	approvals,
+	loadingById,
+	onDecision,
+}: {
+	approvals: ReviewApproval[];
+	loadingById: Record<string, boolean>;
+	onDecision: (
+		approval: ReviewApproval,
+		decision: ReviewApprovalDecision,
+	) => void;
+}) {
+	if (approvals.length === 0) {
+		return null;
+	}
+
+	return (
+		<section className="rounded-[20px] border border-[rgba(199,154,86,0.28)] bg-[rgba(199,154,86,0.09)] p-4">
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex items-center gap-2">
+					<ShieldAlert className="size-4 text-warning" />
+					<div className="text-sm font-semibold text-text-primary">
+						Codex is waiting for approval
+					</div>
+				</div>
+				<StatusPill tone="warning">{approvals.length}</StatusPill>
+			</div>
+			<div className="mt-3 space-y-3">
+				{approvals.map((approval) => {
+					const isLoading = Boolean(loadingById[approval.id]);
+					const requestPayload = JSON.stringify(
+						approval.request_payload,
+						null,
+						2,
+					);
+					return (
+						<div
+							key={approval.id}
+							className="rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(15,23,42,0.32)] p-3"
+						>
+							<div className="flex flex-wrap items-center justify-between gap-2">
+								<div className="min-w-0">
+									<div className="text-sm font-medium text-text-primary">
+										{approval.summary || formatLabel(approval.method)}
+									</div>
+									<div className="mt-1 font-mono text-[11px] text-text-tertiary">
+										{approval.method}
+									</div>
+								</div>
+								<StatusPill tone={getApprovalTone(approval.status)}>
+									{formatLabel(approval.status)}
+								</StatusPill>
+							</div>
+							<pre className="workspace-scrollbar mt-3 max-h-40 overflow-auto rounded-[12px] border border-border-subtle bg-[rgba(2,6,23,0.52)] p-3 font-mono text-[11px] leading-5 text-text-secondary">
+								{requestPayload}
+							</pre>
+							<div className="mt-3 flex flex-wrap gap-2">
+								<Button
+									size="sm"
+									variant="accent"
+									disabled={isLoading}
+									onClick={() => onDecision(approval, "accept")}
+								>
+									{isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+									Approve
+								</Button>
+								<Button
+									size="sm"
+									variant="subtle"
+									disabled={isLoading}
+									onClick={() => onDecision(approval, "acceptForSession")}
+								>
+									Allow For Session
+								</Button>
+								<Button
+									size="sm"
+									variant="toolbar"
+									disabled={isLoading}
+									onClick={() => onDecision(approval, "decline")}
+								>
+									Decline
+								</Button>
+								<Button
+									size="sm"
+									variant="danger"
+									disabled={isLoading}
+									onClick={() => onDecision(approval, "cancel")}
+								>
+									Cancel Run
+								</Button>
+							</div>
+						</div>
+					);
+				})}
+			</div>
+		</section>
+	);
+}
+
+function CommandTrace({ commands }: { commands: CommandTraceEntry[] }) {
+	if (commands.length === 0) {
+		return (
+			<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
+				No completed shell commands were captured for this run yet.
+			</div>
+		);
+	}
+
+	return (
+		<div className="space-y-3">
+			{commands.map((command) => (
+				<div
+					key={command.id}
+					className="rounded-[16px] border border-border-subtle bg-control/45 p-3"
+				>
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<div className="min-w-0">
+							<div className="truncate font-mono text-[12px] text-text-primary">
+								{command.command}
+							</div>
+							<div className="mt-1 truncate text-[11px] text-text-tertiary">
+								{command.cwd || "Unknown working directory"}
+							</div>
+						</div>
+						<div className="flex items-center gap-2">
+							<StatusPill
+								tone={command.exitCode === 0 ? "success" : "danger"}
+							>
+								{command.exitCode == null ? "No exit" : `Exit ${command.exitCode}`}
+							</StatusPill>
+							<StatusPill tone="neutral">{formatDuration(command.durationMs)}</StatusPill>
+						</div>
+					</div>
+					{command.output ? (
+						<pre className="workspace-scrollbar mt-3 max-h-56 overflow-auto rounded-[12px] border border-border-subtle bg-[rgba(2,6,23,0.52)] p-3 font-mono text-[11px] leading-5 text-text-secondary">
+							{command.output}
+						</pre>
+					) : (
+						<div className="mt-3 text-sm text-text-secondary">
+							This command did not produce captured output.
+						</div>
+					)}
+				</div>
+			))}
+		</div>
+	);
+}
+
+function EventFeed({ entries }: { entries: ReasoningTraceEntry[] }) {
+	if (entries.length === 0) {
+		return (
+			<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
+				No agent reasoning traces have been persisted yet.
+			</div>
+		);
+	}
+
+	const visibleEntries = entries.slice(0, 32);
+
+	return (
+		<div className="space-y-3">
+			{visibleEntries.map((entry) => (
+				<div
+					key={entry.id}
+					className="rounded-[16px] border border-border-subtle bg-control/35 p-3"
+				>
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<div className="text-sm font-medium text-text-primary">
+							Agent Reasoning
+						</div>
+						<div className="font-mono text-[11px] text-text-tertiary">
+							#{entry.sequence}
+						</div>
+					</div>
+					<div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-tertiary">
+						<span>{formatGeneratedAt(entry.createdAt)}</span>
+						{entry.method ? (
+							<span className="font-mono">{entry.method}</span>
+						) : null}
+					</div>
+					<div className="mt-3 rounded-[12px] border border-border-subtle bg-[rgba(2,6,23,0.52)] p-3">
+						<MarkdownRenderer content={entry.text} className="text-[13px]" />
+					</div>
+				</div>
+			))}
+		</div>
+	);
+}
+
 export function Review() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
@@ -291,16 +685,24 @@ export function Review() {
 		[searchParams],
 	);
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
-	const compareRequestIdRef = useRef(0);
+	const sessionRequestIdRef = useRef(0);
+	const refreshTimerRef = useRef<number | null>(null);
 
 	const [baseRef, setBaseRef] = useState(queryBaseRef ?? "");
 	const [headRef, setHeadRef] = useState(queryHeadRef ?? "");
-	const [compare, setCompare] = useState<ReviewCompareResponse | null>(null);
-	const [compareError, setCompareError] = useState<string | null>(null);
-	const [isCompareLoading, setIsCompareLoading] = useState(false);
-	const [report, setReport] = useState<ReviewReport | null>(null);
-	const [reportError, setReportError] = useState<string | null>(null);
-	const [isGenerating, setIsGenerating] = useState(false);
+	const [customInstructions, setCustomInstructions] = useState("");
+	const [session, setSession] = useState<ReviewSession | null>(null);
+	const [sessionError, setSessionError] = useState<string | null>(null);
+	const [runError, setRunError] = useState<string | null>(null);
+	const [isSessionLoading, setIsSessionLoading] = useState(false);
+	const [isRunStarting, setIsRunStarting] = useState(false);
+	const [isRunCancelling, setIsRunCancelling] = useState(false);
+	const [runDetail, setRunDetail] = useState<ReviewRun | null>(null);
+	const [isCommandTraceOpen, setIsCommandTraceOpen] = useState(false);
+	const [isEventStreamOpen, setIsEventStreamOpen] = useState(false);
+	const [approvalLoadingById, setApprovalLoadingById] = useState<
+		Record<string, boolean>
+	>({});
 	const [isInsightsOpen, setIsInsightsOpen] = useState(false);
 
 	const {
@@ -319,28 +721,25 @@ export function Review() {
 	}, [queryHeadRef]);
 
 	useEffect(() => {
-		setCompare(null);
-		setCompareError(null);
-		setReport(null);
-		setReportError(null);
+		setSession(null);
+		setRunDetail(null);
+		setSessionError(null);
+		setRunError(null);
+		setApprovalLoadingById({});
 	}, [baseRef, headRef, repoPath]);
 
 	useEffect(() => {
-		if (!compare) {
-			setReport(null);
-			setReportError(null);
-			return;
-		}
-
-		setReport(readCachedReview(compare));
-		setReportError(null);
-	}, [compare]);
-
-	useEffect(() => {
-		if (!report) {
+		if (!runDetail?.result) {
 			setIsInsightsOpen(false);
 		}
-	}, [report]);
+	}, [runDetail?.result]);
+
+	useEffect(() => {
+		if (!isInsightsOpen) {
+			setIsCommandTraceOpen(false);
+			setIsEventStreamOpen(false);
+		}
+	}, [isInsightsOpen]);
 
 	const branchOptions = useMemo(
 		() =>
@@ -395,18 +794,6 @@ export function Review() {
 		[headRef, resolveBranchTipCommit],
 	);
 
-	const activeCompare = useMemo(() => {
-		if (!compare) {
-			return null;
-		}
-
-		if (compare.base_ref !== baseRef || compare.head_ref !== headRef) {
-			return null;
-		}
-
-		return compare;
-	}, [baseRef, compare, headRef]);
-
 	const updateRoute = useCallback(
 		(nextBaseRef: string, nextHeadRef: string) => {
 			if (!repoPath) {
@@ -439,16 +826,38 @@ export function Review() {
 		[baseRef, updateRoute],
 	);
 
-	const loadCompare = useCallback(
+	const refreshSessionState = useCallback(
+		async (sessionId: string, preferredRunId?: string | null) => {
+			const nextSession = await getReviewSession(sessionId);
+			setSession(nextSession);
+			setSessionError(null);
+
+			const nextRunId = preferredRunId || nextSession.runs[0]?.id || null;
+			if (!nextRunId) {
+				setRunDetail(null);
+				return;
+			}
+
+			const nextRun = await getReviewRun({
+				sessionId,
+				runId: nextRunId,
+			});
+			setRunDetail(nextRun);
+			setRunError(null);
+		},
+		[],
+	);
+
+	const loadSession = useCallback(
 		async ({
 			baseRef: nextBaseRef = baseRef,
 			headRef: nextHeadRef = headRef,
 		}: {
 			baseRef?: string;
 			headRef?: string;
-		} = {}): Promise<ReviewCompareResponse | null> => {
+		} = {}): Promise<ReviewSession | null> => {
 			if (!repoPath) {
-				setCompareError("No Git project path was provided.");
+				setSessionError("No Git project path was provided.");
 				return null;
 			}
 
@@ -456,36 +865,36 @@ export function Review() {
 				return null;
 			}
 
-			const requestId = ++compareRequestIdRef.current;
-			setIsCompareLoading(true);
-			setCompareError(null);
-			setReportError(null);
+			const requestId = ++sessionRequestIdRef.current;
+			setIsSessionLoading(true);
+			setSessionError(null);
+			setRunError(null);
 
 			try {
 				const repoSettings = await getDesktopRepoSettings(repoPath);
-				const response = await compareReviewTarget({
+				const nextSession = await createReviewSession({
 					repoPath,
 					baseRef: nextBaseRef,
 					headRef: nextHeadRef,
 					contextLines: repoSettings.contextLines,
 				});
-				if (compareRequestIdRef.current !== requestId) {
+				if (sessionRequestIdRef.current !== requestId) {
 					return null;
 				}
-				setCompare(response);
-				return response;
+				setSession(nextSession);
+				setRunDetail(null);
+				return nextSession;
 			} catch (error) {
-				if (compareRequestIdRef.current !== requestId) {
+				if (sessionRequestIdRef.current !== requestId) {
 					return null;
 				}
-				const message = getErrorMessage(error);
-				setCompare(null);
-				setCompareError(message);
-				setReport(null);
+				setSession(null);
+				setRunDetail(null);
+				setSessionError(getErrorMessage(error));
 				return null;
 			} finally {
-				if (compareRequestIdRef.current === requestId) {
-					setIsCompareLoading(false);
+				if (sessionRequestIdRef.current === requestId) {
+					setIsSessionLoading(false);
 				}
 			}
 		},
@@ -494,47 +903,136 @@ export function Review() {
 
 	useEffect(() => {
 		if (!repoPath || !baseRef || !headRef) {
-			compareRequestIdRef.current += 1;
-			setIsCompareLoading(false);
+			sessionRequestIdRef.current += 1;
+			setIsSessionLoading(false);
 			return;
 		}
 
-		void loadCompare({ baseRef, headRef });
-	}, [baseRef, headRef, loadCompare, repoPath]);
+		void loadSession({ baseRef, headRef });
+	}, [baseRef, headRef, loadSession, repoPath]);
 
-	const handleGenerateReview = useCallback(async () => {
-		if (!repoPath) {
-			setReportError("No Git project path was provided.");
+	useEffect(() => {
+		if (!session?.id) {
 			return;
 		}
 
-		const activeSelection =
-			activeCompare?.base_ref === baseRef && activeCompare?.head_ref === headRef
-				? activeCompare
-				: await loadCompare();
-		if (!activeSelection) {
+		const unsubscribe = onReviewRuntimeEvent((event: ReviewRuntimeEvent) => {
+			if (event.type !== "review-runtime-changed") {
+				return;
+			}
+
+			if (event.sessionId !== session.id) {
+				return;
+			}
+
+			if (refreshTimerRef.current != null) {
+				window.clearTimeout(refreshTimerRef.current);
+			}
+
+			refreshTimerRef.current = window.setTimeout(() => {
+				void refreshSessionState(session.id, event.runId ?? null).catch((error) => {
+					setRunError(getErrorMessage(error));
+				});
+			}, 180);
+		});
+
+		return () => {
+			unsubscribe();
+			if (refreshTimerRef.current != null) {
+				window.clearTimeout(refreshTimerRef.current);
+				refreshTimerRef.current = null;
+			}
+		};
+	}, [refreshSessionState, session?.id]);
+
+	const activeRunSummary = session?.runs[0] ?? null;
+	const activeRun = runDetail?.id === activeRunSummary?.id
+		? runDetail
+		: runDetail ?? activeRunSummary;
+	const reviewResult: ReviewResult | null = activeRun?.result ?? null;
+	const activeApprovals = activeRun?.approvals ?? [];
+	const pendingApprovals = activeApprovals.filter(
+		(approval) => approval.status === "pending",
+	);
+	const commandTrace = useMemo(
+		() => extractCompletedCommands(runDetail?.events ?? []),
+		[runDetail?.events],
+	);
+	const reasoningTrace = useMemo(
+		() => extractReasoningTraces(runDetail?.events ?? []),
+		[runDetail?.events],
+	);
+
+	const handleStartReview = useCallback(async () => {
+		if (!session) {
 			return;
 		}
 
-		setIsGenerating(true);
-		setReportError(null);
-
+		setIsRunStarting(true);
+		setRunError(null);
 		try {
-			const repoSettings = await getDesktopRepoSettings(repoPath);
-			const nextReport = await generateReview({
-				repoPath,
-				baseRef,
-				headRef,
-				contextLines: repoSettings.contextLines,
+			const startedRun = await startReviewRun({
+				sessionId: session.id,
+				customInstructions: customInstructions.trim() || null,
 			});
-			setReport(nextReport);
-			writeCachedReview(activeSelection, nextReport);
+			await refreshSessionState(session.id, startedRun.id);
 		} catch (error) {
-			setReportError(getErrorMessage(error));
+			setRunError(getErrorMessage(error));
 		} finally {
-			setIsGenerating(false);
+			setIsRunStarting(false);
 		}
-	}, [activeCompare, baseRef, headRef, loadCompare, repoPath]);
+	}, [customInstructions, refreshSessionState, session]);
+
+	const handleCancelReview = useCallback(async () => {
+		if (!session || !activeRun) {
+			return;
+		}
+
+		setIsRunCancelling(true);
+		setRunError(null);
+		try {
+			await cancelReviewRun({
+				sessionId: session.id,
+				runId: activeRun.id,
+			});
+			await refreshSessionState(session.id, activeRun.id);
+		} catch (error) {
+			setRunError(getErrorMessage(error));
+		} finally {
+			setIsRunCancelling(false);
+		}
+	}, [activeRun, refreshSessionState, session]);
+
+	const handleApprovalDecision = useCallback(
+		async (approval: ReviewApproval, decision: ReviewApprovalDecision) => {
+			if (!session || !activeRun) {
+				return;
+			}
+
+			setApprovalLoadingById((current) => ({
+				...current,
+				[approval.id]: true,
+			}));
+			try {
+				await respondReviewApproval({
+					sessionId: session.id,
+					runId: activeRun.id,
+					approvalId: approval.id,
+					decision,
+				});
+				await refreshSessionState(session.id, activeRun.id);
+			} catch (error) {
+				setRunError(getErrorMessage(error));
+			} finally {
+				setApprovalLoadingById((current) => {
+					const next = { ...current };
+					delete next[approval.id];
+					return next;
+				});
+			}
+		},
+		[activeRun, refreshSessionState, session],
+	);
 
 	const handleFindingSelect = useCallback((finding: ReviewFinding) => {
 		diffWorkspaceRef.current?.focusLocation({
@@ -552,13 +1050,25 @@ export function Review() {
 		[handleFindingSelect],
 	);
 
-	const canGenerateReview = Boolean(
-		repoPath && baseRef && headRef && !isCompareLoading && !isGenerating,
+	const canStartReview = Boolean(
+		session &&
+			!isSessionLoading &&
+			!isRunStarting &&
+			!(activeRun && ACTIVE_RUN_STATUSES.has(activeRun.status)),
 	);
-	const findingsLabel =
-		report != null
-			? `${report.findings.length} finding${report.findings.length === 1 ? "" : "s"}`
+	const canCancelReview = Boolean(
+		session &&
+			activeRun &&
+			ACTIVE_RUN_STATUSES.has(activeRun.status) &&
+			!isRunCancelling,
+	);
+
+	const findingsLabel = reviewResult
+		? `${reviewResult.findings.length} finding${reviewResult.findings.length === 1 ? "" : "s"}`
+		: activeRun
+			? formatLabel(activeRun.status)
 			: "No review";
+
 	const compareMetadata = [
 		{
 			label: "Base",
@@ -582,30 +1092,22 @@ export function Review() {
 		},
 		{
 			label: "Merge",
-			value: activeCompare?.merge_base_sha
-				? formatShortSha(activeCompare.merge_base_sha)
+			value: session?.merge_base_sha
+				? formatShortSha(session.merge_base_sha)
 				: "Pending",
 		},
 		{
 			label: "Files",
-			value:
-				activeCompare != null
-					? String(activeCompare.stats.files_changed)
-					: "Pending",
+			value: session ? String(session.stats.files_changed) : "Pending",
 		},
 		{
-			label: "Additions",
-			value:
-				activeCompare != null
-					? String(activeCompare.stats.additions)
-					: "Pending",
+			label: "Run",
+			value: activeRun ? formatLabel(activeRun.status) : "Idle",
+			isMono: false,
 		},
 		{
-			label: "Deletions",
-			value:
-				activeCompare != null
-					? String(activeCompare.stats.deletions)
-					: "Pending",
+			label: "Approvals",
+			value: String(pendingApprovals.length),
 		},
 	];
 
@@ -642,19 +1144,39 @@ export function Review() {
 							<Button
 								variant="accent"
 								size="sm"
-								className="min-w-[9.75rem]"
-								onClick={() => void handleGenerateReview()}
-								disabled={!canGenerateReview}
+								className="min-w-[11rem]"
+								onClick={() => void handleStartReview()}
+								disabled={!canStartReview}
 							>
-								{isGenerating ? (
+								{isRunStarting ? (
 									<>
 										<Loader2 className="size-4 animate-spin" />
-										Generating review
+										Starting review
 									</>
 								) : (
 									<>
-										<Sparkles className="size-4" />
-										Generate review
+										<Play className="size-4" />
+										Start Codex Review
+									</>
+								)}
+							</Button>
+
+							<Button
+								variant="danger"
+								size="sm"
+								className="min-w-[8.5rem]"
+								onClick={() => void handleCancelReview()}
+								disabled={!canCancelReview}
+							>
+								{isRunCancelling ? (
+									<>
+										<Loader2 className="size-4 animate-spin" />
+										Cancelling
+									</>
+								) : (
+									<>
+										<Square className="size-4" />
+										Cancel Run
 									</>
 								)}
 							</Button>
@@ -664,30 +1186,31 @@ export function Review() {
 								size="sm"
 								className="min-w-[8.5rem] justify-between"
 								onClick={() => setIsInsightsOpen(true)}
-								disabled={!report}
+								disabled={!activeRun}
 								aria-haspopup="dialog"
-								title={
-									report
-										? `Generated ${formatGeneratedAt(report.generated_at)}`
-										: "Generate a review to open insights"
-								}
 							>
 								<span className="flex items-center gap-2">
 									<PanelRightOpen className="size-4" />
-									Insights
+									Run Details
 								</span>
-								{report ? (
+								{activeRun ? (
 									<span className="rounded-full border border-border-subtle bg-control px-1.5 py-0.5 font-mono text-[10px] text-text-primary">
-										{report.findings.length}
+										{pendingApprovals.length}
 									</span>
 								) : null}
 							</Button>
-
-							{report?.partial ? (
-								<StatusPill tone="warning">Partial</StatusPill>
-							) : null}
 						</div>
 					</div>
+
+					<label className="flex flex-col gap-1.5">
+						<span className="workspace-section-label">Optional Review Instructions</span>
+						<Textarea
+							value={customInstructions}
+							onChange={(event) => setCustomInstructions(event.target.value)}
+							placeholder="Optional: steer Codex toward specific areas of concern."
+							className="min-h-24"
+						/>
+					</label>
 
 					<div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
 						{compareMetadata.map((item) => (
@@ -695,9 +1218,10 @@ export function Review() {
 								key={item.label}
 								label={item.label}
 								value={item.value}
+								isMono={item.isMono}
 							/>
 						))}
-						{report ? (
+						{reviewResult ? (
 							<>
 								<ReviewMetaPill
 									label="Review"
@@ -706,10 +1230,23 @@ export function Review() {
 								/>
 								<ReviewMetaPill
 									label="Generated"
-									value={formatGeneratedAt(report.generated_at)}
+									value={formatGeneratedAt(reviewResult.generated_at)}
 									isMono={false}
 								/>
 							</>
+						) : null}
+						{session ? (
+							<StatusPill tone={getRunStatusTone(session.status)}>
+								Session {formatLabel(session.status)}
+							</StatusPill>
+						) : null}
+						{activeRun ? (
+							<StatusPill
+								tone={getRunStatusTone(activeRun.status)}
+								pulse={ACTIVE_RUN_STATUSES.has(activeRun.status)}
+							>
+								Run {formatLabel(activeRun.status)}
+							</StatusPill>
 						) : null}
 					</div>
 
@@ -740,12 +1277,22 @@ export function Review() {
 				/>
 			) : null}
 
-			{reportError ? <InlineBanner tone="danger" title={reportError} /> : null}
+			{sessionError ? <InlineBanner tone="danger" title={sessionError} /> : null}
+			{runError ? <InlineBanner tone="danger" title={runError} /> : null}
+			{pendingApprovals.length > 0 ? (
+				<PendingApprovals
+					approvals={pendingApprovals}
+					loadingById={approvalLoadingById}
+					onDecision={(approval, decision) => {
+						void handleApprovalDecision(approval, decision);
+					}}
+				/>
+			) : null}
 		</div>
 	);
 
-	const changedFilesLabel = activeCompare
-		? `${activeCompare.stats.files_changed} file${activeCompare.stats.files_changed === 1 ? "" : "s"} changed`
+	const changedFilesLabel = session
+		? `${session.stats.files_changed} file${session.stats.files_changed === 1 ? "" : "s"} changed`
 		: "Review diff";
 	const workspaceTopContent = (
 		<div className="flex min-w-0 items-center gap-3">
@@ -758,14 +1305,10 @@ export function Review() {
 					<div className="text-sm font-semibold text-text-primary">
 						{changedFilesLabel}
 					</div>
-					{activeCompare ? (
+					{session ? (
 						<div className="flex items-center gap-2 font-mono text-[11px]">
-							<span className="text-success">
-								+{activeCompare.stats.additions}
-							</span>
-							<span className="text-danger">
-								-{activeCompare.stats.deletions}
-							</span>
+							<span className="text-success">+{session.stats.additions}</span>
+							<span className="text-danger">-{session.stats.deletions}</span>
 							<span className="text-text-secondary">lines changed</span>
 						</div>
 					) : null}
@@ -779,15 +1322,20 @@ export function Review() {
 					<span className="font-mono text-text-primary">
 						{headRef || "Head"}
 					</span>
-					{activeCompare?.merge_base_sha ? (
+					{session?.merge_base_sha ? (
 						<>
 							<span className="text-text-tertiary">merge</span>
 							<span className="font-mono">
-								{formatShortSha(activeCompare.merge_base_sha)}
+								{formatShortSha(session.merge_base_sha)}
 							</span>
 						</>
 					) : null}
-					{report ? <span>{findingsLabel}</span> : null}
+					{activeRun ? (
+						<StatusPill tone={getRunStatusTone(activeRun.status)}>
+							{formatLabel(activeRun.status)}
+						</StatusPill>
+					) : null}
+					{reviewResult ? <span>{findingsLabel}</span> : null}
 				</div>
 			</div>
 		</div>
@@ -803,7 +1351,7 @@ export function Review() {
 							detailLabel="Review"
 							onExit={() => navigate(repoPath ? buildRepoRoute(repoPath) : "/")}
 							onCollapseAll={
-								activeCompare?.file_changes?.length
+								session?.file_changes?.length
 									? () => diffWorkspaceRef.current?.collapseAll()
 									: undefined
 							}
@@ -817,21 +1365,17 @@ export function Review() {
 							<DiffWorkspace
 								ref={diffWorkspaceRef}
 								repoPath={repoPath}
-								viewerId={
-									activeCompare
-										? `review:${activeCompare.merge_base_sha}:${activeCompare.base_ref}:${activeCompare.head_ref}`
-										: "review"
-								}
-								files={activeCompare?.file_changes ?? []}
-								isLoading={isCompareLoading}
+								viewerId={session ? `review:${session.id}` : "review"}
+								files={session?.file_changes ?? []}
+								isLoading={isSessionLoading}
 								error={
-									!repoPath ? "No Git project path was provided." : compareError
+									!repoPath ? "No Git project path was provided." : sessionError
 								}
 								topContent={workspaceTopContent}
 								fileSearchInputId="review-file-search-input"
 								codeSearchInputId="review-code-search-input"
-								emptyTitle="Select two local branches to load the diff."
-								emptyDescription="Review mode compares merge-base(base, head)...head directly from the live Git repository."
+								emptyTitle="Select two local branches to prepare a review session."
+								emptyDescription="GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
 								chromeDensity="compact"
 								fileTreeCollapsible
 							/>
@@ -841,51 +1385,151 @@ export function Review() {
 			</div>
 
 			<Sheet
-				open={Boolean(report) && isInsightsOpen}
+				open={Boolean(activeRun) && isInsightsOpen}
 				onOpenChange={setIsInsightsOpen}
 			>
-				{report ? (
-					<SheetContent side="right" className="w-[min(34rem,100vw)] gap-0 p-0">
+				{activeRun ? (
+					<SheetContent side="right" className="w-[min(38rem,100vw)] gap-0 p-0">
 						<SheetHeader className="border-b border-border-subtle p-5 pb-4">
 							<div className="flex items-start justify-between gap-3 pr-8">
 								<div className="min-w-0">
-									<SheetTitle>Review Insights</SheetTitle>
+									<SheetTitle>Codex Review Run</SheetTitle>
 									<SheetDescription className="mt-1 text-left">
-										{`${baseRef || "Base"} -> ${headRef || "Head"} / Generated ${formatGeneratedAt(report.generated_at)}`}
+										{`${baseRef || "Base"} -> ${headRef || "Head"} / ${formatLabel(activeRun.status)}`}
 									</SheetDescription>
 								</div>
-								{report.partial ? (
-									<StatusPill tone="warning">Partial</StatusPill>
-								) : null}
+								<StatusPill tone={getRunStatusTone(activeRun.status)} pulse={ACTIVE_RUN_STATUSES.has(activeRun.status)}>
+									{formatLabel(activeRun.status)}
+								</StatusPill>
 							</div>
 						</SheetHeader>
 
 						<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
 							<section className="rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
 								<div className="flex items-center justify-between gap-3">
-									<div className="workspace-section-label">AI Summary</div>
+									<div className="workspace-section-label">Structured Review</div>
 									<div className="font-mono text-xs text-text-tertiary">
 										{findingsLabel}
 									</div>
 								</div>
-								<div className="mt-3 text-sm leading-6 text-text-secondary">
-									<MarkdownRenderer content={report.summary} />
+								{reviewResult ? (
+									<>
+										<div className="mt-3 text-sm leading-6 text-text-secondary">
+											<MarkdownRenderer content={reviewResult.summary} />
+										</div>
+										<div className="mt-4">
+											<ReviewFindingsList
+												findings={reviewResult.findings}
+												onSelect={handleInsightFindingSelect}
+											/>
+										</div>
+									</>
+								) : (
+									<div className="mt-3 text-sm text-text-secondary">
+										Codex has not emitted the structured result for this run yet.
+									</div>
+								)}
+							</section>
+
+							<section className="mt-4 rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
+								<div className="flex items-center justify-between gap-3">
+									<div className="workspace-section-label">Approval History</div>
+									<div className="font-mono text-xs text-text-tertiary">
+										{activeApprovals.length}
+									</div>
+								</div>
+								<div className="mt-3 space-y-3">
+									{activeApprovals.length === 0 ? (
+										<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
+											No approval prompts have been recorded for this run.
+										</div>
+									) : (
+										activeApprovals.map((approval) => (
+											<div
+												key={approval.id}
+												className="rounded-[16px] border border-border-subtle bg-control/45 p-3"
+											>
+												<div className="flex flex-wrap items-center justify-between gap-2">
+													<div className="text-sm font-medium text-text-primary">
+														{approval.summary || formatLabel(approval.method)}
+													</div>
+													<StatusPill tone={getApprovalTone(approval.status)}>
+														{formatLabel(approval.status)}
+													</StatusPill>
+												</div>
+												<div className="mt-1 font-mono text-[11px] text-text-tertiary">
+													{approval.method}
+												</div>
+											</div>
+										))
+									)}
 								</div>
 							</section>
 
 							<section className="mt-4 rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
 								<div className="flex items-center justify-between gap-3">
-									<div className="workspace-section-label">Findings</div>
-									<div className="font-mono text-xs text-text-tertiary">
-										{report.findings.length}
+									<Button
+										type="button"
+										variant="toolbar"
+										size="sm"
+										className="h-auto px-0 py-0 text-left hover:bg-transparent"
+										onClick={() =>
+											setIsCommandTraceOpen((current) => !current)
+										}
+										aria-expanded={isCommandTraceOpen}
+									>
+										{isCommandTraceOpen ? (
+											<ChevronDown className="size-4 text-text-secondary" />
+										) : (
+											<ChevronRight className="size-4 text-text-secondary" />
+										)}
+										<Terminal className="size-4 text-text-secondary" />
+										<span className="workspace-section-label">Command Trace</span>
+									</Button>
+									<div className="flex items-center gap-2">
+										<div className="font-mono text-xs text-text-tertiary">
+											{commandTrace.length}
+										</div>
 									</div>
 								</div>
-								<div className="mt-3">
-									<ReviewFindingsList
-										findings={report.findings}
-										onSelect={handleInsightFindingSelect}
-									/>
+								{isCommandTraceOpen ? (
+									<div className="mt-3">
+										<CommandTrace commands={commandTrace} />
+									</div>
+								) : null}
+							</section>
+
+							<section className="mt-4 rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
+								<div className="flex items-center justify-between gap-3">
+									<Button
+										type="button"
+										variant="toolbar"
+										size="sm"
+										className="h-auto px-0 py-0 text-left hover:bg-transparent"
+										onClick={() =>
+											setIsEventStreamOpen((current) => !current)
+										}
+										aria-expanded={isEventStreamOpen}
+									>
+										{isEventStreamOpen ? (
+											<ChevronDown className="size-4 text-text-secondary" />
+										) : (
+											<ChevronRight className="size-4 text-text-secondary" />
+										)}
+										<AlertTriangle className="size-4 text-text-secondary" />
+										<span className="workspace-section-label">Event Stream</span>
+									</Button>
+									<div className="flex items-center gap-2">
+										<div className="font-mono text-xs text-text-tertiary">
+											{reasoningTrace.length}
+										</div>
+									</div>
 								</div>
+								{isEventStreamOpen ? (
+									<div className="mt-3">
+										<EventFeed entries={reasoningTrace} />
+									</div>
+								) : null}
 							</section>
 						</div>
 					</SheetContent>

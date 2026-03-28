@@ -231,6 +231,142 @@ class SQLRepo(Base):
     )
 
 
+class SQLReviewSession(Base):
+    __tablename__ = "review_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    repo_path: Mapped[str] = mapped_column(Text)
+    base_ref: Mapped[str] = mapped_column(Text)
+    head_ref: Mapped[str] = mapped_column(Text)
+    merge_base_sha: Mapped[str] = mapped_column(String(40))
+    base_head_sha: Mapped[str] = mapped_column(String(40))
+    head_head_sha: Mapped[str] = mapped_column(String(40))
+    context_lines: Mapped[int] = mapped_column(Integer, default=3)
+    review_mode: Mapped[str] = mapped_column(String(32), default="diff")
+    instructions_preset: Mapped[str] = mapped_column(String(64), default="default")
+    diff_stats: Mapped[dict] = mapped_column(JSON)
+    changed_files: Mapped[list] = mapped_column(JSON)
+    stats: Mapped[dict] = mapped_column(JSON)
+    file_changes: Mapped[list] = mapped_column(JSON)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(32), default="ready")
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    runs: Mapped[List["SQLReviewRun"]] = relationship(
+        "SQLReviewRun",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="SQLReviewRun.created_at.desc()",
+    )
+
+
+class SQLReviewRun(Base):
+    __tablename__ = "review_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("review_sessions.id"))
+    engine: Mapped[str] = mapped_column(String(64))
+    depth: Mapped[str] = mapped_column(String(32), default="standard")
+    execution_policy: Mapped[str] = mapped_column(String(64), default="on-request")
+    allowlisted_commands_profile: Mapped[str] = mapped_column(
+        String(64), default="default"
+    )
+    include_optional_retrieval: Mapped[bool] = mapped_column(Boolean, default=False)
+    mode: Mapped[str] = mapped_column(String(64), default="native_review")
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    phase: Mapped[str] = mapped_column(String(32), default="queued")
+    partial: Mapped[bool] = mapped_column(Boolean, default=False)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    findings_payload: Mapped[list] = mapped_column("findings", JSON, default=list)
+    event_log_payload: Mapped[list] = mapped_column("events", JSON, default=list)
+    command_logs: Mapped[list] = mapped_column(JSON, default=list)
+    pending_command: Mapped[Optional[dict]] = mapped_column(JSON)
+    error_detail: Mapped[Optional[str]] = mapped_column(Text)
+    review_thread_id: Mapped[Optional[str]] = mapped_column(String(128))
+    worktree_path: Mapped[Optional[str]] = mapped_column(Text)
+    codex_home_path: Mapped[Optional[str]] = mapped_column(Text)
+    started_at: Mapped[Optional[datetime]]
+    completed_at: Mapped[Optional[datetime]]
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    session: Mapped["SQLReviewSession"] = relationship(
+        "SQLReviewSession", back_populates="runs"
+    )
+    event_rows: Mapped[List["SQLReviewRunEvent"]] = relationship(
+        "SQLReviewRunEvent",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="SQLReviewRunEvent.sequence.asc()",
+    )
+    approvals: Mapped[List["SQLReviewApproval"]] = relationship(
+        "SQLReviewApproval",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="SQLReviewApproval.created_at.asc()",
+    )
+    result: Mapped[Optional["SQLReviewResult"]] = relationship(
+        "SQLReviewResult",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class SQLReviewRunEvent(Base):
+    __tablename__ = "review_run_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("review_runs.id"))
+    sequence: Mapped[int] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String(128))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    run: Mapped["SQLReviewRun"] = relationship(
+        "SQLReviewRun", back_populates="event_rows"
+    )
+
+
+class SQLReviewApproval(Base):
+    __tablename__ = "review_approvals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("review_runs.id"))
+    method: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    thread_id: Mapped[Optional[str]] = mapped_column(String(128))
+    turn_id: Mapped[Optional[str]] = mapped_column(String(128))
+    item_id: Mapped[Optional[str]] = mapped_column(String(128))
+    request_payload: Mapped[dict] = mapped_column(JSON)
+    response_payload: Mapped[Optional[dict]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    run: Mapped["SQLReviewRun"] = relationship(
+        "SQLReviewRun", back_populates="approvals"
+    )
+
+
+class SQLReviewResult(Base):
+    __tablename__ = "review_results"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("review_runs.id"), unique=True)
+    summary: Mapped[str] = mapped_column(Text)
+    findings: Mapped[list] = mapped_column(JSON)
+    partial: Mapped[bool] = mapped_column(Boolean, default=False)
+    generated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    run: Mapped["SQLReviewRun"] = relationship(
+        "SQLReviewRun", back_populates="result"
+    )
+
+
 commits_branches = Table(
     "commits_branches",
     Base.metadata,

@@ -250,11 +250,647 @@ def _ai_runtime_schema_migration(connection, settings: Settings) -> None:
     _backfill_legacy_embeddings(connection, settings)
 
 
+def _review_sessions_schema_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_sessions (
+                id VARCHAR(64) PRIMARY KEY,
+                repo_path TEXT NOT NULL,
+                base_ref TEXT NOT NULL,
+                head_ref TEXT NOT NULL,
+                merge_base_sha VARCHAR(40) NOT NULL,
+                base_head_sha VARCHAR(40) NOT NULL,
+                head_head_sha VARCHAR(40) NOT NULL,
+                stats JSONB NOT NULL,
+                file_changes JSONB NOT NULL,
+                truncated BOOLEAN NOT NULL DEFAULT FALSE,
+                status VARCHAR(32) NOT NULL DEFAULT 'ready',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_runs (
+                id VARCHAR(64) PRIMARY KEY,
+                session_id VARCHAR(64) NOT NULL REFERENCES review_sessions(id) ON DELETE CASCADE,
+                engine VARCHAR(64) NOT NULL,
+                mode VARCHAR(64) NOT NULL DEFAULT 'native_review',
+                status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                error_detail TEXT,
+                review_thread_id VARCHAR(128),
+                worktree_path TEXT,
+                codex_home_path TEXT,
+                started_at TIMESTAMPTZ,
+                completed_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_run_events (
+                id SERIAL PRIMARY KEY,
+                run_id VARCHAR(64) NOT NULL REFERENCES review_runs(id) ON DELETE CASCADE,
+                sequence INTEGER NOT NULL,
+                event_type VARCHAR(128) NOT NULL,
+                payload JSONB NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_approvals (
+                id VARCHAR(64) PRIMARY KEY,
+                run_id VARCHAR(64) NOT NULL REFERENCES review_runs(id) ON DELETE CASCADE,
+                method VARCHAR(128) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                summary TEXT,
+                thread_id VARCHAR(128),
+                turn_id VARCHAR(128),
+                item_id VARCHAR(128),
+                request_payload JSONB NOT NULL,
+                response_payload JSONB,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_results (
+                id VARCHAR(64) PRIMARY KEY,
+                run_id VARCHAR(64) NOT NULL UNIQUE REFERENCES review_runs(id) ON DELETE CASCADE,
+                summary TEXT NOT NULL,
+                findings JSONB NOT NULL,
+                partial BOOLEAN NOT NULL DEFAULT FALSE,
+                generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_runs_session_id
+            ON review_runs (session_id, created_at DESC)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_run_events_run_sequence
+            ON review_run_events (run_id, sequence)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_approvals_run_id
+            ON review_approvals (run_id, created_at)
+            """
+        )
+    )
+
+
+def _review_sessions_schema_repair_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_sessions (
+                id VARCHAR(64) PRIMARY KEY
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS repo_path TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS base_ref TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS head_ref TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS merge_base_sha VARCHAR(40)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS base_head_sha VARCHAR(40)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS head_head_sha VARCHAR(40)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS stats JSON
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS file_changes JSON
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS truncated BOOLEAN DEFAULT FALSE
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'ready'
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE review_sessions
+            SET truncated = COALESCE(truncated, FALSE),
+                status = COALESCE(status, 'ready'),
+                created_at = COALESCE(created_at, NOW()),
+                updated_at = COALESCE(updated_at, NOW())
+            """
+        )
+    )
+
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_runs (
+                id VARCHAR(64) PRIMARY KEY
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS session_id VARCHAR(64)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS engine VARCHAR(64)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS mode VARCHAR(64) DEFAULT 'native_review'
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'pending'
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS error_detail TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS review_thread_id VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS worktree_path TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS codex_home_path TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE review_runs
+            SET mode = COALESCE(mode, 'native_review'),
+                status = COALESCE(status, 'pending'),
+                created_at = COALESCE(created_at, NOW()),
+                updated_at = COALESCE(updated_at, NOW())
+            """
+        )
+    )
+
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_run_events (
+                id SERIAL PRIMARY KEY,
+                run_id VARCHAR(64),
+                sequence INTEGER,
+                event_type VARCHAR(128),
+                payload JSONB,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_run_events
+            ADD COLUMN IF NOT EXISTS run_id VARCHAR(64)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_run_events
+            ADD COLUMN IF NOT EXISTS sequence INTEGER
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_run_events
+            ADD COLUMN IF NOT EXISTS event_type VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_run_events
+            ADD COLUMN IF NOT EXISTS payload JSON
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_run_events
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE review_run_events
+            SET created_at = COALESCE(created_at, NOW())
+            """
+        )
+    )
+
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_approvals (
+                id VARCHAR(64) PRIMARY KEY
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS run_id VARCHAR(64)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS method VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'pending'
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS summary TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS thread_id VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS turn_id VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS item_id VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS request_payload JSON
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS response_payload JSON
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_approvals
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE review_approvals
+            SET status = COALESCE(status, 'pending'),
+                created_at = COALESCE(created_at, NOW()),
+                updated_at = COALESCE(updated_at, NOW())
+            """
+        )
+    )
+
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS review_results (
+                id VARCHAR(64) PRIMARY KEY
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_results
+            ADD COLUMN IF NOT EXISTS run_id VARCHAR(64)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_results
+            ADD COLUMN IF NOT EXISTS summary TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_results
+            ADD COLUMN IF NOT EXISTS findings JSON
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_results
+            ADD COLUMN IF NOT EXISTS partial BOOLEAN DEFAULT FALSE
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_results
+            ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_results
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_results
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE review_results
+            SET partial = COALESCE(partial, FALSE),
+                generated_at = COALESCE(generated_at, NOW()),
+                created_at = COALESCE(created_at, NOW()),
+                updated_at = COALESCE(updated_at, NOW())
+            """
+        )
+    )
+
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_runs_session_id
+            ON review_runs (session_id, created_at DESC)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_run_events_run_sequence
+            ON review_run_events (run_id, sequence)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_approvals_run_id
+            ON review_approvals (run_id, created_at)
+            """
+        )
+    )
+
+
 MIGRATIONS = [
     Migration(
         version="20260321_ai_runtime_embeddings",
         run=_ai_runtime_schema_migration,
-    )
+    ),
+    Migration(
+        version="20260328_review_sessions",
+        run=_review_sessions_schema_migration,
+    ),
+    Migration(
+        version="20260328_review_sessions_repair",
+        run=_review_sessions_schema_repair_migration,
+    ),
 ]
 
 
