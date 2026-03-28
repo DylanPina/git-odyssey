@@ -3,26 +3,32 @@
   "private": true,
   "version": "0.1.0",
   "type": "commonjs",
-  "main": "src/main.js",
+  "main": "dist/main.js",
   "scripts": {
+    "build:main": "tsc -p tsconfig.json",
     "dev:renderer": "npm --prefix ../frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort",
-    "dev:desktop": "cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 ELECTRON_DEV=1 electron .",
+    "dev:desktop": "npm run build:main && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 ELECTRON_DEV=1 electron .",
     "dev": "concurrently -k -n renderer,desktop -c cyan,green \"npm:dev:renderer\" \"wait-on tcp:5173 && npm run dev:desktop\"",
-    "build": "npm --prefix ../frontend run build && electron-builder",
-    "smoke": "node ./scripts/smoke.mjs"
+    "build": "npm --prefix ../frontend run build && npm run build:main && electron-builder",
+    "smoke": "npm run build:main && node ./scripts/smoke.mjs",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
     "electron": "^37.4.0",
     "electron-builder": "^26.0.12",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
     "wait-on": "^8.0.5"
   },
   "build": {
     "appId": "com.gitodyssey.desktop",
     "productName": "GitOdyssey",
     "files": [
-      "src/**/*",
+      "dist/**/*",
       "scripts/**/*",
       "package.json"
     ],

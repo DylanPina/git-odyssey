@@ -1,35 +1,49 @@
-const fs = require("fs");
-const path = require("path");
-const {
+import fs = require("node:fs");
+import path = require("node:path");
+
+import type {
+  CredentialStatus,
+  DesktopConfigPatch,
+  DesktopConfigState,
+  DesktopRepoSettings,
+  DesktopRepoSettingsInput,
+  DesktopRepoSettingsSaveInput,
+  DesktopSettingsStatus,
+} from "./types";
+
+import {
   buildDefaultAiRuntimeConfig,
   normalizeAiRuntimeConfig,
   summarizeCapability,
-} = require("./ai-config");
-const {
+} from "./ai-config";
+import {
   dedupeRecentProjects,
   normalizePath,
   toGitProjectSummary,
-} = require("./git-projects");
+} from "./git-projects";
 
-const DEFAULT_BACKEND_PORT = Number(
-  process.env.GITODYSSEY_BACKEND_PORT ?? "48120"
-);
+const DEFAULT_BACKEND_PORT = Number(process.env.GITODYSSEY_BACKEND_PORT ?? "48120");
 const DEFAULT_REPO_MAX_COMMITS = 50;
 const DEFAULT_REPO_CONTEXT_LINES = 3;
 
-function normalizePositiveInteger(value, fallback) {
+function normalizePositiveInteger(
+  value: number | string | null | undefined,
+  fallback: number
+): number {
   const parsed = Number.parseInt(String(value), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function normalizeNonNegativeInteger(value, fallback) {
+function normalizeNonNegativeInteger(
+  value: number | string | null | undefined,
+  fallback: number
+): number {
   const parsed = Number.parseInt(String(value), 10);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function normalizeRepoSettings(rawSettings) {
-  const settings =
-    rawSettings && typeof rawSettings === "object" ? rawSettings : {};
+function normalizeRepoSettings(rawSettings?: DesktopRepoSettingsInput): DesktopRepoSettings {
+  const settings = rawSettings && typeof rawSettings === "object" ? rawSettings : {};
 
   return {
     maxCommits: normalizePositiveInteger(
@@ -43,10 +57,14 @@ function normalizeRepoSettings(rawSettings) {
   };
 }
 
-function normalizeRepoSettingsMap(rawRepoSettings) {
+function normalizeRepoSettingsMap(
+  rawRepoSettings: unknown
+): Record<string, DesktopRepoSettings> {
   const repoSettings =
-    rawRepoSettings && typeof rawRepoSettings === "object" ? rawRepoSettings : {};
-  const normalizedEntries = {};
+    rawRepoSettings && typeof rawRepoSettings === "object"
+      ? (rawRepoSettings as Record<string, DesktopRepoSettingsInput>)
+      : {};
+  const normalizedEntries: Record<string, DesktopRepoSettings> = {};
 
   for (const [repoPath, settings] of Object.entries(repoSettings)) {
     const normalizedRepoPath = normalizePath(repoPath);
@@ -61,13 +79,17 @@ function normalizeRepoSettingsMap(rawRepoSettings) {
 }
 
 class DesktopConfigStore {
-  constructor({ userDataPath }) {
+  userDataPath: string;
+  configPath: string;
+  state: DesktopConfigState;
+
+  constructor({ userDataPath }: { userDataPath: string }) {
     this.userDataPath = userDataPath;
     this.configPath = path.join(userDataPath, "desktop-config.json");
     this.state = this.#load();
   }
 
-  #defaultState() {
+  #defaultState(): DesktopConfigState {
     const dataDir = path.join(this.userDataPath, "data");
     const logDir = path.join(this.userDataPath, "logs");
 
@@ -86,13 +108,13 @@ class DesktopConfigStore {
     };
   }
 
-  #ensureParentDirs() {
+  #ensureParentDirs(): void {
     fs.mkdirSync(this.userDataPath, { recursive: true });
     fs.mkdirSync(path.join(this.userDataPath, "data"), { recursive: true });
     fs.mkdirSync(path.join(this.userDataPath, "logs"), { recursive: true });
   }
 
-  #load() {
+  #load(): DesktopConfigState {
     this.#ensureParentDirs();
     const defaults = this.#defaultState();
 
@@ -103,8 +125,8 @@ class DesktopConfigStore {
 
     try {
       const raw = fs.readFileSync(this.configPath, "utf8");
-      const parsed = JSON.parse(raw);
-      const merged = {
+      const parsed = JSON.parse(raw) as Partial<DesktopConfigState>;
+      const merged: DesktopConfigState = {
         ...defaults,
         ...parsed,
         aiRuntimeConfig: normalizeAiRuntimeConfig(
@@ -118,7 +140,7 @@ class DesktopConfigStore {
       fs.writeFileSync(this.configPath, JSON.stringify(merged, null, 2));
       return merged;
     } catch (error) {
-      const recovered = {
+      const recovered: DesktopConfigState = {
         ...defaults,
         recoveryMessage:
           error instanceof Error ? error.message : "Failed to parse desktop config.",
@@ -128,11 +150,11 @@ class DesktopConfigStore {
     }
   }
 
-  getState() {
+  getState(): DesktopConfigState {
     return { ...this.state };
   }
 
-  save(partial) {
+  save(partial: DesktopConfigPatch): DesktopConfigState {
     this.state = {
       ...this.state,
       ...partial,
@@ -154,15 +176,14 @@ class DesktopConfigStore {
   getRecentProjects() {
     const recentProjects = dedupeRecentProjects(this.state.recentProjects ?? []);
     if (
-      JSON.stringify(recentProjects) !==
-      JSON.stringify(this.state.recentProjects ?? [])
+      JSON.stringify(recentProjects) !== JSON.stringify(this.state.recentProjects ?? [])
     ) {
       this.save({ recentProjects });
     }
     return recentProjects;
   }
 
-  recordRecentProject(projectPath) {
+  recordRecentProject(projectPath: string) {
     const projectSummary = toGitProjectSummary(projectPath);
     if (!projectSummary) {
       throw new Error("That folder is not inside a Git project.");
@@ -176,7 +197,7 @@ class DesktopConfigStore {
     return projectSummary;
   }
 
-  getRepoSettings(repoPath) {
+  getRepoSettings(repoPath: string): DesktopRepoSettings {
     const normalizedRepoPath = normalizePath(repoPath);
     if (!normalizedRepoPath) {
       return normalizeRepoSettings();
@@ -185,7 +206,7 @@ class DesktopConfigStore {
     return normalizeRepoSettings(this.state.repoSettings?.[normalizedRepoPath]);
   }
 
-  saveRepoSettings(input) {
+  saveRepoSettings(input: DesktopRepoSettingsSaveInput): DesktopRepoSettings {
     const normalizedRepoPath = normalizePath(input?.repoPath);
     if (!normalizedRepoPath) {
       throw new Error("A repository path is required to save repo settings.");
@@ -201,7 +222,7 @@ class DesktopConfigStore {
     return nextSettings;
   }
 
-  getStatus(secretStatus) {
+  getStatus(secretStatus: CredentialStatus): DesktopSettingsStatus {
     const aiRuntimeConfig = normalizeAiRuntimeConfig(this.state.aiRuntimeConfig);
     return {
       firstRunCompleted: this.state.firstRunCompleted,
@@ -216,16 +237,10 @@ class DesktopConfigStore {
           secretStatus,
           "text_generation"
         ),
-        embeddings: summarizeCapability(
-          aiRuntimeConfig,
-          secretStatus,
-          "embeddings"
-        ),
+        embeddings: summarizeCapability(aiRuntimeConfig, secretStatus, "embeddings"),
       },
     };
   }
 }
 
-module.exports = {
-  DesktopConfigStore,
-};
+export { DesktopConfigStore };

@@ -24,7 +24,7 @@ test("preload exposes review IPC bridge methods", async () => {
   const exposed = {};
   const invocations = [];
   const listeners = [];
-  const preloadPath = path.join(__dirname, "..", "src", "preload.js");
+  const preloadPath = path.join(__dirname, "..", "src", "preload.ts");
 
   delete require.cache[require.resolve(preloadPath)];
 
@@ -126,7 +126,7 @@ test("main process review handlers forward requests to the backend", async () =>
   const handlers = new Map();
   let backendManagerInstance = null;
   let reviewRuntimeManagerInstance = null;
-  const mainPath = path.join(__dirname, "..", "src", "main.js");
+  const mainPath = path.join(__dirname, "..", "src", "main.ts");
 
   delete require.cache[require.resolve(mainPath)];
 

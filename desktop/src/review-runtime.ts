@@ -1,21 +1,141 @@
-const fs = require("fs");
-const path = require("path");
-const { EventEmitter } = require("events");
-const { execFile, spawn } = require("child_process");
-const { promisify } = require("util");
+import fs = require("node:fs");
+import path = require("node:path");
+import {
+  execFile,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+  type SpawnOptions,
+} from "node:child_process";
+import { EventEmitter } from "node:events";
+import { promisify } from "node:util";
 
-const { CodexAppServerClient } = require("./codex-app-server-client");
-const { getProfileById } = require("./ai-config");
-const { normalizePath } = require("./git-projects");
+import type { BackendManager } from "./backend-manager";
+import type {
+  CodexNotificationMessage,
+  CodexRequestMessage,
+  CodexTurn,
+} from "./codex-app-server-client";
+import { CodexAppServerClient } from "./codex-app-server-client";
+import type { DesktopConfigStore } from "./config-store";
+import type { MacKeychainStore } from "./keychain";
+import type { DesktopConfigState, ReviewApprovalDecision } from "./types";
+import { getProfileById } from "./ai-config";
+import { normalizePath } from "./git-projects";
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = promisify(execFile) as (
+  file: string,
+  args?: string[],
+  options?: Parameters<typeof execFile>[2]
+) => Promise<{
+  stdout: string;
+  stderr: string;
+}>;
 const REVIEW_BRANCH_PREFIX = "git-odyssey-review";
 
-function nowIso() {
+type AppLike = {
+  getVersion?: () => string;
+};
+
+type ReviewRuntimeStartInput = {
+  sessionId?: string | null;
+  customInstructions?: string | null;
+};
+
+type ReviewRuntimeCancelInput = {
+  sessionId?: string | null;
+  runId?: string | null;
+};
+
+type ReviewRuntimeApprovalInput = ReviewRuntimeCancelInput & {
+  approvalId?: string | null;
+  decision: ReviewApprovalDecision;
+};
+
+type ReviewSessionPayload = {
+  repo_path: string;
+  base_ref: string;
+  head_ref: string;
+  head_head_sha: string;
+};
+
+type ReviewRunPayload = {
+  id: string;
+};
+
+type ThreadStartResponse = {
+  thread: {
+    id: string;
+  };
+  model?: string | null;
+  modelProvider?: string | null;
+};
+
+type ReviewStartResponse = {
+  reviewThreadId: string;
+  turn: CodexTurn;
+};
+
+type TurnStartResponse = {
+  turn: CodexTurn;
+};
+
+type CodexRuntime = {
+  codexHome: string;
+  model: string | null;
+  modelProvider: string | null;
+};
+
+type Worktree = {
+  path: string;
+  branch: string;
+};
+
+type RunEvent = {
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+type TurnWaiter = {
+  resolve: (turn: CodexTurn) => void;
+  reject: (error: Error) => void;
+};
+
+type PendingApproval = {
+  request: CodexRequestMessage<Record<string, any>>;
+  summary: string;
+};
+
+type RunState = {
+  sessionId: string;
+  runId: string;
+  repoPath: string;
+  baseRef: string;
+  headRef: string;
+  headHeadSha: string;
+  customInstructions: string | null;
+  baseThreadId: string | null;
+  reviewThreadId: string | null;
+  currentTurnId: string | null;
+  worktreePath: string | null;
+  worktreeBranch: string | null;
+  codexHomePath: string | null;
+  turnWaiters: Map<string, TurnWaiter>;
+  completedTurns: Map<string, CodexTurn>;
+  pendingApprovals: Map<string, PendingApproval>;
+  eventBuffer: RunEvent[];
+  eventHistory: RunEvent[];
+  flushTimer: NodeJS.Timeout | null;
+  flushPromise: Promise<void>;
+  cancelRequested: boolean;
+  completed: boolean;
+};
+
+function nowIso(): string {
   return new Date().toISOString();
 }
 
-function sanitizeErrorMessage(error, fallback) {
+function sanitizeErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) {
     return error.message;
   }
@@ -23,12 +143,17 @@ function sanitizeErrorMessage(error, fallback) {
   return fallback;
 }
 
-async function execFileWithInput(command, args, options = {}, input = "") {
+async function execFileWithInput(
+  command: string,
+  args: string[],
+  options: SpawnOptions = {},
+  input = ""
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       ...options,
       stdio: ["pipe", "pipe", "pipe"],
-    });
+    }) as ChildProcessWithoutNullStreams;
 
     let stdout = "";
     let stderr = "";
@@ -57,7 +182,26 @@ async function execFileWithInput(command, args, options = {}, input = "") {
 }
 
 class ReviewRuntimeManager extends EventEmitter {
-  constructor({ app, backendManager, configStore, keychain }) {
+  app: AppLike;
+  backendManager: BackendManager;
+  configStore: DesktopConfigStore;
+  keychain: MacKeychainStore;
+  activeRuns: Map<string, RunState>;
+  threadToRunId: Map<string, string>;
+  codexClient: CodexAppServerClient | null;
+  codexClientHome: string | null;
+
+  constructor({
+    app,
+    backendManager,
+    configStore,
+    keychain,
+  }: {
+    app: AppLike;
+    backendManager: BackendManager;
+    configStore: DesktopConfigStore;
+    keychain: MacKeychainStore;
+  }) {
     super();
     this.app = app;
     this.backendManager = backendManager;
@@ -69,14 +213,16 @@ class ReviewRuntimeManager extends EventEmitter {
     this.codexClientHome = null;
   }
 
-  async startRun(input) {
+  async startRun(input: ReviewRuntimeStartInput): Promise<ReviewRunPayload> {
     const sessionId = String(input.sessionId || "").trim();
     if (!sessionId) {
       throw new Error("A review session id is required.");
     }
 
-    const session = await this.backendManager.request(`/api/review/sessions/${sessionId}`);
-    const run = await this.backendManager.request(
+    const session = await this.backendManager.request<ReviewSessionPayload>(
+      `/api/review/sessions/${sessionId}`
+    );
+    const run = await this.backendManager.request<ReviewRunPayload>(
       `/api/review/sessions/${sessionId}/runs`,
       {
         method: "POST",
@@ -88,7 +234,7 @@ class ReviewRuntimeManager extends EventEmitter {
       }
     );
 
-    const state = {
+    const state: RunState = {
       sessionId,
       runId: run.id,
       repoPath: session.repo_path,
@@ -124,7 +270,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return run;
   }
 
-  async cancelRun(input) {
+  async cancelRun(input: ReviewRuntimeCancelInput): Promise<unknown> {
     const runId = String(input.runId || "").trim();
     const sessionId = String(input.sessionId || "").trim();
     const state = this.activeRuns.get(runId);
@@ -155,7 +301,7 @@ class ReviewRuntimeManager extends EventEmitter {
     );
   }
 
-  async respondToApproval(input) {
+  async respondToApproval(input: ReviewRuntimeApprovalInput): Promise<void> {
     const runId = String(input.runId || "").trim();
     const sessionId = String(input.sessionId || "").trim();
     const approvalId = String(input.approvalId || "").trim();
@@ -173,7 +319,7 @@ class ReviewRuntimeManager extends EventEmitter {
       approval.request,
       input.decision
     );
-    await this.codexClient.respond(approval.request.id, responsePayload);
+    await this.#requireCodexClient().respond(approval.request.id, responsePayload);
     state.pendingApprovals.delete(approvalId);
 
     await this.backendManager.request(
@@ -202,7 +348,7 @@ class ReviewRuntimeManager extends EventEmitter {
     this.#emitRuntimeChanged(state);
   }
 
-  async dispose() {
+  async dispose(): Promise<void> {
     if (this.codexClient) {
       await this.codexClient.stop();
       this.codexClient = null;
@@ -210,7 +356,7 @@ class ReviewRuntimeManager extends EventEmitter {
     }
   }
 
-  async #runReview(state) {
+  async #runReview(state: RunState): Promise<void> {
     const codexRuntime = await this.#ensureCodexRuntime();
     state.codexHomePath = codexRuntime.codexHome;
     const worktree = await this.#createWorktree(state);
@@ -224,7 +370,7 @@ class ReviewRuntimeManager extends EventEmitter {
     });
 
     const client = await this.#ensureCodexClient(codexRuntime.codexHome);
-    const thread = await client.request("thread/start", {
+    const thread = await client.request<ThreadStartResponse>("thread/start", {
       cwd: state.worktreePath,
       sandbox: "workspace-write",
       approvalPolicy: "on-request",
@@ -251,11 +397,11 @@ class ReviewRuntimeManager extends EventEmitter {
       return;
     }
 
-    let reviewThreadId = null;
-    let reviewTurnId = null;
+    let reviewThreadId: string | null = null;
+    let reviewTurnId: string | null = null;
     let reviewMode = "native_review";
     try {
-      const reviewStart = await client.request("review/start", {
+      const reviewStart = await client.request<ReviewStartResponse>("review/start", {
         threadId: state.baseThreadId,
         delivery: "detached",
         target: {
@@ -279,7 +425,7 @@ class ReviewRuntimeManager extends EventEmitter {
       });
       await this.#flushBufferedEvents(state);
 
-      const reviewTurn = await client.request("turn/start", {
+      const reviewTurn = await client.request<TurnStartResponse>("turn/start", {
         threadId: state.baseThreadId,
         input: [
           {
@@ -299,6 +445,9 @@ class ReviewRuntimeManager extends EventEmitter {
 
     state.reviewThreadId = reviewThreadId;
     state.currentTurnId = reviewTurnId;
+    if (!state.reviewThreadId || !state.currentTurnId) {
+      throw new Error("Codex review did not start a review thread and turn.");
+    }
 
     await this.#updateRunStatus(state, {
       status: "running",
@@ -314,7 +463,8 @@ class ReviewRuntimeManager extends EventEmitter {
       review_mode: reviewMode,
     });
 
-    const reviewTurn = await this.#waitForTurn(state, state.currentTurnId);
+    const activeReviewTurnId = state.currentTurnId;
+    const reviewTurn = await this.#waitForTurn(state, activeReviewTurnId);
     if (state.cancelRequested) {
       await this.#finishCancelled(state);
       return;
@@ -329,7 +479,7 @@ class ReviewRuntimeManager extends EventEmitter {
     });
     await this.#flushBufferedEvents(state);
 
-    const extraction = await client.request("turn/start", {
+    const extraction = await client.request<TurnStartResponse>("turn/start", {
       threadId: state.reviewThreadId,
       input: [
         {
@@ -348,11 +498,12 @@ class ReviewRuntimeManager extends EventEmitter {
       },
     });
 
-    state.currentTurnId = extraction.turn.id;
+    const extractionTurnId = extraction.turn.id;
+    state.currentTurnId = extractionTurnId;
     this.#queueRunEvent(state, "extraction_turn_started", {
       turn_id: state.currentTurnId,
     });
-    const extractionTurn = await this.#waitForTurn(state, state.currentTurnId);
+    const extractionTurn = await this.#waitForTurn(state, extractionTurnId);
     if (state.cancelRequested) {
       await this.#finishCancelled(state);
       return;
@@ -365,7 +516,7 @@ class ReviewRuntimeManager extends EventEmitter {
 
     const structuredResult = this.#extractStructuredResultFromEvents(
       state,
-      state.currentTurnId
+      extractionTurnId
     );
 
     await this.backendManager.request(
@@ -385,7 +536,7 @@ class ReviewRuntimeManager extends EventEmitter {
     await this.#cleanupRun(state);
   }
 
-  async #ensureCodexRuntime() {
+  async #ensureCodexRuntime(): Promise<CodexRuntime> {
     const desktopState = this.configStore.getState();
     const aiRuntimeConfig = desktopState.aiRuntimeConfig;
     const binding = aiRuntimeConfig?.capabilities?.text_generation;
@@ -438,7 +589,7 @@ class ReviewRuntimeManager extends EventEmitter {
     };
   }
 
-  async #ensureCodexClient(codexHome) {
+  async #ensureCodexClient(codexHome: string): Promise<CodexAppServerClient> {
     if (this.codexClient && this.codexClientHome === codexHome) {
       return this.codexClient;
     }
@@ -475,7 +626,15 @@ class ReviewRuntimeManager extends EventEmitter {
     return client;
   }
 
-  async #handleCodexExit() {
+  #requireCodexClient(): CodexAppServerClient {
+    if (!this.codexClient) {
+      throw new Error("Codex app-server is not running.");
+    }
+
+    return this.codexClient;
+  }
+
+  async #handleCodexExit(): Promise<void> {
     const errorMessage = "Codex app-server exited unexpectedly during the review run.";
     const runs = Array.from(this.activeRuns.values());
     for (const state of runs) {
@@ -490,7 +649,9 @@ class ReviewRuntimeManager extends EventEmitter {
     }
   }
 
-  async #handleCodexNotification(message) {
+  async #handleCodexNotification(
+    message: CodexNotificationMessage<Record<string, any>>
+  ): Promise<void> {
     const threadId = message.params?.threadId;
     const state = threadId ? this.#findStateByThreadId(threadId) : null;
     if (!state) {
@@ -503,20 +664,23 @@ class ReviewRuntimeManager extends EventEmitter {
     });
 
     if (message.method === "turn/completed") {
-      const turnId = message.params?.turn?.id;
+      const params = message.params ?? {};
+      const turnId = params.turn?.id;
       const waiter = turnId ? state.turnWaiters.get(turnId) : null;
       if (waiter) {
         state.turnWaiters.delete(turnId);
-        waiter.resolve(message.params.turn);
+        waiter.resolve(params.turn);
       } else if (turnId) {
-        state.completedTurns.set(turnId, message.params.turn);
+        state.completedTurns.set(turnId, params.turn);
       }
     }
 
     this.#scheduleFlush(state);
   }
 
-  async #handleCodexRequest(message) {
+  async #handleCodexRequest(
+    message: CodexRequestMessage<Record<string, any>>
+  ): Promise<void> {
     const threadId = message.params?.threadId;
     const state = threadId ? this.#findStateByThreadId(threadId) : null;
     if (!state) {
@@ -557,7 +721,9 @@ class ReviewRuntimeManager extends EventEmitter {
     this.#emitRuntimeChanged(state);
   }
 
-  async #resolveUnknownRequest(message) {
+  async #resolveUnknownRequest(
+    message: CodexRequestMessage<Record<string, any>>
+  ): Promise<void> {
     if (!this.codexClient) {
       return;
     }
@@ -580,19 +746,19 @@ class ReviewRuntimeManager extends EventEmitter {
     }
   }
 
-  #waitForTurn(state, turnId) {
+  #waitForTurn(state: RunState, turnId: string): Promise<CodexTurn> {
     const completedTurn = state.completedTurns.get(turnId);
     if (completedTurn) {
       state.completedTurns.delete(turnId);
       return Promise.resolve(completedTurn);
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<CodexTurn>((resolve, reject) => {
       state.turnWaiters.set(turnId, { resolve, reject });
     });
   }
 
-  async #updateRunStatus(state, payload) {
+  async #updateRunStatus(state: RunState, payload: Record<string, unknown>): Promise<void> {
     await this.backendManager.request(
       `/api/review/sessions/${state.sessionId}/runs/${state.runId}/status`,
       {
@@ -603,8 +769,12 @@ class ReviewRuntimeManager extends EventEmitter {
     this.#emitRuntimeChanged(state);
   }
 
-  #queueRunEvent(state, eventType, payload) {
-    const event = {
+  #queueRunEvent(
+    state: RunState,
+    eventType: string,
+    payload: Record<string, unknown>
+  ): void {
+    const event: RunEvent = {
       event_type: eventType,
       payload,
       created_at: nowIso(),
@@ -614,7 +784,7 @@ class ReviewRuntimeManager extends EventEmitter {
     this.#scheduleFlush(state);
   }
 
-  #scheduleFlush(state) {
+  #scheduleFlush(state: RunState): void {
     if (state.flushTimer) {
       return;
     }
@@ -625,7 +795,7 @@ class ReviewRuntimeManager extends EventEmitter {
     }, 150);
   }
 
-  async #flushBufferedEvents(state) {
+  async #flushBufferedEvents(state: RunState): Promise<void> {
     if (!state.eventBuffer.length) {
       return state.flushPromise;
     }
@@ -655,7 +825,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return state.flushPromise;
   }
 
-  async #finishCancelled(state) {
+  async #finishCancelled(state: RunState): Promise<void> {
     await this.#updateRunStatus(state, {
       status: "cancelled",
       completed_at: nowIso(),
@@ -666,7 +836,7 @@ class ReviewRuntimeManager extends EventEmitter {
     await this.#cleanupRun(state);
   }
 
-  async #failRun(state, detail) {
+  async #failRun(state: RunState, detail: string): Promise<void> {
     if (state.completed) {
       return;
     }
@@ -687,7 +857,7 @@ class ReviewRuntimeManager extends EventEmitter {
     await this.#cleanupRun(state);
   }
 
-  async #cleanupRun(state) {
+  async #cleanupRun(state: RunState): Promise<void> {
     for (const waiter of state.turnWaiters.values()) {
       waiter.reject(new Error("The review run has already finished."));
     }
@@ -704,8 +874,11 @@ class ReviewRuntimeManager extends EventEmitter {
     this.#emitRuntimeChanged(state);
   }
 
-  async #createWorktree(state) {
+  async #createWorktree(state: RunState): Promise<Worktree> {
     const repoPath = normalizePath(state.repoPath);
+    if (!repoPath) {
+      throw new Error("Review worktree could not resolve the repository path.");
+    }
     const worktreeRoot = path.join(
       this.configStore.getState().dataDir,
       "review-worktrees",
@@ -735,12 +908,15 @@ class ReviewRuntimeManager extends EventEmitter {
     };
   }
 
-  async #cleanupWorktree(state) {
+  async #cleanupWorktree(state: RunState): Promise<void> {
     if (!state.worktreePath || !state.worktreeBranch) {
       return;
     }
 
     const repoPath = normalizePath(state.repoPath);
+    if (!repoPath) {
+      return;
+    }
     await execFileAsync(
       "git",
       ["worktree", "remove", "--force", state.worktreePath],
@@ -752,7 +928,7 @@ class ReviewRuntimeManager extends EventEmitter {
     fs.rmSync(state.worktreePath, { recursive: true, force: true });
   }
 
-  #buildDeveloperInstructions(state) {
+  #buildDeveloperInstructions(state: RunState): string {
     const instructionLines = [
       "You are GitOdyssey's Codex review runtime.",
       `Review the current branch against base branch ${state.baseRef}.`,
@@ -769,8 +945,11 @@ class ReviewRuntimeManager extends EventEmitter {
     return instructionLines.join("\n");
   }
 
-  async #primeReviewThread(state, client) {
-    const seedTurn = await client.request("turn/start", {
+  async #primeReviewThread(
+    state: RunState,
+    client: CodexAppServerClient
+  ): Promise<void> {
+    const seedTurn = await client.request<TurnStartResponse>("turn/start", {
       threadId: state.baseThreadId,
       input: [
         {
@@ -790,13 +969,14 @@ class ReviewRuntimeManager extends EventEmitter {
       },
     });
 
-    state.currentTurnId = seedTurn.turn.id;
+    const seedTurnId = seedTurn.turn.id;
+    state.currentTurnId = seedTurnId;
     this.#queueRunEvent(state, "seed_turn_started", {
       thread_id: state.baseThreadId,
       turn_id: state.currentTurnId,
     });
 
-    const completedSeedTurn = await this.#waitForTurn(state, state.currentTurnId);
+    const completedSeedTurn = await this.#waitForTurn(state, seedTurnId);
     if (state.cancelRequested) {
       return;
     }
@@ -817,7 +997,7 @@ class ReviewRuntimeManager extends EventEmitter {
     await this.#flushBufferedEvents(state);
   }
 
-  #buildExtractionInstructions() {
+  #buildExtractionInstructions(): string {
     return [
       "Convert the completed review in this thread into structured JSON.",
       "Use only actionable review findings already supported by the completed review context.",
@@ -830,7 +1010,7 @@ class ReviewRuntimeManager extends EventEmitter {
     ].join("\n");
   }
 
-  #buildReviewTurnInstructions(state) {
+  #buildReviewTurnInstructions(state: RunState): string {
     const instructionLines = [
       `Review the current branch against base branch ${state.baseRef}.`,
       "This is a code review, not an implementation task.",
@@ -847,7 +1027,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return instructionLines.join("\n");
   }
 
-  #buildResultOutputSchema() {
+  #buildResultOutputSchema(): Record<string, unknown> {
     return {
       type: "object",
       required: ["summary", "findings", "partial"],
@@ -899,7 +1079,10 @@ class ReviewRuntimeManager extends EventEmitter {
     };
   }
 
-  #extractStructuredResultFromEvents(state, extractionTurnId) {
+  #extractStructuredResultFromEvents(
+    state: RunState,
+    extractionTurnId: string
+  ): Record<string, unknown> {
     const finalMessage = this.#collectAgentMessageFromEvents(state, extractionTurnId)?.trim();
     if (!finalMessage) {
       throw new Error("The Codex extraction turn did not return a final message.");
@@ -914,17 +1097,17 @@ class ReviewRuntimeManager extends EventEmitter {
     }
   }
 
-  #collectAgentMessageFromEvents(state, turnId) {
-    const byItemId = new Map();
+  #collectAgentMessageFromEvents(state: RunState, turnId: string): string | null {
+    const byItemId = new Map<string, string>();
 
     for (const event of state.eventHistory) {
       if (event.event_type !== "codex_notification") {
         continue;
       }
 
-      const payload = event.payload || {};
+      const payload = (event.payload || {}) as Record<string, any>;
       const method = payload.method;
-      const params = payload.params || {};
+      const params = (payload.params || {}) as Record<string, any>;
       if (params.turnId !== turnId) {
         continue;
       }
@@ -946,7 +1129,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return Array.from(byItemId.values()).at(-1) || null;
   }
 
-  #extractJsonObject(value) {
+  #extractJsonObject(value: unknown): string {
     const trimmed = String(value || "").trim();
     const fencedMatch = trimmed.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/i);
     if (fencedMatch) {
@@ -962,7 +1145,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return trimmed;
   }
 
-  #summarizeApprovalRequest(message) {
+  #summarizeApprovalRequest(message: CodexRequestMessage<Record<string, any>>): string {
     if (message.method === "item/commandExecution/requestApproval") {
       return message.params?.command || message.params?.reason || "Command approval requested.";
     }
@@ -978,7 +1161,10 @@ class ReviewRuntimeManager extends EventEmitter {
     return "Codex requested approval.";
   }
 
-  #buildApprovalResponsePayload(request, decision) {
+  #buildApprovalResponsePayload(
+    request: CodexRequestMessage<Record<string, any>>,
+    decision: ReviewApprovalDecision
+  ): Record<string, unknown> {
     if (
       request.method === "item/commandExecution/requestApproval" ||
       request.method === "item/fileChange/requestApproval"
@@ -1018,7 +1204,7 @@ class ReviewRuntimeManager extends EventEmitter {
     throw new Error(`Unsupported approval method '${request.method}'.`);
   }
 
-  #decisionToApprovalStatus(decision) {
+  #decisionToApprovalStatus(decision: ReviewApprovalDecision): string {
     if (decision === "accept") {
       return "accepted";
     }
@@ -1031,7 +1217,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return "declined";
   }
 
-  #formatTurnFailure(turn, fallback) {
+  #formatTurnFailure(turn: CodexTurn | null | undefined, fallback: string): string {
     const detail = turn?.error?.message || turn?.error?.codexErrorInfo || null;
     if (!detail) {
       return fallback;
@@ -1044,16 +1230,16 @@ class ReviewRuntimeManager extends EventEmitter {
     return `${fallback} ${JSON.stringify(detail)}`;
   }
 
-  #getActiveThreadId(state) {
+  #getActiveThreadId(state: RunState): string | null {
     return state.reviewThreadId || state.baseThreadId || null;
   }
 
-  #isMissingRolloutError(error) {
+  #isMissingRolloutError(error: unknown): boolean {
     const message = sanitizeErrorMessage(error, "");
     return message.includes("no rollout found for thread id");
   }
 
-  #findStateByThreadId(threadId) {
+  #findStateByThreadId(threadId: string): RunState | null {
     const runId = this.threadToRunId.get(threadId);
     if (!runId) {
       return null;
@@ -1062,7 +1248,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return this.activeRuns.get(runId) || null;
   }
 
-  #emitRuntimeChanged(state) {
+  #emitRuntimeChanged(state: RunState): void {
     this.emit("state-changed", {
       sessionId: state.sessionId,
       runId: state.runId,
@@ -1070,6 +1256,4 @@ class ReviewRuntimeManager extends EventEmitter {
   }
 }
 
-module.exports = {
-  ReviewRuntimeManager,
-};
+export { ReviewRuntimeManager };

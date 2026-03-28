@@ -1,27 +1,72 @@
-const path = require("path");
-const {
+import path = require("node:path");
+
+import {
   app,
   BrowserWindow,
   dialog,
   ipcMain,
   shell,
-} = require("electron");
+  type OpenDialogOptions,
+} from "electron";
 
-const { DesktopConfigStore } = require("./config-store");
-const { MacKeychainStore } = require("./keychain");
-const { BackendManager } = require("./backend-manager");
-const { findGitProjectRoot } = require("./git-projects");
-const { ReviewRuntimeManager } = require("./review-runtime");
+import { BackendManager } from "./backend-manager";
+import { DesktopConfigStore } from "./config-store";
+import { findGitProjectRoot } from "./git-projects";
+import { MacKeychainStore } from "./keychain";
+import { ReviewRuntimeManager } from "./review-runtime";
+import type { DesktopRepoSettings } from "./types";
 
 const APP_NAME = "GitOdyssey";
 
-let mainWindow = null;
-let configStore = null;
-let keychain = null;
-let backendManager = null;
-let reviewRuntimeManager = null;
+type RendererEntry =
+  | {
+      type: "url";
+      value: string;
+    }
+  | {
+      type: "file";
+      value: string;
+    };
 
-function getRendererEntry() {
+let mainWindow: BrowserWindow | null = null;
+let configStore: DesktopConfigStore | null = null;
+let keychain: MacKeychainStore | null = null;
+let backendManager: BackendManager | null = null;
+let reviewRuntimeManager: ReviewRuntimeManager | null = null;
+
+function requireConfigStore(): DesktopConfigStore {
+  if (!configStore) {
+    throw new Error("Desktop config store is not initialized.");
+  }
+
+  return configStore;
+}
+
+function requireKeychain(): MacKeychainStore {
+  if (!keychain) {
+    throw new Error("Desktop keychain is not initialized.");
+  }
+
+  return keychain;
+}
+
+function requireBackendManager(): BackendManager {
+  if (!backendManager) {
+    throw new Error("Desktop backend manager is not initialized.");
+  }
+
+  return backendManager;
+}
+
+function requireReviewRuntimeManager(): ReviewRuntimeManager {
+  if (!reviewRuntimeManager) {
+    throw new Error("Review runtime manager is not initialized.");
+  }
+
+  return reviewRuntimeManager;
+}
+
+function getRendererEntry(): RendererEntry {
   if (process.env.ELECTRON_RENDERER_URL) {
     return {
       type: "url",
@@ -43,13 +88,18 @@ function getRendererEntry() {
 }
 
 async function getSettingsStatus() {
-  const secretStatus = await keychain.getCredentialStatus(
-    configStore.getState().aiRuntimeConfig
+  const store = requireConfigStore();
+  const desktopKeychain = requireKeychain();
+  const secretStatus = await desktopKeychain.getCredentialStatus(
+    store.getState().aiRuntimeConfig
   );
-  return configStore.getStatus(secretStatus);
+  return store.getStatus(secretStatus);
 }
 
-function buildRepoQueryParams(repoPath, repoSettings = null) {
+function buildRepoQueryParams(
+  repoPath: string,
+  repoSettings: DesktopRepoSettings | null | undefined = null
+): URLSearchParams {
   const params = new URLSearchParams({ repo_path: repoPath });
 
   if (repoSettings?.maxCommits != null) {
@@ -63,7 +113,7 @@ function buildRepoQueryParams(repoPath, repoSettings = null) {
   return params;
 }
 
-function createWindow() {
+function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -95,24 +145,24 @@ function createWindow() {
   }
 }
 
-function broadcastReviewRuntimeEvent(payload) {
+function broadcastReviewRuntimeEvent(payload: Record<string, unknown>): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("git-odyssey:review:event", payload);
   }
 }
 
-function registerIpcHandlers() {
+function registerIpcHandlers(): void {
   ipcMain.handle("git-odyssey:settings:get-status", async () => {
     return getSettingsStatus();
   });
 
   ipcMain.handle("git-odyssey:settings:get-repo-settings", async (_event, repoPath) => {
-    return configStore.getRepoSettings(repoPath);
+    return requireConfigStore().getRepoSettings(repoPath);
   });
 
   ipcMain.handle("git-odyssey:settings:validate-ai-config", async (_event, input) => {
-    const savedSecrets = await keychain.getSecrets(input.config);
-    return backendManager.request("/api/desktop/validate-ai-config", {
+    const savedSecrets = await requireKeychain().getSecrets(input.config);
+    return requireBackendManager().request("/api/desktop/validate-ai-config", {
       method: "POST",
       body: {
         config: input.config,
@@ -125,28 +175,32 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("git-odyssey:settings:save-ai-config", async (_event, input) => {
-    await keychain.saveAiConfig(input);
-    configStore.save({
+    await requireKeychain().saveAiConfig(input);
+    requireConfigStore().save({
       firstRunCompleted: true,
       aiRuntimeConfig: input.config,
     });
-    await backendManager.restart();
+    await requireBackendManager().restart();
     return getSettingsStatus();
   });
 
   ipcMain.handle("git-odyssey:settings:save-repo-settings", async (_event, input) => {
-    return configStore.saveRepoSettings(input);
+    return requireConfigStore().saveRepoSettings(input);
   });
 
   ipcMain.handle("git-odyssey:health:get-status", async () => {
-    return backendManager.getHealth();
+    return requireBackendManager().getHealth();
   });
 
   ipcMain.handle("git-odyssey:api:pick-git-project", async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
+    const dialogOptions: OpenDialogOptions = {
       properties: ["openDirectory"],
       title: "Choose a Git Project",
-    });
+    };
+    const ownerWindow = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+    const result = ownerWindow
+      ? await dialog.showOpenDialog(ownerWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
 
     if (result.canceled || result.filePaths.length === 0) {
       return null;
@@ -157,22 +211,22 @@ function registerIpcHandlers() {
       throw new Error("The selected folder is not inside a Git repository.");
     }
 
-    return configStore.recordRecentProject(repoPath);
+    return requireConfigStore().recordRecentProject(repoPath);
   });
 
   ipcMain.handle("git-odyssey:api:get-recent-projects", async () => {
-    return configStore.getRecentProjects();
+    return requireConfigStore().getRecentProjects();
   });
 
   ipcMain.handle("git-odyssey:api:get-repo", async (_event, repoPath, repoSettings) => {
-    const project = configStore.recordRecentProject(repoPath);
+    const project = requireConfigStore().recordRecentProject(repoPath);
     const params = buildRepoQueryParams(project.path, repoSettings);
-    return backendManager.request(`/api/repo?${params.toString()}`);
+    return requireBackendManager().request(`/api/repo?${params.toString()}`);
   });
 
   ipcMain.handle("git-odyssey:api:ingest-repo", async (_event, input) => {
-    const project = configStore.recordRecentProject(input.repoPath);
-    return backendManager.request("/api/ingest", {
+    const project = requireConfigStore().recordRecentProject(input.repoPath);
+    return requireBackendManager().request("/api/ingest", {
       method: "POST",
       body: {
         repo_path: project.path,
@@ -184,7 +238,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("git-odyssey:api:filter-commits", async (_event, input) => {
-    return backendManager.request("/api/filter", {
+    return requireBackendManager().request("/api/filter", {
       method: "POST",
       body: {
         query: input.query,
@@ -196,22 +250,19 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("git-odyssey:api:summarize-commit", async (_event, sha) => {
-    return backendManager.request(`/api/summarize/commit/${sha}`);
+    return requireBackendManager().request(`/api/summarize/commit/${sha}`);
   });
 
-  ipcMain.handle(
-    "git-odyssey:api:summarize-file-change",
-    async (_event, id) => {
-      return backendManager.request(`/api/summarize/file_change/${id}`);
-    }
-  );
+  ipcMain.handle("git-odyssey:api:summarize-file-change", async (_event, id) => {
+    return requireBackendManager().request(`/api/summarize/file_change/${id}`);
+  });
 
   ipcMain.handle("git-odyssey:api:summarize-hunk", async (_event, id) => {
-    return backendManager.request(`/api/summarize/hunk/${id}`);
+    return requireBackendManager().request(`/api/summarize/hunk/${id}`);
   });
 
   ipcMain.handle("git-odyssey:api:send-chat-message", async (_event, input) => {
-    return backendManager.request("/api/chat", {
+    return requireBackendManager().request("/api/chat", {
       method: "POST",
       body: {
         query: input.query,
@@ -222,13 +273,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("git-odyssey:api:init-database", async () => {
-    return backendManager.request("/api/admin/init", {
+    return requireBackendManager().request("/api/admin/init", {
       method: "POST",
     });
   });
 
   ipcMain.handle("git-odyssey:api:drop-database", async () => {
-    return backendManager.request("/api/admin/drop", {
+    return requireBackendManager().request("/api/admin/drop", {
       method: "DELETE",
     });
   });
@@ -236,23 +287,23 @@ function registerIpcHandlers() {
   ipcMain.handle(
     "git-odyssey:api:get-commit",
     async (_event, repoPath, commitSha, repoSettings) => {
-      const project = configStore.recordRecentProject(repoPath);
+      const project = requireConfigStore().recordRecentProject(repoPath);
       const params = buildRepoQueryParams(project.path, repoSettings);
-      return backendManager.request(
+      return requireBackendManager().request(
         `/api/repo/commit/${commitSha}?${params.toString()}`
       );
     }
   );
 
   ipcMain.handle("git-odyssey:api:get-commits", async (_event, repoPath, repoSettings) => {
-    const project = configStore.recordRecentProject(repoPath);
+    const project = requireConfigStore().recordRecentProject(repoPath);
     const params = buildRepoQueryParams(project.path, repoSettings);
-    return backendManager.request(`/api/repo/commits?${params.toString()}`);
+    return requireBackendManager().request(`/api/repo/commits?${params.toString()}`);
   });
 
   ipcMain.handle("git-odyssey:api:compare-review-target", async (_event, input) => {
-    const project = configStore.recordRecentProject(input.repoPath);
-    return backendManager.request("/api/review/compare", {
+    const project = requireConfigStore().recordRecentProject(input.repoPath);
+    return requireBackendManager().request("/api/review/compare", {
       method: "POST",
       body: {
         repo_path: project.path,
@@ -264,8 +315,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("git-odyssey:api:generate-review", async (_event, input) => {
-    const project = configStore.recordRecentProject(input.repoPath);
-    return backendManager.request("/api/review/generate", {
+    const project = requireConfigStore().recordRecentProject(input.repoPath);
+    return requireBackendManager().request("/api/review/generate", {
       method: "POST",
       body: {
         repo_path: project.path,
@@ -277,8 +328,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("git-odyssey:api:create-review-session", async (_event, input) => {
-    const project = configStore.recordRecentProject(input.repoPath);
-    return backendManager.request("/api/review/sessions", {
+    const project = requireConfigStore().recordRecentProject(input.repoPath);
+    return requireBackendManager().request("/api/review/sessions", {
       method: "POST",
       body: {
         repo_path: project.path,
@@ -290,42 +341,36 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("git-odyssey:api:get-review-session", async (_event, sessionId) => {
-    return backendManager.request(`/api/review/sessions/${sessionId}`);
+    return requireBackendManager().request(`/api/review/sessions/${sessionId}`);
   });
 
-  ipcMain.handle(
-    "git-odyssey:api:start-review-run",
-    async (_event, input) => {
-      return reviewRuntimeManager.startRun(input);
-    }
-  );
+  ipcMain.handle("git-odyssey:api:start-review-run", async (_event, input) => {
+    return requireReviewRuntimeManager().startRun(input);
+  });
 
   ipcMain.handle("git-odyssey:api:get-review-run", async (_event, input) => {
-    return backendManager.request(
+    return requireBackendManager().request(
       `/api/review/sessions/${input.sessionId}/runs/${input.runId}`
     );
   });
 
   ipcMain.handle("git-odyssey:api:cancel-review-run", async (_event, input) => {
-    return reviewRuntimeManager.cancelRun(input);
+    return requireReviewRuntimeManager().cancelRun(input);
   });
 
-  ipcMain.handle(
-    "git-odyssey:api:respond-review-approval",
-    async (_event, input) => {
-      await reviewRuntimeManager.respondToApproval(input);
-      return backendManager.request(
-        `/api/review/sessions/${input.sessionId}/runs/${input.runId}`
-      );
-    }
-  );
+  ipcMain.handle("git-odyssey:api:respond-review-approval", async (_event, input) => {
+    await requireReviewRuntimeManager().respondToApproval(input);
+    return requireBackendManager().request(
+      `/api/review/sessions/${input.sessionId}/runs/${input.runId}`
+    );
+  });
 
   ipcMain.handle("git-odyssey:api:get-current-user", async () => {
-    return backendManager.request("/api/auth/me");
+    return requireBackendManager().request("/api/auth/me");
   });
 
   ipcMain.handle("git-odyssey:api:logout", async () => {
-    return backendManager.request("/api/auth/logout", {
+    return requireBackendManager().request("/api/auth/logout", {
       method: "POST",
     });
   });
@@ -373,9 +418,12 @@ app.whenReady().then(async () => {
   registerIpcHandlers();
   createWindow();
   void backendManager.sync().catch((error) => {
-    backendManager.state = {
+    backendManager!.state = {
       state: "error",
-      message: error instanceof Error ? error.message : "Failed to start the desktop backend.",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to start the desktop backend.",
     };
   });
 

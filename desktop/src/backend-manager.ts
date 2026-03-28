@@ -1,13 +1,73 @@
-const fs = require("fs");
-const path = require("path");
-const { once } = require("events");
-const { spawn } = require("child_process");
+import fs = require("node:fs");
+import path = require("node:path");
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { once } from "node:events";
+
+import type {
+  AICapabilityStatus,
+  BackendCapabilityPayload,
+  BackendDesktopHealthPayload,
+  CredentialStatus,
+  DesktopConfigState,
+  DesktopHealthStatus,
+  DesktopServiceHealth,
+  DesktopSettingsStatus,
+} from "./types";
 
 const BACKEND_STARTUP_TIMEOUT_MESSAGE =
   "The FastAPI desktop sidecar did not become healthy in time. Check the desktop backend log for details.";
 
+type StartupFailure = {
+  kind: "postgres" | "backend";
+  backendMessage: string;
+  postgresMessage: string | null;
+};
+
+type BackendEntry = {
+  command: string;
+  args: string[];
+};
+
+type BackendRequestOptions = {
+  method?: string;
+  body?: unknown;
+};
+
+type AppLike = {
+  isPackaged: boolean;
+};
+
+type ConfigStoreLike = {
+  getState(): DesktopConfigState;
+  getStatus(secretStatus: CredentialStatus): DesktopSettingsStatus;
+};
+
+type KeychainLike = {
+  getSecrets(aiRuntimeConfig: DesktopConfigState["aiRuntimeConfig"]): Promise<Record<string, string>>;
+  getCredentialStatus(
+    aiRuntimeConfig: DesktopConfigState["aiRuntimeConfig"]
+  ): Promise<CredentialStatus>;
+};
+
 class BackendManager {
-  constructor({ app, configStore, keychain }) {
+  app: AppLike;
+  configStore: ConfigStoreLike;
+  keychain: KeychainLike;
+  process: ChildProcessWithoutNullStreams | null;
+  startPromise: Promise<void> | null;
+  intentionalStop: boolean;
+  lastStartupFailure: StartupFailure | null;
+  state: DesktopServiceHealth;
+
+  constructor({
+    app,
+    configStore,
+    keychain,
+  }: {
+    app: AppLike;
+    configStore: ConfigStoreLike;
+    keychain: KeychainLike;
+  }) {
     this.app = app;
     this.configStore = configStore;
     this.keychain = keychain;
@@ -22,17 +82,17 @@ class BackendManager {
     };
   }
 
-  getBackendUrl() {
+  getBackendUrl(): string {
     const { backendPort } = this.configStore.getState();
     return `http://127.0.0.1:${backendPort}`;
   }
 
-  #getDevelopmentPythonCommand() {
+  #getDevelopmentPythonCommand(): string {
     if (process.env.PYTHON_EXECUTABLE) {
       return process.env.PYTHON_EXECUTABLE;
     }
 
-    const activatedEnvCandidates = [
+    const activatedEnvCandidates: string[] = [
       process.env.VIRTUAL_ENV
         ? path.join(process.env.VIRTUAL_ENV, "bin", "python3")
         : null,
@@ -45,7 +105,7 @@ class BackendManager {
       process.env.CONDA_PREFIX
         ? path.join(process.env.CONDA_PREFIX, "bin", "python")
         : null,
-    ].filter(Boolean);
+    ].filter((candidate): candidate is string => Boolean(candidate));
 
     const activatedEnvPython = activatedEnvCandidates.find((candidate) =>
       fs.existsSync(candidate)
@@ -70,7 +130,7 @@ class BackendManager {
     return "python3";
   }
 
-  #getBackendEntry() {
+  #getBackendEntry(): BackendEntry {
     if (!this.app.isPackaged) {
       return {
         command: this.#getDevelopmentPythonCommand(),
@@ -78,11 +138,9 @@ class BackendManager {
       };
     }
 
-    const bundledBinary = path.join(
-      process.resourcesPath,
-      "backend",
-      "gitodyssey-backend"
-    );
+    const resourcesPath =
+      (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ?? "";
+    const bundledBinary = path.join(resourcesPath, "backend", "gitodyssey-backend");
 
     return {
       command: bundledBinary,
@@ -90,12 +148,12 @@ class BackendManager {
     };
   }
 
-  #getBackendLogPath() {
+  #getBackendLogPath(): string {
     const { logDir } = this.configStore.getState();
     return path.join(logDir, "backend.log");
   }
 
-  #appendLog(chunk, streamName) {
+  #appendLog(chunk: string | Buffer, streamName: string): void {
     const { logDir } = this.configStore.getState();
     fs.mkdirSync(logDir, { recursive: true });
     const payload = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
@@ -105,7 +163,7 @@ class BackendManager {
     );
   }
 
-  #readRecentBackendLog(maxBytes = 16 * 1024) {
+  #readRecentBackendLog(maxBytes = 16 * 1024): string {
     const logPath = this.#getBackendLogPath();
     if (!fs.existsSync(logPath)) {
       return "";
@@ -133,11 +191,11 @@ class BackendManager {
     }
   }
 
-  #stripLogPrefix(line) {
+  #stripLogPrefix(line: string): string {
     return line.replace(/^\[[^\]]+\]\s+\[[^\]]+\]\s*/, "").trim();
   }
 
-  #getLastRelevantLogLine(logText) {
+  #getLastRelevantLogLine(logText: string): string | null {
     const ignoredPatterns = [
       /^INFO:\s+/,
       /^ERROR:\s+Traceback/,
@@ -162,7 +220,7 @@ class BackendManager {
     );
   }
 
-  #getDatabaseTarget() {
+  #getDatabaseTarget(): string | null {
     const { databaseUrl } = this.configStore.getState();
     if (!databaseUrl) {
       return null;
@@ -176,7 +234,7 @@ class BackendManager {
     }
   }
 
-  #summarizeStartupFailure() {
+  #summarizeStartupFailure(): StartupFailure | null {
     const logText = this.#readRecentBackendLog();
     if (!logText) {
       return null;
@@ -256,7 +314,10 @@ class BackendManager {
     };
   }
 
-  #getPostgresHealth(settingsStatus, startupFailure) {
+  #getPostgresHealth(
+    settingsStatus: DesktopSettingsStatus,
+    startupFailure: StartupFailure | null
+  ): DesktopServiceHealth {
     if (!settingsStatus.databaseUrlConfigured) {
       return {
         state: "unavailable",
@@ -292,7 +353,7 @@ class BackendManager {
     };
   }
 
-  async #waitForHealth(timeoutMs = 10000) {
+  async #waitForHealth(timeoutMs = 10000): Promise<boolean> {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
@@ -311,17 +372,27 @@ class BackendManager {
     return false;
   }
 
-  async #fetchDesktopHealthPayload() {
+  async #fetchDesktopHealthPayload(): Promise<BackendDesktopHealthPayload> {
     const response = await fetch(`${this.getBackendUrl()}/api/desktop/health`);
     if (!response.ok) {
       throw new Error(`${response.status} ${response.statusText}`);
     }
-    return response.json();
+    return (await response.json()) as BackendDesktopHealthPayload;
   }
 
-  #mapCapabilityHealth(capability) {
+  #mapCapabilityHealth(
+    capability: BackendCapabilityPayload | null | undefined
+  ): AICapabilityStatus {
     if (!capability) {
-      return null;
+      return {
+        configured: false,
+        ready: false,
+        providerType: null,
+        modelId: null,
+        baseUrl: null,
+        authMode: null,
+        secretPresent: false,
+      };
     }
 
     return {
@@ -337,7 +408,7 @@ class BackendManager {
     };
   }
 
-  async sync() {
+  async sync(): Promise<void> {
     const config = this.configStore.getState();
 
     if (!config.databaseUrl) {
@@ -368,7 +439,7 @@ class BackendManager {
     }
   }
 
-  async start(config) {
+  async start(config: DesktopConfigState): Promise<void> {
     await this.stop();
     this.intentionalStop = false;
     this.lastStartupFailure = null;
@@ -393,22 +464,23 @@ class BackendManager {
     );
 
     const secretValues = await this.keychain.getSecrets(config.aiRuntimeConfig);
-    this.process = spawn(backendEntry.command, backendEntry.args, {
+    const child = spawn(backendEntry.command, backendEntry.args, {
       env: {
         ...process.env,
         PORT: String(config.backendPort),
-        DATABASE_URL: config.databaseUrl,
+        DATABASE_URL: config.databaseUrl ?? "",
         DATABASE_SSLMODE: config.databaseSslMode,
         AI_RUNTIME_CONFIG_JSON: JSON.stringify(config.aiRuntimeConfig),
         AI_SECRET_VALUES_JSON: JSON.stringify(secretValues),
         PYTHONUNBUFFERED: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
-    });
+    }) as unknown as ChildProcessWithoutNullStreams;
+    this.process = child;
 
-    this.process.stdout?.on("data", (chunk) => this.#appendLog(chunk, "stdout"));
-    this.process.stderr?.on("data", (chunk) => this.#appendLog(chunk, "stderr"));
-    this.process.on("error", (error) => {
+    child.stdout.on("data", (chunk) => this.#appendLog(chunk, "stdout"));
+    child.stderr.on("data", (chunk) => this.#appendLog(chunk, "stderr"));
+    child.on("error", (error) => {
       this.#appendLog(error.stack || error.message, "error");
       const startupFailure = this.#summarizeStartupFailure();
       this.lastStartupFailure = startupFailure;
@@ -417,7 +489,7 @@ class BackendManager {
         message: startupFailure?.backendMessage ?? error.message,
       };
     });
-    this.process.on("exit", (code, signal) => {
+    child.on("exit", (code, signal) => {
       this.process = null;
       if (this.intentionalStop) {
         this.state = {
@@ -461,12 +533,12 @@ class BackendManager {
     };
   }
 
-  async restart() {
+  async restart(): Promise<void> {
     await this.stop();
     await this.sync();
   }
 
-  async stop() {
+  async stop(): Promise<void> {
     if (!this.process) {
       return;
     }
@@ -485,7 +557,10 @@ class BackendManager {
     }
   }
 
-  async request(apiPath, options = {}) {
+  async request<T = unknown>(
+    apiPath: string,
+    options: BackendRequestOptions = {}
+  ): Promise<T> {
     await this.sync();
     if (this.state.state !== "running") {
       throw new Error(
@@ -508,7 +583,9 @@ class BackendManager {
     if (!response.ok) {
       let detail = `${response.status} ${response.statusText}`;
       if (contentType.includes("application/json")) {
-        const payload = await response.json().catch(() => null);
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
         detail = payload?.detail ?? JSON.stringify(payload) ?? detail;
       } else {
         const text = await response.text();
@@ -521,13 +598,13 @@ class BackendManager {
     }
 
     if (contentType.includes("application/json")) {
-      return response.json();
+      return (await response.json()) as T;
     }
 
-    return response.text();
+    return (await response.text()) as T;
   }
 
-  async getHealth() {
+  async getHealth(): Promise<DesktopHealthStatus> {
     const config = this.configStore.getState();
     const credentialStatus = await this.keychain.getCredentialStatus(
       config.aiRuntimeConfig
@@ -537,7 +614,7 @@ class BackendManager {
       this.state.state === "error"
         ? this.lastStartupFailure ?? this.#summarizeStartupFailure()
         : null;
-    let backendPayload = null;
+    let backendPayload: BackendDesktopHealthPayload | null = null;
 
     if (this.state.state === "running") {
       try {
@@ -585,6 +662,4 @@ class BackendManager {
   }
 }
 
-module.exports = {
-  BackendManager,
-};
+export { BackendManager };

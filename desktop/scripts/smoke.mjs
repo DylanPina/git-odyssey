@@ -9,8 +9,8 @@ const repoRoot = path.resolve(desktopDir, "..");
 
 const requiredPaths = [
   path.join(repoRoot, "frontend", "dist", "index.html"),
-  path.join(desktopDir, "src", "main.js"),
-  path.join(desktopDir, "src", "preload.js"),
+  path.join(desktopDir, "dist", "main.js"),
+  path.join(desktopDir, "dist", "preload.js"),
 ];
 
 for (const targetPath of requiredPaths) {
