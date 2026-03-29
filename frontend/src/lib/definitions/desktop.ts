@@ -9,7 +9,12 @@ import type {
 } from "@/lib/definitions/api";
 import type {
   ReviewCompareResponse,
+  ReviewApprovalDecision,
+  ReviewHistoryResponse,
   ReviewReport,
+  ReviewRun,
+  ReviewRuntimeEvent,
+  ReviewSession,
 } from "@/lib/definitions/review";
 import type { User } from "@/lib/definitions/auth";
 
@@ -207,6 +212,36 @@ export interface GitOdysseyDesktopApi {
     headRef: string;
     contextLines: number;
   }): Promise<ReviewReport>;
+  createReviewSession(input: {
+    repoPath: string;
+    baseRef: string;
+    headRef: string;
+    contextLines: number;
+  }): Promise<ReviewSession>;
+  getReviewSession(sessionId: string): Promise<ReviewSession>;
+  getReviewHistory(input: {
+    repoPath: string;
+    baseRef: string;
+    headRef: string;
+  }): Promise<ReviewHistoryResponse>;
+  startReviewRun(input: {
+    sessionId: string;
+    customInstructions?: string | null;
+  }): Promise<ReviewRun>;
+  getReviewRun(input: {
+    sessionId: string;
+    runId: string;
+  }): Promise<ReviewRun>;
+  cancelReviewRun(input: {
+    sessionId: string;
+    runId: string;
+  }): Promise<ReviewRun>;
+  respondReviewApproval(input: {
+    sessionId: string;
+    runId: string;
+    approvalId: string;
+    decision: ReviewApprovalDecision;
+  }): Promise<ReviewRun>;
   getCurrentUser(): Promise<User>;
   logout(): Promise<{ message: string }>;
 }
@@ -224,6 +259,9 @@ export interface GitOdysseyDesktopBridge {
   };
   health: {
     getStatus(): Promise<DesktopHealthStatus>;
+  };
+  review: {
+    onEvent(listener: (event: ReviewRuntimeEvent) => void): () => void;
   };
 }
 

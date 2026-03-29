@@ -34,6 +34,7 @@ from services.filter_service import FilterService
 from services.ingest_service import IngestService
 from services.repo_service import RepoService
 from services.review_service import ReviewCompareService, ReviewGenerationService
+from services.review_session_service import ReviewSessionPersistenceService
 from services.summarize_service import SummarizeService
 
 
@@ -246,3 +247,13 @@ def get_review_generation_service(
     ai_engine: AIEngine = Depends(get_ai_engine),
 ) -> ReviewGenerationService:
     return ReviewGenerationService(compare_service=compare_service, ai_engine=ai_engine)
+
+
+def get_review_session_persistence_service(
+    session: Session = Depends(get_session),
+    compare_service: ReviewCompareService = Depends(get_review_compare_service),
+) -> ReviewSessionPersistenceService:
+    return ReviewSessionPersistenceService(
+        session=session,
+        compare_service=compare_service,
+    )

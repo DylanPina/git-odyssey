@@ -28,6 +28,27 @@ MAX_REVIEW_SNAPSHOT_CHARS = 4000
 RAW_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
+def build_review_finding_id(
+    index: int,
+    *,
+    file_path: str,
+    new_start: int | None,
+    old_start: int | None,
+    title: str,
+) -> str:
+    digest = hashlib.sha1(
+        "|".join(
+            [
+                file_path.strip(),
+                str(new_start or ""),
+                str(old_start or ""),
+                title.strip(),
+            ]
+        ).encode("utf-8")
+    ).hexdigest()[:10]
+    return f"finding-{index}-{digest}"
+
+
 class ReviewServiceError(ValueError):
     def __init__(self, detail: str, status_code: int = 400):
         super().__init__(detail)
@@ -36,6 +57,10 @@ class ReviewServiceError(ValueError):
 
 
 class ReviewCompareService:
+    def resolve_repo_path(self, repo_path: str) -> str:
+        _repo, resolved_repo_path = self._open_repo(repo_path)
+        return resolved_repo_path
+
     def compare(self, request: ReviewCompareRequest) -> ReviewCompareResponse:
         base_ref = request.base_ref.strip()
         head_ref = request.head_ref.strip()
@@ -54,19 +79,40 @@ class ReviewCompareService:
                 "Choose two different local branches to compare.", status_code=400
             )
 
-        repo, repo_path = self._open_repo(request.repo_path)
-        base_commit = self._resolve_local_branch(repo, base_ref)
-        head_commit = self._resolve_local_branch(repo, head_ref)
+        (
+            repo,
+            repo_path,
+            _base_commit,
+            head_commit,
+            merge_base_commit,
+        ) = self.resolve_compare_target(
+            repo_path=request.repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
+        return self.compare_resolved(
+            repo=repo,
+            repo_path=repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            head_commit=head_commit,
+            merge_base_commit=merge_base_commit,
+            context_lines=request.context_lines,
+        )
 
-        merge_base_oid = repo.merge_base(base_commit.id, head_commit.id)
-        if merge_base_oid is None:
-            raise ReviewServiceError(
-                "The selected branches do not share a merge base.", status_code=400
-            )
-
-        merge_base_commit = repo[merge_base_oid]
+    def compare_resolved(
+        self,
+        *,
+        repo: pygit2.Repository,
+        repo_path: str,
+        base_ref: str,
+        head_ref: str,
+        head_commit: pygit2.Commit,
+        merge_base_commit: pygit2.Commit,
+        context_lines: int,
+    ) -> ReviewCompareResponse:
         diff = merge_base_commit.tree.diff_to_tree(
-            head_commit.tree, context_lines=request.context_lines
+            head_commit.tree, context_lines=context_lines
         )
         try:
             diff.find_similar(
@@ -108,6 +154,38 @@ class ReviewCompareService:
             ),
             file_changes=file_changes,
             truncated=False,
+        )
+
+    def resolve_compare_target(
+        self,
+        *,
+        repo_path: str,
+        base_ref: str,
+        head_ref: str,
+    ) -> tuple[
+        pygit2.Repository,
+        str,
+        pygit2.Commit,
+        pygit2.Commit,
+        pygit2.Commit,
+    ]:
+        repo, resolved_repo_path = self._open_repo(repo_path)
+        base_commit = self._resolve_local_branch(repo, base_ref)
+        head_commit = self._resolve_local_branch(repo, head_ref)
+
+        merge_base_oid = repo.merge_base(base_commit.id, head_commit.id)
+        if merge_base_oid is None:
+            raise ReviewServiceError(
+                "The selected branches do not share a merge base.", status_code=400
+            )
+
+        merge_base_commit = repo[merge_base_oid]
+        return (
+            repo,
+            resolved_repo_path,
+            base_commit,
+            head_commit,
+            merge_base_commit,
         )
 
     def _open_repo(self, repo_path: str) -> tuple[pygit2.Repository, str]:
@@ -362,7 +440,13 @@ class ReviewGenerationService:
 
         findings = [
             ReviewFinding(
-                id=self._build_finding_id(index, raw_finding),
+                id=build_review_finding_id(
+                    index,
+                    file_path=raw_finding.file_path,
+                    new_start=raw_finding.new_start,
+                    old_start=raw_finding.old_start,
+                    title=raw_finding.title,
+                ),
                 severity=self._normalize_severity(raw_finding.severity),
                 title=raw_finding.title.strip(),
                 body=raw_finding.body.strip(),
@@ -499,21 +583,6 @@ class ReviewGenerationService:
                 f"AI review output used an unsupported severity '{severity}'."
             )
         return normalized
-
-    def _build_finding_id(
-        self, index: int, finding: _RawReviewFinding
-    ) -> str:
-        digest = hashlib.sha1(
-            "|".join(
-                [
-                    finding.file_path.strip(),
-                    str(finding.new_start or ""),
-                    str(finding.old_start or ""),
-                    finding.title.strip(),
-                ]
-            ).encode("utf-8")
-        ).hexdigest()[:10]
-        return f"finding-{index}-{digest}"
 
     def _truncate_text(self, value: str, limit: int) -> tuple[str, bool]:
         if len(value) <= limit:

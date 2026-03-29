@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Search, X } from "lucide-react";
@@ -53,6 +54,19 @@ type DiffWorkspaceSummaryActions = {
   onSummarizeHunk: (hunk: FileHunk) => void;
 };
 
+type DiffWorkspaceResizablePanel = {
+  preferredWidth: number;
+  defaultWidth: number;
+  minWidth: number;
+  onPreferredWidthChange: (width: number) => void;
+};
+
+type DiffWorkspaceDesktopResize = {
+  minContentWidth: number;
+  fileTree: DiffWorkspaceResizablePanel;
+  rightRail: DiffWorkspaceResizablePanel;
+};
+
 type DiffWorkspaceProps = {
   repoPath?: string | null;
   viewerId: string;
@@ -69,7 +83,177 @@ type DiffWorkspaceProps = {
   emptyTitle: string;
   emptyDescription?: string;
   summaryActions?: DiffWorkspaceSummaryActions;
+  rightRail?: ReactNode;
+  isRightRailOpen?: boolean;
+  isRightRailFullscreen?: boolean;
+  rightRailCollapsedSummary?: ReactNode;
+  desktopResize?: DiffWorkspaceDesktopResize;
 };
+
+const FILE_TREE_COLLAPSED_DESKTOP_WIDTH = 68;
+const RIGHT_RAIL_COLLAPSED_DESKTOP_WIDTH = 60;
+const DESKTOP_RESIZE_STEP = 16;
+
+function clampPanelWidth(width: number, minWidth: number, maxWidth: number) {
+  return Math.min(maxWidth, Math.max(minWidth, width));
+}
+
+function resolveDesktopPanelWidths({
+  availableWidth,
+  minContentWidth,
+  fileTree,
+  rightRail,
+}: {
+  availableWidth: number | null;
+  minContentWidth: number;
+  fileTree: {
+    isVisible: boolean;
+    isExpanded: boolean;
+    preferredWidth: number;
+    minWidth: number;
+  };
+  rightRail: {
+    isVisible: boolean;
+    isExpanded: boolean;
+    preferredWidth: number;
+    minWidth: number;
+  };
+}) {
+  let nextFileTreeWidth = fileTree.isVisible
+    ? fileTree.isExpanded
+      ? Math.max(fileTree.minWidth, fileTree.preferredWidth)
+      : FILE_TREE_COLLAPSED_DESKTOP_WIDTH
+    : 0;
+  let nextRightRailWidth = rightRail.isVisible
+    ? rightRail.isExpanded
+      ? Math.max(rightRail.minWidth, rightRail.preferredWidth)
+      : RIGHT_RAIL_COLLAPSED_DESKTOP_WIDTH
+    : 0;
+
+  if (availableWidth == null || availableWidth <= 0) {
+    return {
+      fileTree: nextFileTreeWidth,
+      rightRail: nextRightRailWidth,
+    };
+  }
+
+  const maxSidePanelWidth = Math.max(0, availableWidth - minContentWidth);
+  let overflow = nextFileTreeWidth + nextRightRailWidth - maxSidePanelWidth;
+  if (overflow <= 0) {
+    return {
+      fileTree: nextFileTreeWidth,
+      rightRail: nextRightRailWidth,
+    };
+  }
+
+  const expandedPanels: Array<{
+    key: "fileTree" | "rightRail";
+    width: number;
+    minWidth: number;
+  }> = [];
+
+  if (fileTree.isVisible && fileTree.isExpanded) {
+    expandedPanels.push({
+      key: "fileTree",
+      width: nextFileTreeWidth,
+      minWidth: fileTree.minWidth,
+    });
+  }
+
+  if (rightRail.isVisible && rightRail.isExpanded) {
+    expandedPanels.push({
+      key: "rightRail",
+      width: nextRightRailWidth,
+      minWidth: rightRail.minWidth,
+    });
+  }
+
+  if (expandedPanels.length === 0) {
+    return {
+      fileTree: nextFileTreeWidth,
+      rightRail: nextRightRailWidth,
+    };
+  }
+
+  const totalReducibleWidth = expandedPanels.reduce(
+    (sum, panel) => sum + (panel.width - panel.minWidth),
+    0,
+  );
+  if (totalReducibleWidth <= 0) {
+    return {
+      fileTree: nextFileTreeWidth,
+      rightRail: nextRightRailWidth,
+    };
+  }
+
+  expandedPanels.forEach((panel, index) => {
+    const reducibleWidth = panel.width - panel.minWidth;
+    if (reducibleWidth <= 0 || overflow <= 0) {
+      return;
+    }
+
+    const proportionalReduction =
+      index === expandedPanels.length - 1
+        ? overflow
+        : (overflow * reducibleWidth) / totalReducibleWidth;
+    const appliedReduction = Math.min(reducibleWidth, proportionalReduction);
+
+    if (panel.key === "fileTree") {
+      nextFileTreeWidth -= appliedReduction;
+    } else {
+      nextRightRailWidth -= appliedReduction;
+    }
+
+    overflow -= appliedReduction;
+  });
+
+  if (overflow > 0) {
+    const fileTreeRemaining =
+      fileTree.isVisible && fileTree.isExpanded
+        ? nextFileTreeWidth - fileTree.minWidth
+        : 0;
+    const fileTreeReduction = Math.min(fileTreeRemaining, overflow);
+    nextFileTreeWidth -= fileTreeReduction;
+    overflow -= fileTreeReduction;
+  }
+
+  if (overflow > 0) {
+    const rightRailRemaining =
+      rightRail.isVisible && rightRail.isExpanded
+        ? nextRightRailWidth - rightRail.minWidth
+        : 0;
+    const rightRailReduction = Math.min(rightRailRemaining, overflow);
+    nextRightRailWidth -= rightRailReduction;
+  }
+
+  return {
+    fileTree: nextFileTreeWidth,
+    rightRail: nextRightRailWidth,
+  };
+}
+
+function resolveResizablePanelMaxWidth({
+  availableWidth,
+  minContentWidth,
+  otherPanelWidth,
+  minWidth,
+  fallbackWidth,
+}: {
+  availableWidth: number | null;
+  minContentWidth: number;
+  otherPanelWidth: number;
+  minWidth: number;
+  fallbackWidth: number;
+}) {
+  if (availableWidth == null || availableWidth <= 0) {
+    return Math.max(minWidth, fallbackWidth);
+  }
+
+  return Math.max(
+    minWidth,
+    availableWidth - minContentWidth - otherPanelWidth,
+  );
+}
 
 function focusSearchInput(inputId: string) {
   const input = document.getElementById(inputId);
@@ -137,6 +321,131 @@ function DiffSearchField({
   );
 }
 
+function DiffWorkspaceResizeHandle({
+  label,
+  side,
+  currentWidth,
+  minWidth,
+  maxWidth,
+  defaultWidth,
+  onWidthChange,
+}: {
+  label: string;
+  side: "left" | "right";
+  currentWidth: number;
+  minWidth: number;
+  maxWidth: number;
+  defaultWidth: number;
+  onWidthChange: (width: number) => void;
+}) {
+  const dragStateRef = useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const cleanupDragRef = useRef<(() => void) | null>(null);
+
+  useEffect(
+    () => () => {
+      cleanupDragRef.current?.();
+    },
+    [],
+  );
+
+  return (
+    <button
+      type="button"
+      role="separator"
+      aria-label={`Resize ${label}`}
+      aria-orientation="vertical"
+      aria-valuemin={Math.round(minWidth)}
+      aria-valuemax={Math.round(maxWidth)}
+      aria-valuenow={Math.round(currentWidth)}
+      title={`Drag to resize ${label.toLowerCase()}. Double-click to reset.`}
+      onPointerDown={(event) => {
+        if (maxWidth <= minWidth) {
+          return;
+        }
+
+        event.preventDefault();
+
+        const ownerWindow = event.currentTarget.ownerDocument.defaultView ?? window;
+        const ownerDocument = event.currentTarget.ownerDocument;
+
+        dragStateRef.current = {
+          startX: event.clientX,
+          startWidth: currentWidth,
+        };
+        ownerDocument.body.style.cursor = "col-resize";
+        ownerDocument.body.style.userSelect = "none";
+
+        const cleanup = () => {
+          dragStateRef.current = null;
+          ownerDocument.body.style.cursor = "";
+          ownerDocument.body.style.userSelect = "";
+          ownerWindow.removeEventListener("pointermove", handlePointerMove);
+          ownerWindow.removeEventListener("pointerup", cleanup);
+          ownerWindow.removeEventListener("pointercancel", cleanup);
+          cleanupDragRef.current = null;
+        };
+
+        const handlePointerMove = (moveEvent: PointerEvent) => {
+          const currentDrag = dragStateRef.current;
+          if (!currentDrag) {
+            return;
+          }
+
+          const delta = moveEvent.clientX - currentDrag.startX;
+          const nextWidth =
+            side === "right"
+              ? currentDrag.startWidth - delta
+              : currentDrag.startWidth + delta;
+
+          onWidthChange(clampPanelWidth(nextWidth, minWidth, maxWidth));
+        };
+
+        cleanupDragRef.current = cleanup;
+        ownerWindow.addEventListener("pointermove", handlePointerMove);
+        ownerWindow.addEventListener("pointerup", cleanup);
+        ownerWindow.addEventListener("pointercancel", cleanup);
+      }}
+      onDoubleClick={() =>
+        onWidthChange(clampPanelWidth(defaultWidth, minWidth, maxWidth))
+      }
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          onWidthChange(
+            clampPanelWidth(currentWidth - DESKTOP_RESIZE_STEP, minWidth, maxWidth),
+          );
+        }
+
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          onWidthChange(
+            clampPanelWidth(currentWidth + DESKTOP_RESIZE_STEP, minWidth, maxWidth),
+          );
+        }
+
+        if (event.key === "Home") {
+          event.preventDefault();
+          onWidthChange(minWidth);
+        }
+
+        if (event.key === "End") {
+          event.preventDefault();
+          onWidthChange(maxWidth);
+        }
+      }}
+      className={cn(
+        "absolute inset-y-0 z-20 hidden w-5 cursor-col-resize touch-none items-stretch justify-center outline-none transition-colors xl:flex",
+        side === "right" ? "-left-2.5" : "-right-2.5",
+        "after:absolute after:inset-y-4 after:left-1/2 after:w-px after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors",
+        "hover:after:bg-[rgba(122,162,255,0.4)] focus-visible:after:bg-[rgba(122,162,255,0.45)]",
+      )}
+    />
+  );
+}
+
 export const DiffWorkspace = forwardRef<
   DiffWorkspaceHandle,
   DiffWorkspaceProps
@@ -157,6 +466,11 @@ export const DiffWorkspace = forwardRef<
     emptyTitle,
     emptyDescription,
     summaryActions,
+    rightRail,
+    isRightRailOpen = false,
+    isRightRailFullscreen = false,
+    rightRailCollapsedSummary,
+    desktopResize,
   },
   ref,
 ) {
@@ -169,8 +483,12 @@ export const DiffWorkspace = forwardRef<
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false);
   const [navigationTarget, setNavigationTarget] =
     useState<DiffNavigationTarget | null>(null);
+  const desktopWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const diffListScrollRef = useRef<HTMLDivElement | null>(null);
   const fileSectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [desktopWorkspaceWidth, setDesktopWorkspaceWidth] = useState<number | null>(
+    null,
+  );
 
   const normalizedFileQuery = deferredFileQuery.trim();
   const normalizedCodeQuery = deferredCodeQuery.trim();
@@ -187,6 +505,7 @@ export const DiffWorkspace = forwardRef<
       ),
     [files, normalizedFileQuery, normalizedCodeQuery],
   );
+  const hasFiles = files.length > 0;
 
   useEffect(() => {
     const nextExpanded: Record<string, boolean> = {};
@@ -209,6 +528,37 @@ export const DiffWorkspace = forwardRef<
       setIsFileTreeCollapsed(false);
     }
   }, [fileTreeCollapsible]);
+
+  useEffect(() => {
+    if (!desktopResize) {
+      setDesktopWorkspaceWidth(null);
+      return;
+    }
+
+    const workspaceElement = desktopWorkspaceRef.current;
+    if (!workspaceElement || !hasFiles) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setDesktopWorkspaceWidth(workspaceElement.getBoundingClientRect().width);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => {
+        updateWidth();
+      });
+      observer.observe(workspaceElement);
+
+      return () => observer.disconnect();
+    }
+
+    const ownerWindow = workspaceElement.ownerDocument.defaultView ?? window;
+    ownerWindow.addEventListener("resize", updateWidth);
+    return () => ownerWindow.removeEventListener("resize", updateWidth);
+  }, [desktopResize, hasFiles]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -358,8 +708,70 @@ export const DiffWorkspace = forwardRef<
     [collapseAll, focusLocation],
   );
 
-  const hasFiles = files.length > 0;
   const isCompactChrome = chromeDensity === "compact";
+  const desktopRightRailContent = isRightRailFullscreen
+    ? rightRail
+    : isRightRailOpen
+      ? rightRail
+      : rightRailCollapsedSummary;
+  const hasDesktopResize = Boolean(desktopResize);
+  const isDesktopFileTreeVisible = !isRightRailFullscreen;
+  const isDesktopFileTreeExpanded = isDesktopFileTreeVisible && !isFileTreeCollapsed;
+  const isDesktopRightRailVisible =
+    Boolean(desktopRightRailContent) && !isRightRailFullscreen;
+  const isDesktopRightRailExpanded =
+    isDesktopRightRailVisible && isRightRailOpen;
+  const desktopPanelWidths = useMemo(
+    () =>
+      resolveDesktopPanelWidths({
+        availableWidth: hasDesktopResize ? desktopWorkspaceWidth : null,
+        minContentWidth: desktopResize?.minContentWidth ?? 0,
+        fileTree: {
+          isVisible: isDesktopFileTreeVisible,
+          isExpanded: isDesktopFileTreeExpanded,
+          preferredWidth: desktopResize?.fileTree.preferredWidth ?? 0,
+          minWidth: desktopResize?.fileTree.minWidth ?? 0,
+        },
+        rightRail: {
+          isVisible: isDesktopRightRailVisible,
+          isExpanded: isDesktopRightRailExpanded,
+          preferredWidth: desktopResize?.rightRail.preferredWidth ?? 0,
+          minWidth: desktopResize?.rightRail.minWidth ?? 0,
+        },
+      }),
+    [
+      desktopResize,
+      desktopWorkspaceWidth,
+      hasDesktopResize,
+      isDesktopFileTreeExpanded,
+      isDesktopFileTreeVisible,
+      isDesktopRightRailExpanded,
+      isDesktopRightRailVisible,
+    ],
+  );
+  const fileTreeResizeMaxWidth = resolveResizablePanelMaxWidth({
+    availableWidth: hasDesktopResize ? desktopWorkspaceWidth : null,
+    minContentWidth: desktopResize?.minContentWidth ?? 0,
+    otherPanelWidth: desktopPanelWidths.rightRail,
+    minWidth: desktopResize?.fileTree.minWidth ?? 0,
+    fallbackWidth:
+      desktopResize?.fileTree.preferredWidth ?? desktopPanelWidths.fileTree,
+  });
+  const rightRailResizeMaxWidth = resolveResizablePanelMaxWidth({
+    availableWidth: hasDesktopResize ? desktopWorkspaceWidth : null,
+    minContentWidth: desktopResize?.minContentWidth ?? 0,
+    otherPanelWidth: desktopPanelWidths.fileTree,
+    minWidth: desktopResize?.rightRail.minWidth ?? 0,
+    fallbackWidth:
+      desktopResize?.rightRail.preferredWidth ?? desktopPanelWidths.rightRail,
+  });
+  const rightRailStyle =
+    hasDesktopResize && isDesktopRightRailVisible
+      ? ({
+          width: `${desktopPanelWidths.rightRail}px`,
+          minWidth: `${desktopPanelWidths.rightRail}px`,
+        } as CSSProperties)
+      : undefined;
   const headerPadding = isCompactChrome ? "px-4 py-3" : "px-4 py-4 sm:px-5";
   const fileTreeSearch = (
     <DiffSearchField
@@ -399,7 +811,14 @@ export const DiffWorkspace = forwardRef<
             )}
 
             {hasFiles ? (
-              <div className="w-full xl:max-w-[22rem]">{codeSearch}</div>
+              <div
+                className={cn(
+                  "w-full xl:max-w-[22rem]",
+                  isRightRailFullscreen ? "xl:hidden" : undefined,
+                )}
+              >
+                {codeSearch}
+              </div>
             ) : null}
           </div>
         </div>
@@ -411,24 +830,53 @@ export const DiffWorkspace = forwardRef<
         </div>
       ) : hasFiles ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <div className="flex h-full min-h-0 flex-col xl:flex-row">
-            <CommitFileTree
-              files={filteredFiles}
-              totalFileCount={files.length}
-              selectedFilePath={selectedFilePath}
-              topContent={fileTreeSearch}
-              isCollapsed={fileTreeCollapsible && isFileTreeCollapsed}
-              hasActiveSearch={hasActiveSearch}
-              forceExpandAll={hasActiveSearch}
-              onToggleCollapsed={
-                fileTreeCollapsible
-                  ? () => setIsFileTreeCollapsed((current) => !current)
-                  : undefined
-              }
-              onSelectFile={handleSelectFile}
-            />
+          <div
+            ref={desktopWorkspaceRef}
+            className="flex h-full min-h-0 flex-col xl:flex-row"
+          >
+            <div
+              className={cn(
+                "relative shrink-0",
+                isRightRailFullscreen ? "xl:hidden" : undefined,
+              )}
+            >
+              <CommitFileTree
+                files={filteredFiles}
+                totalFileCount={files.length}
+                selectedFilePath={selectedFilePath}
+                desktopWidth={
+                  hasDesktopResize ? desktopPanelWidths.fileTree : undefined
+                }
+                topContent={fileTreeSearch}
+                isCollapsed={fileTreeCollapsible && isFileTreeCollapsed}
+                hasActiveSearch={hasActiveSearch}
+                forceExpandAll={hasActiveSearch}
+                onToggleCollapsed={
+                  fileTreeCollapsible
+                    ? () => setIsFileTreeCollapsed((current) => !current)
+                    : undefined
+                }
+                onSelectFile={handleSelectFile}
+              />
+              {desktopResize && isDesktopFileTreeExpanded ? (
+                <DiffWorkspaceResizeHandle
+                  label="file tree"
+                  side="left"
+                  currentWidth={desktopPanelWidths.fileTree}
+                  minWidth={desktopResize.fileTree.minWidth}
+                  maxWidth={fileTreeResizeMaxWidth}
+                  defaultWidth={desktopResize.fileTree.defaultWidth}
+                  onWidthChange={desktopResize.fileTree.onPreferredWidthChange}
+                />
+              ) : null}
+            </div>
 
-            <div className="min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(16,18,23,0.54),rgba(10,12,15,0.92))]">
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(16,18,23,0.54),rgba(10,12,15,0.92))]",
+                isRightRailFullscreen ? "xl:hidden" : undefined,
+              )}
+            >
               <div
                 className={cn(
                   "h-full min-h-0 overflow-hidden",
@@ -529,6 +977,37 @@ export const DiffWorkspace = forwardRef<
                 </div>
               </div>
             </div>
+
+            {desktopRightRailContent ? (
+              <div
+                style={rightRailStyle}
+                className={cn(
+                  "relative hidden min-h-0 shrink-0 border-l border-border-subtle bg-[linear-gradient(180deg,rgba(11,14,19,0.98),rgba(8,10,14,0.94))] transition-[width] duration-200 ease-out xl:flex",
+                  isRightRailFullscreen
+                    ? "w-full min-w-0 grow shrink border-l-0"
+                    : hasDesktopResize
+                      ? undefined
+                      : isRightRailOpen
+                      ? "w-[24rem]"
+                      : "w-[3.75rem]",
+                )}
+              >
+                {desktopResize && isDesktopRightRailExpanded ? (
+                  <DiffWorkspaceResizeHandle
+                    label="review panel"
+                    side="right"
+                    currentWidth={desktopPanelWidths.rightRail}
+                    minWidth={desktopResize.rightRail.minWidth}
+                    maxWidth={rightRailResizeMaxWidth}
+                    defaultWidth={desktopResize.rightRail.defaultWidth}
+                    onWidthChange={desktopResize.rightRail.onPreferredWidthChange}
+                  />
+                ) : null}
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  {desktopRightRailContent}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : (

@@ -51,7 +51,7 @@ class FakeChildProcess extends EventEmitter {
 
 test("backend manager reports postgres startup failures with actionable health details", async () => {
   const userDataPath = createUserDataPath();
-  const backendManagerPath = path.join(__dirname, "..", "src", "backend-manager.js");
+  const backendManagerPath = path.join(__dirname, "..", "src", "backend-manager.ts");
   const logDir = path.join(userDataPath, "logs");
   const dataDir = path.join(userDataPath, "data");
   const databaseUrl = "postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey";
@@ -96,6 +96,12 @@ test("backend manager reports postgres startup failures with actionable health d
     await withMockedModuleLoads(
       {
         child_process: {
+          spawn: () => {
+            childProcess = new FakeChildProcess();
+            return childProcess;
+          },
+        },
+        "node:child_process": {
           spawn: () => {
             childProcess = new FakeChildProcess();
             return childProcess;
