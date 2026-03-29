@@ -1794,8 +1794,24 @@ export function Review() {
 		(finding: ReviewFinding) => availableFindingPaths.has(finding.file_path),
 		[availableFindingPaths],
 	);
+	const handleReturnToLatestReview = useCallback(() => {
+		historySelectionRequestIdRef.current += 1;
+		setSelectedHistoryView(null);
+		setHistorySelectionLoadingRunId(null);
+		setHistorySelectionError(null);
+		setReviewPanelMode(currentActiveRun ? "rail" : "collapsed");
+	}, [currentActiveRun]);
 	const handleSelectHistoryReview = useCallback(
 		async (entry: ReviewHistoryEntry) => {
+			if (
+				entry.run_id === currentActiveRun?.id &&
+				entry.session_id === session?.id
+			) {
+				handleReturnToLatestReview();
+				setReviewPanelMode("rail");
+				return;
+			}
+
 			if (selectedHistoryView?.entry.run_id === entry.run_id && !historySelectionLoadingRunId) {
 				setReviewPanelMode("rail");
 				return;
@@ -1835,22 +1851,15 @@ export function Review() {
 				}
 			}
 		},
-		[historySelectionLoadingRunId, selectedHistoryView?.entry.run_id],
+		[
+			currentActiveRun?.id,
+			handleReturnToLatestReview,
+			historySelectionLoadingRunId,
+			selectedHistoryView?.entry.run_id,
+			session?.id,
+		],
 	);
-	const handleReturnToLatestReview = useCallback(() => {
-		historySelectionRequestIdRef.current += 1;
-		setSelectedHistoryView(null);
-		setHistorySelectionLoadingRunId(null);
-		setHistorySelectionError(null);
-		setReviewPanelMode(currentActiveRun ? "rail" : "collapsed");
-	}, [currentActiveRun]);
-	const previousReviewHistory = useMemo(
-		() =>
-			reviewHistory.filter((entry) =>
-				currentActiveRun?.id ? entry.run_id !== currentActiveRun.id : true,
-			),
-		[currentActiveRun?.id, reviewHistory],
-	);
+	const previousReviewHistory = reviewHistory;
 	const filteredPreviousReviewHistory = useMemo(() => {
 		const normalizedQuery = deferredHistorySearchQuery.trim().toLowerCase();
 		const startBoundary = historyStartDate ? startOfLocalDay(historyStartDate) : null;
