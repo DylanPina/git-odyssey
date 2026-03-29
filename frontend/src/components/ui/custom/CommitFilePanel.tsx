@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DiffEditor } from "@monaco-editor/react";
-import type { editor as MonacoEditor } from "monaco-editor";
+import type * as MonacoEditor from "monaco-editor";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -11,18 +11,19 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { InlineBanner } from "@/components/ui/inline-banner";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
+import { InlineBanner } from "@/components/ui/inline-banner";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
 	findClosestHunk,
+	type DiffFileStatus,
+	type DiffNavigationTarget,
 	formatHunkLabel,
 	getDiffStatusLabel,
 	getDiffStatusTone,
 	getFileChangeLabelPath,
 	inferLanguage,
 	normalizeDiffFileStatus,
-	type DiffNavigationTarget,
 } from "@/lib/diff";
 import type { FileChange, FileHunk } from "@/lib/definitions/repo";
 import { registerGitOdysseyMonacoTheme } from "@/lib/monacoTheme";
@@ -30,6 +31,12 @@ import { buildMonacoModelUri } from "@/lib/repoPaths";
 import { cn } from "@/lib/utils";
 
 type SummaryState = { loading: boolean; text?: string; error?: string };
+type DiffViewerSide = "original" | "modified";
+type PendingNavigationState = {
+	side: DiffViewerSide;
+	line: number;
+	highlight?: boolean;
+};
 
 type CommitFilePanelProps = {
 	repoPath?: string | null;
@@ -56,6 +63,34 @@ function getHunkAnchorKey(hunk: FileHunk, index: number): string {
 		: `range:${index}:${hunk.old_start}:${hunk.new_start}`;
 }
 
+function resolveNavigationPosition(
+	status: DiffFileStatus,
+	target: Pick<DiffNavigationTarget, "newStart" | "oldStart">,
+): { side: DiffViewerSide; line: number } | null {
+	if (status === "deleted" && target.oldStart != null) {
+		return {
+			side: "original",
+			line: target.oldStart,
+		};
+	}
+
+	if (target.newStart != null) {
+		return {
+			side: "modified",
+			line: target.newStart,
+		};
+	}
+
+	if (target.oldStart != null) {
+		return {
+			side: "original",
+			line: target.oldStart,
+		};
+	}
+
+	return null;
+}
+
 export function CommitFilePanel({
 	repoPath,
 	viewerId,
@@ -75,11 +110,17 @@ export function CommitFilePanel({
 	onNavigationTargetHandled,
 }: CommitFilePanelProps) {
 	const diffEditorsRef = useRef<
-		Record<string, MonacoEditor.IStandaloneDiffEditor | undefined>
+		Record<string, MonacoEditor.editor.IStandaloneDiffEditor | undefined>
 	>({});
 	const pendingScrollRef = useRef<
-		Record<string, { side: "original" | "modified"; line: number } | undefined>
+		Record<string, PendingNavigationState | undefined>
 	>({});
+	const monacoRef = useRef<typeof MonacoEditor | null>(null);
+	const lineHighlightIdsRef = useRef<Record<DiffViewerSide, string[]>>({
+		original: [],
+		modified: [],
+	});
+	const lineHighlightTimerRef = useRef<number | null>(null);
 	const hunkRefs = useRef<Record<string, HTMLDivElement | null>>({});
 	const [isViewerExpanded, setIsViewerExpanded] = useState(false);
 
@@ -93,16 +134,13 @@ export function CommitFilePanel({
 			wordWrap: "on" as const,
 			fontSize: 12,
 			fontFamily: "IBM Plex Mono",
-			lineDecorationsWidth: 8,
+			lineDecorationsWidth: 12,
 			glyphMargin: false,
 			renderOverviewRuler: false,
 			overviewRulerBorder: false,
 			scrollbar: {
 				verticalScrollbarSize: 10,
 				horizontalScrollbarSize: 10,
-				// Let the workspace keep scrolling once the editor itself
-				// can no longer move, which is especially important when
-				// the viewer is expanded to nearly full height.
 				alwaysConsumeMouseWheel: false,
 			},
 			padding: {
@@ -145,29 +183,111 @@ export function CommitFilePanel({
 		? "max(440px, calc(100dvh - var(--header-height) - 12rem))"
 		: 440;
 	const canShowFileSummaryControls = Boolean(
-		onToggleFileSummary || onSummarizeFile || fileSummary?.text || fileSummary?.error,
+		onToggleFileSummary ||
+			onSummarizeFile ||
+			fileSummary?.text ||
+			fileSummary?.error,
 	);
 	const hunkList = useMemo(() => fileChange.hunks || [], [fileChange.hunks]);
 
-	const revealHunk = useCallback(
-		(hunk: FileHunk) => {
-			const side: "original" | "modified" =
-				status === "deleted" ? "original" : "modified";
-			const line = side === "original" ? hunk.old_start : hunk.new_start;
-			const editor = diffEditorsRef.current[labelPath];
-			if (editor) {
-				const target =
-					side === "original"
-						? editor.getOriginalEditor()
-						: editor.getModifiedEditor();
-				target?.revealLineInCenter(line);
-				target?.setPosition({ lineNumber: line, column: 1 });
-				target?.focus();
-			} else {
-				pendingScrollRef.current[labelPath] = { side, line };
+	const clearLineHighlights = useCallback(() => {
+		const editor = diffEditorsRef.current[labelPath];
+		const originalEditor = editor?.getOriginalEditor();
+		const modifiedEditor = editor?.getModifiedEditor();
+
+		if (originalEditor) {
+			lineHighlightIdsRef.current.original = originalEditor.deltaDecorations(
+				lineHighlightIdsRef.current.original,
+				[],
+			);
+		}
+
+		if (modifiedEditor) {
+			lineHighlightIdsRef.current.modified = modifiedEditor.deltaDecorations(
+				lineHighlightIdsRef.current.modified,
+				[],
+			);
+		}
+
+		if (typeof window !== "undefined" && lineHighlightTimerRef.current != null) {
+			window.clearTimeout(lineHighlightTimerRef.current);
+			lineHighlightTimerRef.current = null;
+		}
+	}, [labelPath]);
+
+	const focusMountedLine = useCallback(
+		(
+			editor: MonacoEditor.editor.IStandaloneDiffEditor,
+			target: PendingNavigationState,
+		) => {
+			const targetEditor =
+				target.side === "original"
+					? editor.getOriginalEditor()
+					: editor.getModifiedEditor();
+			const model = targetEditor?.getModel();
+			const lineCount = model?.getLineCount() ?? target.line;
+			const resolvedLine = Math.max(1, Math.min(target.line, lineCount));
+
+			targetEditor?.revealLineInCenter(resolvedLine);
+			targetEditor?.setPosition({ lineNumber: resolvedLine, column: 1 });
+			targetEditor?.focus();
+
+			if (!target.highlight || !targetEditor || !monacoRef.current) {
+				return;
+			}
+
+			clearLineHighlights();
+			const decorationIds = targetEditor.deltaDecorations([], [
+				{
+					range: new monacoRef.current.Range(
+						resolvedLine,
+						1,
+						resolvedLine,
+						1,
+					),
+					options: {
+						isWholeLine: true,
+						className: "git-odyssey-target-line-highlight",
+						linesDecorationsClassName: "git-odyssey-target-line-gutter",
+					},
+				},
+			]);
+
+			lineHighlightIdsRef.current[target.side] = decorationIds;
+			lineHighlightIdsRef.current[
+				target.side === "original" ? "modified" : "original"
+			] = [];
+
+			if (typeof window !== "undefined") {
+				lineHighlightTimerRef.current = window.setTimeout(() => {
+					clearLineHighlights();
+				}, 2600);
 			}
 		},
-		[labelPath, status],
+		[clearLineHighlights],
+	);
+
+	const focusDiffLine = useCallback(
+		(target: PendingNavigationState) => {
+			const editor = diffEditorsRef.current[labelPath];
+			if (editor) {
+				focusMountedLine(editor, target);
+				return;
+			}
+
+			pendingScrollRef.current[labelPath] = target;
+		},
+		[focusMountedLine, labelPath],
+	);
+
+	const revealHunk = useCallback(
+		(hunk: FileHunk) => {
+			const side: DiffViewerSide =
+				status === "deleted" ? "original" : "modified";
+			const line = side === "original" ? hunk.old_start : hunk.new_start;
+			focusDiffLine({ side, line });
+		},
+		[focusDiffLine, status],
 	);
 
 	useEffect(() => {
@@ -175,35 +295,45 @@ export function CommitFilePanel({
 			return;
 		}
 
-		if (hunkList.length === 0) {
+		const navigationPosition = resolveNavigationPosition(status, navigationTarget);
+		if (!navigationPosition) {
 			onNavigationTargetHandled?.();
 			return;
 		}
 
 		const closestHunk = findClosestHunk(hunkList, navigationTarget);
-		if (!closestHunk) {
-			onNavigationTargetHandled?.();
-			return;
+		focusDiffLine({
+			...navigationPosition,
+			highlight: true,
+		});
+
+		if (closestHunk) {
+			const hunkIndex = hunkList.findIndex((candidate) => candidate === closestHunk);
+			const anchorKey = getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
+
+			window.requestAnimationFrame(() => {
+				hunkRefs.current[anchorKey]?.scrollIntoView({
+					behavior: "smooth",
+					block: "center",
+				});
+			});
 		}
 
-		const hunkIndex = hunkList.findIndex((candidate) => candidate === closestHunk);
-		const anchorKey = getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
-
-		revealHunk(closestHunk);
-		window.requestAnimationFrame(() => {
-			hunkRefs.current[anchorKey]?.scrollIntoView({
-				behavior: "smooth",
-				block: "center",
-			});
-		});
 		onNavigationTargetHandled?.();
 	}, [
+		focusDiffLine,
 		hunkList,
 		isExpanded,
 		navigationTarget,
 		onNavigationTargetHandled,
-		revealHunk,
+		status,
 	]);
+
+	useEffect(() => {
+		return () => {
+			clearLineHighlights();
+		};
+	}, [clearLineHighlights]);
 
 	return (
 		<section
@@ -340,20 +470,22 @@ export function CommitFilePanel({
 						modified={modified}
 						language={inferLanguage(labelPath)}
 						theme="git-odyssey-dark"
-						beforeMount={registerGitOdysseyMonacoTheme}
+						beforeMount={(monaco) => {
+							monacoRef.current = monaco;
+							registerGitOdysseyMonacoTheme(monaco);
+						}}
 						originalModelPath={originalModelPath}
 						modifiedModelPath={modifiedModelPath}
 						options={diffOptions}
 						onMount={(editor) => {
 							diffEditorsRef.current[labelPath] =
-								editor as unknown as MonacoEditor.IStandaloneDiffEditor;
+								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor;
 							const pending = pendingScrollRef.current[labelPath];
 							if (pending) {
-								const targetEditor =
-									pending.side === "original"
-										? editor.getOriginalEditor()
-										: editor.getModifiedEditor();
-								targetEditor?.revealLineInCenter(pending.line);
+								focusMountedLine(
+									editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
+									pending,
+								);
 								pendingScrollRef.current[labelPath] = undefined;
 							}
 						}}

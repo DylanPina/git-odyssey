@@ -2,17 +2,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarGroup } from "@/components/ui/sidebar";
 import type { Commit } from "@/lib/definitions/repo";
 
-export default function SearchResults({
-	allCommitsCount,
-	filteredCommits,
-	onCommitClick,
-	query: _query,
-}: {
+export default function SearchResults(props: {
 	allCommitsCount: number;
 	filteredCommits: Commit[];
 	onCommitClick: (sha: string) => void;
 	query?: string;
 }) {
+	const { allCommitsCount, filteredCommits, onCommitClick } = props;
 	const visibleCommits = filteredCommits.slice(0, 25);
 	const displayedCount = filteredCommits.length;
 	const totalCount = Math.max(allCommitsCount, displayedCount);

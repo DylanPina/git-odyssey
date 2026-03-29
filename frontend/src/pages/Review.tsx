@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	AlertTriangle,
 	ChevronDown,
 	ChevronRight,
 	GitCommitHorizontal,
 	Loader2,
+	Maximize2,
+	Minimize2,
 	PanelRightOpen,
 	Play,
 	ShieldAlert,
 	Square,
-	Terminal,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -32,16 +32,10 @@ import {
 import { CommitToolbar } from "@/components/ui/custom/CommitToolbar";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
 import { InlineBanner } from "@/components/ui/inline-banner";
-import {
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
 import { useRepoData } from "@/hooks/useRepoData";
+import { getFileChangeLabelPath } from "@/lib/diff";
 import type { Commit } from "@/lib/definitions/repo";
 import type {
 	ReviewApproval,
@@ -59,6 +53,7 @@ import {
 	readRepoPathFromSearchParams,
 	readReviewRefsFromSearchParams,
 } from "@/lib/repoPaths";
+import { cn } from "@/lib/utils";
 
 const DETACHED_HEAD_LABEL = "HEAD (detached)";
 const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "awaiting_approval"]);
@@ -76,26 +71,17 @@ type ReviewMetaPillProps = {
 	isMono?: boolean;
 };
 
-type CommandTraceEntry = {
-	id: string;
-	command: string;
-	cwd: string;
-	output: string;
-	exitCode: number | null;
-	durationMs: number | null;
-};
-
 type ReasoningTraceEntry = {
 	id: string;
 	method: string | null;
 	text: string;
+	stableText: string;
+	latestDeltaText: string | null;
 	sequence: number;
 	createdAt: string | null;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
+type ReviewPanelMode = "collapsed" | "rail" | "fullscreen";
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Something went wrong.";
@@ -204,16 +190,8 @@ function getCommitSubject(message?: string | null) {
 	);
 }
 
-function formatDuration(durationMs: number | null) {
-	if (typeof durationMs !== "number" || durationMs < 0) {
-		return "Unknown";
-	}
-
-	if (durationMs < 1000) {
-		return `${durationMs} ms`;
-	}
-
-	return `${(durationMs / 1000).toFixed(1)} s`;
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function getPayloadMethod(event: ReviewRunEvent) {
@@ -260,15 +238,28 @@ function extractSummaryText(value: unknown) {
 }
 
 function isReasoningMethod(method: string | null) {
-	return Boolean(method && method.toLowerCase().includes("reason"));
+	if (!method) {
+		return false;
+	}
+
+	const normalized = method.toLowerCase();
+	return normalized.includes("reason") || normalized.includes("agentmessage");
 }
 
 function isReasoningItem(item: Record<string, unknown> | null) {
 	const itemType = getStringField(item, "type");
-	return Boolean(itemType && itemType.toLowerCase().includes("reason"));
+	if (!itemType) {
+		return false;
+	}
+
+	const normalized = itemType.toLowerCase();
+	return normalized.includes("reason") || normalized.includes("agentmessage");
 }
 
-function extractReasoningText(item: Record<string, unknown> | null, params: Record<string, unknown>) {
+function extractReasoningText(
+	item: Record<string, unknown> | null,
+	params: Record<string, unknown>,
+) {
 	return (
 		extractSummaryText(item?.summary) ||
 		extractSummaryText(params.summary) ||
@@ -277,38 +268,6 @@ function extractReasoningText(item: Record<string, unknown> | null, params: Reco
 		getStringField(params, "delta") ||
 		null
 	);
-}
-
-function extractCompletedCommands(events: ReviewRunEvent[]): CommandTraceEntry[] {
-	return events
-		.filter((event) => event.event_type === "codex_notification")
-		.flatMap((event) => {
-			const method = getPayloadMethod(event);
-			const params = getPayloadParams(event);
-			const item = params && isRecord(params.item) ? params.item : null;
-			if (method !== "item/completed" || !item || item.type !== "commandExecution") {
-				return [];
-			}
-
-			return [
-				{
-					id:
-						typeof item.id === "string"
-							? item.id
-							: `command-${event.id}`,
-					command: typeof item.command === "string" ? item.command : "",
-					cwd: typeof item.cwd === "string" ? item.cwd : "",
-					output:
-						typeof item.aggregatedOutput === "string"
-							? item.aggregatedOutput
-							: "",
-					exitCode:
-						typeof item.exitCode === "number" ? item.exitCode : null,
-					durationMs:
-						typeof item.durationMs === "number" ? item.durationMs : null,
-				},
-			];
-		});
 }
 
 function extractReasoningTraces(events: ReviewRunEvent[]): ReasoningTraceEntry[] {
@@ -335,18 +294,24 @@ function extractReasoningTraces(events: ReviewRunEvent[]): ReasoningTraceEntry[]
 		if (!text?.trim()) {
 			continue;
 		}
-
-		const itemId =
-			getStringField(params, "itemId") || getStringField(item, "id");
 		const isDeltaUpdate = Boolean(
 			method?.toLowerCase().includes("delta") && getStringField(params, "delta"),
 		);
+		const normalizedText = isDeltaUpdate ? text : text.trim();
+		if (normalizedText.trim() === "READY.") {
+			continue;
+		}
+
+		const itemId =
+			getStringField(params, "itemId") || getStringField(item, "id");
 
 		if (!itemId) {
 			standaloneTraces.push({
 				id: `reasoning-${event.id}`,
 				method,
-				text: text.trim(),
+				text: normalizedText.trim(),
+				stableText: normalizedText.trim(),
+				latestDeltaText: null,
 				sequence: event.sequence,
 				createdAt: event.created_at,
 			});
@@ -355,13 +320,15 @@ function extractReasoningTraces(events: ReviewRunEvent[]): ReasoningTraceEntry[]
 
 		const existingTrace = tracesById.get(itemId);
 		const nextText = isDeltaUpdate
-			? `${existingTrace?.text || ""}${text}`.trim()
-			: text.trim();
+			? `${existingTrace?.text || ""}${normalizedText}`
+			: normalizedText;
 
 		tracesById.set(itemId, {
 			id: itemId,
 			method,
-			text: nextText,
+			text: isDeltaUpdate ? nextText : nextText.trim(),
+			stableText: isDeltaUpdate ? existingTrace?.text || "" : nextText.trim(),
+			latestDeltaText: isDeltaUpdate ? normalizedText : null,
 			sequence: event.sequence,
 			createdAt: event.created_at,
 		});
@@ -370,6 +337,28 @@ function extractReasoningTraces(events: ReviewRunEvent[]): ReasoningTraceEntry[]
 	return [...tracesById.values(), ...standaloneTraces]
 		.filter((trace) => trace.text.trim())
 		.sort((left, right) => right.sequence - left.sequence);
+}
+
+function LiveReasoningText({ entry }: { entry: ReasoningTraceEntry }) {
+	if (!entry.latestDeltaText) {
+		return (
+			<div className="review-trace-copy whitespace-pre-wrap text-[12px] leading-6 text-text-secondary">
+				{entry.text}
+			</div>
+		);
+	}
+
+	return (
+		<div className="review-trace-copy whitespace-pre-wrap text-[12px] leading-6 text-text-secondary">
+			{entry.stableText}
+			<span
+				key={`${entry.id}:${entry.sequence}:${entry.latestDeltaText.slice(-24)}`}
+				className="review-trace-inline-update"
+			>
+				{entry.latestDeltaText}
+			</span>
+		</div>
+	);
 }
 
 function ReviewMetaPill({ label, value, isMono = true }: ReviewMetaPillProps) {
@@ -441,12 +430,219 @@ function ReviewBranchTipCard({
 	);
 }
 
+function formatFindingReference(finding: ReviewFinding) {
+	const line = finding.new_start ?? finding.old_start ?? null;
+	const sideLabel =
+		finding.new_start != null
+			? "Modified"
+			: finding.old_start != null
+				? "Original"
+				: null;
+
+	return {
+		label: line != null ? `${finding.file_path}:${line}` : finding.file_path,
+		sideLabel,
+	};
+}
+
+function ReviewInProgressState({
+	reasoningTrace,
+}: {
+	reasoningTrace: ReasoningTraceEntry[];
+}) {
+	const [isTraceOpen, setIsTraceOpen] = useState(true);
+	const visibleTrace = reasoningTrace.slice(0, 5);
+
+	return (
+		<div className="review-runtime-pulse relative overflow-hidden rounded-[18px] border border-[rgba(122,162,255,0.18)] bg-[linear-gradient(180deg,rgba(122,162,255,0.08),rgba(122,162,255,0.02))] px-4 py-5">
+			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,162,255,0.16),transparent_55%)] opacity-70" />
+			<div className="relative flex flex-col items-center text-center">
+				<div className="relative flex size-28 items-center justify-center">
+					<div className="review-runtime-ring absolute inset-0 rounded-full border border-[rgba(122,162,255,0.24)]" />
+					<div className="review-runtime-ring-delayed absolute inset-[10px] rounded-full border border-[rgba(199,220,255,0.16)]" />
+					<div className="review-runtime-core absolute inset-[26px] rounded-full bg-[radial-gradient(circle,rgba(185,210,255,0.96),rgba(122,162,255,0.32)_45%,rgba(122,162,255,0.06)_80%,transparent)] blur-[1px]" />
+					<span className="review-runtime-orbit review-runtime-orbit-a" />
+					<span className="review-runtime-orbit review-runtime-orbit-b" />
+					<span className="review-runtime-orbit review-runtime-orbit-c" />
+				</div>
+
+				<div className="mt-4 text-sm font-semibold text-text-primary">
+					review in progress...
+				</div>
+
+				<div className="mt-4 w-full text-left">
+					<button
+						type="button"
+						className="flex items-center gap-2 px-0 py-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-tertiary transition-colors duration-150 hover:text-text-primary"
+						onClick={() => setIsTraceOpen((current) => !current)}
+						aria-expanded={isTraceOpen}
+					>
+						{isTraceOpen ? (
+							<ChevronDown className="size-4" />
+						) : (
+							<ChevronRight className="size-4" />
+						)}
+						<span>Thinking</span>
+					</button>
+
+					{isTraceOpen ? (
+						<div className="mt-4 space-y-3">
+							{visibleTrace.length > 0 ? (
+								visibleTrace.map((entry, index) => (
+									<div
+										key={entry.id}
+										className="review-trace-item relative pl-5"
+										style={{ animationDelay: `${index * 110}ms` }}
+									>
+										<span className="review-trace-rail" aria-hidden="true" />
+										<span className="review-trace-node" aria-hidden="true" />
+										<div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-tertiary">
+											<span className="font-mono">#{entry.sequence}</span>
+											{entry.method ? (
+												<span className="font-mono">{entry.method}</span>
+											) : null}
+											{entry.createdAt ? (
+												<span>{formatGeneratedAt(entry.createdAt)}</span>
+											) : null}
+										</div>
+										<LiveReasoningText entry={entry} />
+									</div>
+								))
+							) : (
+								<div className="space-y-3">
+									<div className="review-trace-placeholder">
+										<div className="review-runtime-shimmer h-4 w-[72%] rounded-full bg-[rgba(255,255,255,0.06)]" />
+										<div className="review-runtime-shimmer mt-2 h-4 w-[88%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:180ms]" />
+									</div>
+									<div className="review-trace-placeholder [animation-delay:160ms]">
+										<div className="review-runtime-shimmer h-4 w-[64%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:240ms]" />
+										<div className="review-runtime-shimmer mt-2 h-4 w-[82%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:420ms]" />
+									</div>
+								</div>
+							)}
+						</div>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function parseTimestamp(value?: string | null) {
+	if (!value) {
+		return null;
+	}
+
+	const timestamp = Date.parse(value);
+	return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function formatThoughtDuration(
+	activeRun: ReviewRun,
+	reviewResult: ReviewResult | null,
+) {
+	const primaryStart = parseTimestamp(activeRun.started_at);
+	const primaryEnd = parseTimestamp(activeRun.completed_at);
+	const fallbackStart = parseTimestamp(activeRun.created_at);
+	const fallbackEnd = parseTimestamp(reviewResult?.generated_at ?? null);
+
+	const durationMs =
+		primaryStart != null && primaryEnd != null && primaryEnd >= primaryStart
+			? primaryEnd - primaryStart
+			: fallbackStart != null &&
+				  fallbackEnd != null &&
+				  fallbackEnd >= fallbackStart
+				? fallbackEnd - fallbackStart
+				: null;
+
+	if (durationMs == null) {
+		return null;
+	}
+
+	const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+	if (totalSeconds < 60) {
+		return `${totalSeconds}s`;
+	}
+
+	if (totalSeconds < 3600) {
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		return `${minutes}m ${seconds}s`;
+	}
+
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	return `${hours}h ${minutes}m`;
+}
+
+function CompletedReasoningSection({
+	title,
+	reasoningTrace,
+}: {
+	title: string;
+	reasoningTrace: ReasoningTraceEntry[];
+}) {
+	const [isOpen, setIsOpen] = useState(false);
+
+	return (
+		<section className="mt-4 border-t border-border-subtle pt-4">
+			<button
+				type="button"
+				className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-border-subtle bg-[rgba(255,255,255,0.025)] px-3 py-2.5 text-left transition-[background-color,border-color,color] duration-150 hover:border-[rgba(122,162,255,0.24)] hover:bg-[rgba(122,162,255,0.06)]"
+				onClick={() => setIsOpen((current) => !current)}
+				aria-expanded={isOpen}
+			>
+				<span className="flex items-center gap-2">
+					{isOpen ? (
+						<ChevronDown className="size-4 text-text-secondary" />
+					) : (
+						<ChevronRight className="size-4 text-text-secondary" />
+					)}
+					<span className="text-sm font-semibold text-text-primary">{title}</span>
+				</span>
+			</button>
+
+			{isOpen ? (
+				<div className="mt-4 space-y-3">
+					{reasoningTrace.map((entry, index) => (
+						<div
+							key={entry.id}
+							className="review-trace-item relative pl-5"
+							style={{ animationDelay: `${index * 70}ms` }}
+						>
+							<span className="review-trace-rail" aria-hidden="true" />
+							<span className="review-trace-node" aria-hidden="true" />
+							<div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-tertiary">
+								<span className="font-mono">#{entry.sequence}</span>
+								{entry.method ? (
+									<span className="font-mono">{entry.method}</span>
+								) : null}
+								{entry.createdAt ? (
+									<span>{formatGeneratedAt(entry.createdAt)}</span>
+								) : null}
+							</div>
+							<MarkdownRenderer
+								content={entry.text}
+								className="review-trace-copy text-[12px]"
+							/>
+						</div>
+					))}
+				</div>
+			) : null}
+		</section>
+	);
+}
+
 function ReviewFindingsList({
 	findings,
+	selectedFindingId,
 	onSelect,
+	canNavigateToFinding,
 }: {
 	findings: ReviewFinding[];
+	selectedFindingId: string | null;
 	onSelect: (finding: ReviewFinding) => void;
+	canNavigateToFinding: (finding: ReviewFinding) => boolean;
 }) {
 	if (findings.length === 0) {
 		return (
@@ -457,32 +653,225 @@ function ReviewFindingsList({
 	}
 
 	return (
-		<div className="space-y-3">
-			{findings.map((finding) => (
-				<button
-					key={finding.id}
-					type="button"
-					className="w-full rounded-[16px] border border-border-subtle bg-control/50 px-3 py-3 text-left transition-colors hover:border-border-strong hover:bg-control"
-					onClick={() => onSelect(finding)}
-				>
-					<div className="flex flex-wrap items-center gap-2">
-						<StatusPill tone={getSeverityTone(finding.severity)}>
-							{formatSeverityLabel(finding.severity)}
-						</StatusPill>
-						<span className="font-medium text-text-primary">
-							{finding.title}
-						</span>
+		<div className="space-y-2.5">
+			{findings.map((finding) => {
+				const { label, sideLabel } = formatFindingReference(finding);
+				const isSelected = selectedFindingId === finding.id;
+				const canNavigate = canNavigateToFinding(finding);
+				const content = (
+					<>
+						<div className="flex items-start justify-between gap-3">
+							<div className="min-w-0">
+								<div className="flex flex-wrap items-center gap-2">
+									<StatusPill tone={getSeverityTone(finding.severity)}>
+										{formatSeverityLabel(finding.severity)}
+									</StatusPill>
+									<span className="text-sm font-semibold text-text-primary">
+										{finding.title}
+									</span>
+								</div>
+							</div>
+							<span
+								className={cn(
+									"shrink-0 rounded-full border px-2.5 py-1 font-mono text-[11px]",
+									canNavigate
+										? "border-[rgba(122,162,255,0.28)] bg-[rgba(122,162,255,0.1)] text-text-primary"
+										: "border-border-subtle bg-[rgba(255,255,255,0.03)] text-text-tertiary",
+								)}
+							>
+								{label}
+							</span>
+						</div>
+						<div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
+							{sideLabel ? <span>{sideLabel} side</span> : null}
+							{!canNavigate ? (
+								<span>Reference unavailable in the current diff.</span>
+							) : null}
+						</div>
+						<div className="mt-2 text-sm leading-6 text-text-secondary">
+							<p className="whitespace-pre-wrap">{finding.body}</p>
+						</div>
+					</>
+				);
+
+				if (!canNavigate) {
+					return (
+						<div
+							key={finding.id}
+							className={cn(
+								"rounded-[16px] border px-3 py-3",
+								isSelected
+									? "border-[rgba(122,162,255,0.35)] bg-[rgba(122,162,255,0.08)]"
+									: "border-border-subtle bg-[rgba(255,255,255,0.025)]",
+							)}
+						>
+							{content}
+						</div>
+					);
+				}
+
+				return (
+					<button
+						key={finding.id}
+						type="button"
+						aria-pressed={isSelected}
+						className={cn(
+							"w-full rounded-[16px] border px-3 py-3 text-left transition-[background-color,border-color,box-shadow] duration-150",
+							isSelected
+								? "border-[rgba(122,162,255,0.45)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]"
+								: "border-border-subtle bg-[rgba(255,255,255,0.025)] hover:border-border-strong hover:bg-[rgba(255,255,255,0.045)]",
+						)}
+						onClick={() => onSelect(finding)}
+					>
+						{content}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
+function ReviewInsightsPanel({
+	activeRun,
+	reviewResult,
+	findingsLabel,
+	selectedFindingId,
+	onSelectFinding,
+	canNavigateToFinding,
+	reasoningTrace,
+	isFullscreen = false,
+	isInline = false,
+	onToggleOpen,
+	onToggleFullscreen,
+}: {
+	activeRun: ReviewRun;
+	reviewResult: ReviewResult | null;
+	findingsLabel: string;
+	selectedFindingId: string | null;
+	onSelectFinding: (finding: ReviewFinding) => void;
+	canNavigateToFinding: (finding: ReviewFinding) => boolean;
+	reasoningTrace: ReasoningTraceEntry[];
+	isFullscreen?: boolean;
+	isInline?: boolean;
+	onToggleOpen: () => void;
+	onToggleFullscreen: () => void;
+}) {
+	const summaryText = reviewResult?.summary?.trim() || null;
+	const sectionPadding = isFullscreen ? "px-6 py-5 xl:px-8" : "px-4 py-4";
+	const completedThoughtDuration = formatThoughtDuration(activeRun, reviewResult);
+	const completedThoughtTitle = completedThoughtDuration
+		? `Thought for ${completedThoughtDuration}`
+		: "Thought";
+	const hasCompletedReasoning =
+		activeRun.status === "completed" &&
+		reviewResult != null &&
+		reasoningTrace.length > 0;
+
+	return (
+		<div
+			className={cn(
+				isInline
+					? "workspace-panel overflow-hidden bg-[linear-gradient(180deg,rgba(11,14,19,0.98),rgba(8,10,14,0.94))]"
+					: "flex h-full min-h-0 flex-col",
+				isFullscreen ? "bg-[linear-gradient(180deg,rgba(9,12,17,0.98),rgba(6,9,14,0.96))]" : undefined,
+			)}
+		>
+			<div className={cn("border-b border-border-subtle", sectionPadding)}>
+				<div className="flex items-start justify-between gap-3">
+					<div className="min-w-0">
+						<div className="workspace-section-label">AI Review</div>
+						<div className="mt-1 text-sm font-semibold text-text-primary">
+							Summary and findings
+						</div>
+						<div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+							<span>{findingsLabel}</span>
+							{reviewResult ? (
+								<span>{formatGeneratedAt(reviewResult.generated_at)}</span>
+							) : null}
+						</div>
 					</div>
-					<div className="mt-2 font-mono text-[11px] text-text-tertiary">
-						{finding.file_path}
-						{finding.new_start != null ? ` @ new:${finding.new_start}` : ""}
-						{finding.old_start != null ? ` old:${finding.old_start}` : ""}
+						<div className="flex items-center gap-2">
+							<Button
+								type="button"
+								variant="toolbar"
+								size="toolbar-icon"
+								className="hidden xl:flex"
+								onClick={onToggleFullscreen}
+								aria-pressed={isFullscreen}
+								aria-label={isFullscreen ? "Restore split view" : "Expand review"}
+								title={isFullscreen ? "Restore split view" : "Expand review"}
+							>
+								{isFullscreen ? (
+									<Minimize2 className="size-4" />
+								) : (
+									<Maximize2 className="size-4" />
+								)}
+							</Button>
+							<Button
+								type="button"
+								variant="toolbar"
+							size="toolbar-icon"
+							onClick={onToggleOpen}
+							aria-label={isInline ? "Hide review section" : "Collapse review rail"}
+							title={isInline ? "Hide review section" : "Collapse review rail"}
+						>
+							<PanelRightOpen className="size-4 rotate-180" />
+						</Button>
 					</div>
-					<div className="mt-2 text-sm leading-6 text-text-secondary">
-						<p className="whitespace-pre-wrap">{finding.body}</p>
+				</div>
+			</div>
+
+			<div
+				className={cn(
+					"workspace-scrollbar min-h-0 overflow-y-auto",
+					isInline ? "max-h-[28rem]" : "flex-1",
+				)}
+			>
+					<section className={cn("border-b border-border-subtle", sectionPadding)}>
+						<div className="workspace-section-label">Summary</div>
+						<div className="mt-3">
+							{summaryText ? (
+								<MarkdownRenderer content={summaryText} className="text-[13px]" />
+							) : ACTIVE_RUN_STATUSES.has(activeRun.status) ? (
+								<ReviewInProgressState reasoningTrace={reasoningTrace} />
+							) : (
+								<p className="text-sm leading-6 text-text-secondary">
+									Structured review output is not available for this run.
+								</p>
+							)}
+							{hasCompletedReasoning ? (
+								<CompletedReasoningSection
+									key={`${activeRun.id}:${reviewResult?.id ?? "summary"}`}
+									title={completedThoughtTitle}
+									reasoningTrace={reasoningTrace}
+								/>
+							) : null}
+						</div>
+					</section>
+
+				<section className={sectionPadding}>
+					<div className="flex items-center justify-between gap-3">
+						<div className="workspace-section-label">Findings</div>
+						<div className="font-mono text-[11px] text-text-tertiary">
+							{findingsLabel}
+						</div>
 					</div>
-				</button>
-			))}
+					<div className="mt-3">
+						{reviewResult ? (
+							<ReviewFindingsList
+								findings={reviewResult.findings}
+								selectedFindingId={selectedFindingId}
+								onSelect={onSelectFinding}
+								canNavigateToFinding={canNavigateToFinding}
+							/>
+						) : (
+							<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
+								Structured findings will show up here when the run finishes.
+							</div>
+						)}
+					</div>
+				</section>
+			</div>
 		</div>
 	);
 }
@@ -586,96 +975,6 @@ function PendingApprovals({
 	);
 }
 
-function CommandTrace({ commands }: { commands: CommandTraceEntry[] }) {
-	if (commands.length === 0) {
-		return (
-			<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
-				No completed shell commands were captured for this run yet.
-			</div>
-		);
-	}
-
-	return (
-		<div className="space-y-3">
-			{commands.map((command) => (
-				<div
-					key={command.id}
-					className="rounded-[16px] border border-border-subtle bg-control/45 p-3"
-				>
-					<div className="flex flex-wrap items-center justify-between gap-2">
-						<div className="min-w-0">
-							<div className="truncate font-mono text-[12px] text-text-primary">
-								{command.command}
-							</div>
-							<div className="mt-1 truncate text-[11px] text-text-tertiary">
-								{command.cwd || "Unknown working directory"}
-							</div>
-						</div>
-						<div className="flex items-center gap-2">
-							<StatusPill
-								tone={command.exitCode === 0 ? "success" : "danger"}
-							>
-								{command.exitCode == null ? "No exit" : `Exit ${command.exitCode}`}
-							</StatusPill>
-							<StatusPill tone="neutral">{formatDuration(command.durationMs)}</StatusPill>
-						</div>
-					</div>
-					{command.output ? (
-						<pre className="workspace-scrollbar mt-3 max-h-56 overflow-auto rounded-[12px] border border-border-subtle bg-[rgba(2,6,23,0.52)] p-3 font-mono text-[11px] leading-5 text-text-secondary">
-							{command.output}
-						</pre>
-					) : (
-						<div className="mt-3 text-sm text-text-secondary">
-							This command did not produce captured output.
-						</div>
-					)}
-				</div>
-			))}
-		</div>
-	);
-}
-
-function EventFeed({ entries }: { entries: ReasoningTraceEntry[] }) {
-	if (entries.length === 0) {
-		return (
-			<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
-				No agent reasoning traces have been persisted yet.
-			</div>
-		);
-	}
-
-	const visibleEntries = entries.slice(0, 32);
-
-	return (
-		<div className="space-y-3">
-			{visibleEntries.map((entry) => (
-				<div
-					key={entry.id}
-					className="rounded-[16px] border border-border-subtle bg-control/35 p-3"
-				>
-					<div className="flex flex-wrap items-center justify-between gap-2">
-						<div className="text-sm font-medium text-text-primary">
-							Agent Reasoning
-						</div>
-						<div className="font-mono text-[11px] text-text-tertiary">
-							#{entry.sequence}
-						</div>
-					</div>
-					<div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-text-tertiary">
-						<span>{formatGeneratedAt(entry.createdAt)}</span>
-						{entry.method ? (
-							<span className="font-mono">{entry.method}</span>
-						) : null}
-					</div>
-					<div className="mt-3 rounded-[12px] border border-border-subtle bg-[rgba(2,6,23,0.52)] p-3">
-						<MarkdownRenderer content={entry.text} className="text-[13px]" />
-					</div>
-				</div>
-			))}
-		</div>
-	);
-}
-
 export function Review() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
@@ -687,6 +986,7 @@ export function Review() {
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
 	const sessionRequestIdRef = useRef(0);
 	const refreshTimerRef = useRef<number | null>(null);
+	const lastOpenedRunIdRef = useRef<string | null>(null);
 
 	const [baseRef, setBaseRef] = useState(queryBaseRef ?? "");
 	const [headRef, setHeadRef] = useState(queryHeadRef ?? "");
@@ -698,12 +998,11 @@ export function Review() {
 	const [isRunStarting, setIsRunStarting] = useState(false);
 	const [isRunCancelling, setIsRunCancelling] = useState(false);
 	const [runDetail, setRunDetail] = useState<ReviewRun | null>(null);
-	const [isCommandTraceOpen, setIsCommandTraceOpen] = useState(false);
-	const [isEventStreamOpen, setIsEventStreamOpen] = useState(false);
 	const [approvalLoadingById, setApprovalLoadingById] = useState<
 		Record<string, boolean>
 	>({});
-	const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+	const [reviewPanelMode, setReviewPanelMode] = useState<ReviewPanelMode>("collapsed");
+	const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
 
 	const {
 		commits,
@@ -726,20 +1025,8 @@ export function Review() {
 		setSessionError(null);
 		setRunError(null);
 		setApprovalLoadingById({});
+		setSelectedFindingId(null);
 	}, [baseRef, headRef, repoPath]);
-
-	useEffect(() => {
-		if (!runDetail?.result) {
-			setIsInsightsOpen(false);
-		}
-	}, [runDetail?.result]);
-
-	useEffect(() => {
-		if (!isInsightsOpen) {
-			setIsCommandTraceOpen(false);
-			setIsEventStreamOpen(false);
-		}
-	}, [isInsightsOpen]);
 
 	const branchOptions = useMemo(
 		() =>
@@ -946,21 +1233,61 @@ export function Review() {
 	}, [refreshSessionState, session?.id]);
 
 	const activeRunSummary = session?.runs[0] ?? null;
-	const activeRun = runDetail?.id === activeRunSummary?.id
-		? runDetail
-		: runDetail ?? activeRunSummary;
+	const activeRun =
+		runDetail?.id === activeRunSummary?.id ? runDetail : runDetail ?? activeRunSummary;
 	const reviewResult: ReviewResult | null = activeRun?.result ?? null;
-	const activeApprovals = activeRun?.approvals ?? [];
-	const pendingApprovals = activeApprovals.filter(
+	const pendingApprovals = (activeRun?.approvals ?? []).filter(
 		(approval) => approval.status === "pending",
-	);
-	const commandTrace = useMemo(
-		() => extractCompletedCommands(runDetail?.events ?? []),
-		[runDetail?.events],
 	);
 	const reasoningTrace = useMemo(
 		() => extractReasoningTraces(runDetail?.events ?? []),
 		[runDetail?.events],
+	);
+
+	useEffect(() => {
+		if (activeRun?.id && activeRun.id !== lastOpenedRunIdRef.current) {
+			setReviewPanelMode("rail");
+			lastOpenedRunIdRef.current = activeRun.id;
+		}
+
+		if (!activeRun) {
+			lastOpenedRunIdRef.current = null;
+			setReviewPanelMode("collapsed");
+		}
+	}, [activeRun]);
+
+	useEffect(() => {
+		if (!reviewResult) {
+			setSelectedFindingId(null);
+			return;
+		}
+
+		setSelectedFindingId((current) =>
+			current && reviewResult.findings.some((finding) => finding.id === current)
+				? current
+				: null,
+		);
+	}, [reviewResult]);
+
+	const availableFindingPaths = useMemo(() => {
+		const paths = new Set<string>();
+
+		for (const fileChange of session?.file_changes ?? []) {
+			paths.add(getFileChangeLabelPath(fileChange));
+			if (fileChange.new_path) {
+				paths.add(fileChange.new_path);
+			}
+			if (fileChange.old_path) {
+				paths.add(fileChange.old_path);
+			}
+		}
+
+		return paths;
+	}, [session?.file_changes]);
+
+	const canNavigateToFinding = useCallback(
+		(finding: ReviewFinding) => availableFindingPaths.has(finding.file_path),
+		[availableFindingPaths],
 	);
 
 	const handleStartReview = useCallback(async () => {
@@ -1034,20 +1361,34 @@ export function Review() {
 		[activeRun, refreshSessionState, session],
 	);
 
-	const handleFindingSelect = useCallback((finding: ReviewFinding) => {
-		diffWorkspaceRef.current?.focusLocation({
-			filePath: finding.file_path,
-			newStart: finding.new_start ?? null,
-			oldStart: finding.old_start ?? null,
-		});
-	}, []);
-
-	const handleInsightFindingSelect = useCallback(
+	const handleFindingSelect = useCallback(
 		(finding: ReviewFinding) => {
-			handleFindingSelect(finding);
-			setIsInsightsOpen(false);
+			if (!canNavigateToFinding(finding)) {
+				return;
+			}
+
+			setSelectedFindingId(finding.id);
+			const focusFinding = () => {
+				diffWorkspaceRef.current?.focusLocation({
+					filePath: finding.file_path,
+					newStart: finding.new_start ?? null,
+					oldStart: finding.old_start ?? null,
+				});
+			};
+
+			if (reviewPanelMode === "fullscreen" && typeof window !== "undefined") {
+				setReviewPanelMode("rail");
+				window.requestAnimationFrame(() => {
+					window.requestAnimationFrame(() => {
+						focusFinding();
+					});
+				});
+				return;
+			}
+
+			focusFinding();
 		},
-		[handleFindingSelect],
+		[canNavigateToFinding, reviewPanelMode],
 	);
 
 	const canStartReview = Boolean(
@@ -1068,6 +1409,9 @@ export function Review() {
 		: activeRun
 			? formatLabel(activeRun.status)
 			: "No review";
+	const isReviewVisible = reviewPanelMode !== "collapsed";
+	const isReviewRailOpen = reviewPanelMode === "rail";
+	const isReviewFullscreen = reviewPanelMode === "fullscreen";
 
 	const compareMetadata = [
 		{
@@ -1110,6 +1454,11 @@ export function Review() {
 			value: String(pendingApprovals.length),
 		},
 	];
+
+	const reviewToggleLabel = reviewPanelMode === "collapsed" ? "Show Review" : "Hide Review";
+	const reviewToggleCount = reviewResult
+		? reviewResult.findings.length
+		: pendingApprovals.length;
 
 	const pageTopContent = (
 		<div className="space-y-3">
@@ -1185,17 +1534,26 @@ export function Review() {
 								variant="toolbar"
 								size="sm"
 								className="min-w-[8.5rem] justify-between"
-								onClick={() => setIsInsightsOpen(true)}
+								onClick={() =>
+									setReviewPanelMode((current) =>
+										current === "collapsed" ? "rail" : "collapsed",
+									)
+								}
 								disabled={!activeRun}
-								aria-haspopup="dialog"
+								aria-pressed={isReviewVisible}
 							>
 								<span className="flex items-center gap-2">
-									<PanelRightOpen className="size-4" />
-									Run Details
+									<PanelRightOpen
+										className={cn(
+											"size-4 transition-transform duration-150",
+											isReviewVisible ? "rotate-180" : "",
+										)}
+									/>
+									{reviewToggleLabel}
 								</span>
 								{activeRun ? (
 									<span className="rounded-full border border-border-subtle bg-control px-1.5 py-0.5 font-mono text-[10px] text-text-primary">
-										{pendingApprovals.length}
+										{reviewToggleCount}
 									</span>
 								) : null}
 							</Button>
@@ -1341,200 +1699,108 @@ export function Review() {
 		</div>
 	);
 
+	const mobileReviewPanel =
+		activeRun && isReviewVisible ? (
+			<div className="xl:hidden">
+				<ReviewInsightsPanel
+					activeRun={activeRun}
+					reviewResult={reviewResult}
+					findingsLabel={findingsLabel}
+					selectedFindingId={selectedFindingId}
+					onSelectFinding={handleFindingSelect}
+					canNavigateToFinding={canNavigateToFinding}
+					reasoningTrace={reasoningTrace}
+					isInline
+					onToggleOpen={() => setReviewPanelMode("collapsed")}
+					onToggleFullscreen={() => setReviewPanelMode("rail")}
+				/>
+			</div>
+		) : null;
+
+	const desktopCollapsedReviewRail =
+		activeRun ? (
+			<button
+				type="button"
+				className="flex h-full w-full flex-col items-center justify-center gap-3 bg-transparent px-2 py-4 text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+				onClick={() => setReviewPanelMode("rail")}
+				aria-label="Show AI review"
+				title="Show AI review"
+			>
+				<PanelRightOpen className="size-4" />
+				<span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 font-mono text-[10px] text-text-primary">
+					{reviewResult ? reviewResult.findings.length : "..."}
+				</span>
+				<span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-semibold tracking-[0.22em] text-text-tertiary uppercase">
+					Review
+				</span>
+			</button>
+		) : undefined;
+
 	return (
-		<>
-			<div className="workspace-shell min-h-screen">
-				<div className="flex min-h-screen flex-col pb-4">
-					<div className="px-4 pt-4">
-						<CommitToolbar
+		<div className="workspace-shell min-h-screen">
+			<div className="flex min-h-screen flex-col pb-4">
+				<div className="px-4 pt-4">
+					<CommitToolbar
+						repoPath={repoPath}
+						detailLabel="Review"
+						onExit={() => navigate(repoPath ? buildRepoRoute(repoPath) : "/")}
+						onCollapseAll={
+							session?.file_changes?.length
+								? () => diffWorkspaceRef.current?.collapseAll()
+								: undefined
+						}
+					/>
+				</div>
+
+				<div className="px-4 pt-4">{pageTopContent}</div>
+
+				{mobileReviewPanel ? <div className="px-4 pt-4">{mobileReviewPanel}</div> : null}
+
+				<div className="px-4 pb-4 pt-4">
+					<div className="sticky top-[calc(var(--header-height)+1rem)] z-10 h-[calc(100dvh-var(--header-height)-2rem)]">
+						<DiffWorkspace
+							ref={diffWorkspaceRef}
 							repoPath={repoPath}
-							detailLabel="Review"
-							onExit={() => navigate(repoPath ? buildRepoRoute(repoPath) : "/")}
-							onCollapseAll={
-								session?.file_changes?.length
-									? () => diffWorkspaceRef.current?.collapseAll()
-									: undefined
+							viewerId={session ? `review:${session.id}` : "review"}
+							files={session?.file_changes ?? []}
+							isLoading={isSessionLoading}
+							error={
+								!repoPath ? "No Git project path was provided." : sessionError
 							}
+							topContent={workspaceTopContent}
+							fileSearchInputId="review-file-search-input"
+							codeSearchInputId="review-code-search-input"
+							emptyTitle="Select two local branches to prepare a review session."
+							emptyDescription="GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
+							chromeDensity="compact"
+							fileTreeCollapsible
+							rightRail={
+								activeRun ? (
+									<ReviewInsightsPanel
+										activeRun={activeRun}
+										reviewResult={reviewResult}
+										findingsLabel={findingsLabel}
+										selectedFindingId={selectedFindingId}
+										onSelectFinding={handleFindingSelect}
+										canNavigateToFinding={canNavigateToFinding}
+										reasoningTrace={reasoningTrace}
+										isFullscreen={isReviewFullscreen}
+										onToggleOpen={() => setReviewPanelMode("collapsed")}
+										onToggleFullscreen={() =>
+											setReviewPanelMode((current) =>
+												current === "fullscreen" ? "rail" : "fullscreen",
+											)
+										}
+									/>
+								) : undefined
+							}
+							isRightRailOpen={Boolean(activeRun) && isReviewRailOpen}
+							isRightRailFullscreen={Boolean(activeRun) && isReviewFullscreen}
+							rightRailCollapsedSummary={desktopCollapsedReviewRail}
 						/>
-					</div>
-
-					<div className="px-4 pt-4">{pageTopContent}</div>
-
-					<div className="px-4 pb-4 pt-4">
-						<div className="sticky top-[calc(var(--header-height)+1rem)] z-10 h-[calc(100dvh-var(--header-height)-2rem)]">
-							<DiffWorkspace
-								ref={diffWorkspaceRef}
-								repoPath={repoPath}
-								viewerId={session ? `review:${session.id}` : "review"}
-								files={session?.file_changes ?? []}
-								isLoading={isSessionLoading}
-								error={
-									!repoPath ? "No Git project path was provided." : sessionError
-								}
-								topContent={workspaceTopContent}
-								fileSearchInputId="review-file-search-input"
-								codeSearchInputId="review-code-search-input"
-								emptyTitle="Select two local branches to prepare a review session."
-								emptyDescription="GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
-								chromeDensity="compact"
-								fileTreeCollapsible
-							/>
-						</div>
 					</div>
 				</div>
 			</div>
-
-			<Sheet
-				open={Boolean(activeRun) && isInsightsOpen}
-				onOpenChange={setIsInsightsOpen}
-			>
-				{activeRun ? (
-					<SheetContent side="right" className="w-[min(38rem,100vw)] gap-0 p-0">
-						<SheetHeader className="border-b border-border-subtle p-5 pb-4">
-							<div className="flex items-start justify-between gap-3 pr-8">
-								<div className="min-w-0">
-									<SheetTitle>Codex Review Run</SheetTitle>
-									<SheetDescription className="mt-1 text-left">
-										{`${baseRef || "Base"} -> ${headRef || "Head"} / ${formatLabel(activeRun.status)}`}
-									</SheetDescription>
-								</div>
-								<StatusPill tone={getRunStatusTone(activeRun.status)} pulse={ACTIVE_RUN_STATUSES.has(activeRun.status)}>
-									{formatLabel(activeRun.status)}
-								</StatusPill>
-							</div>
-						</SheetHeader>
-
-						<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
-							<section className="rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
-								<div className="flex items-center justify-between gap-3">
-									<div className="workspace-section-label">Structured Review</div>
-									<div className="font-mono text-xs text-text-tertiary">
-										{findingsLabel}
-									</div>
-								</div>
-								{reviewResult ? (
-									<>
-										<div className="mt-3 text-sm leading-6 text-text-secondary">
-											<MarkdownRenderer content={reviewResult.summary} />
-										</div>
-										<div className="mt-4">
-											<ReviewFindingsList
-												findings={reviewResult.findings}
-												onSelect={handleInsightFindingSelect}
-											/>
-										</div>
-									</>
-								) : (
-									<div className="mt-3 text-sm text-text-secondary">
-										Codex has not emitted the structured result for this run yet.
-									</div>
-								)}
-							</section>
-
-							<section className="mt-4 rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
-								<div className="flex items-center justify-between gap-3">
-									<div className="workspace-section-label">Approval History</div>
-									<div className="font-mono text-xs text-text-tertiary">
-										{activeApprovals.length}
-									</div>
-								</div>
-								<div className="mt-3 space-y-3">
-									{activeApprovals.length === 0 ? (
-										<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
-											No approval prompts have been recorded for this run.
-										</div>
-									) : (
-										activeApprovals.map((approval) => (
-											<div
-												key={approval.id}
-												className="rounded-[16px] border border-border-subtle bg-control/45 p-3"
-											>
-												<div className="flex flex-wrap items-center justify-between gap-2">
-													<div className="text-sm font-medium text-text-primary">
-														{approval.summary || formatLabel(approval.method)}
-													</div>
-													<StatusPill tone={getApprovalTone(approval.status)}>
-														{formatLabel(approval.status)}
-													</StatusPill>
-												</div>
-												<div className="mt-1 font-mono text-[11px] text-text-tertiary">
-													{approval.method}
-												</div>
-											</div>
-										))
-									)}
-								</div>
-							</section>
-
-							<section className="mt-4 rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
-								<div className="flex items-center justify-between gap-3">
-									<Button
-										type="button"
-										variant="toolbar"
-										size="sm"
-										className="h-auto px-0 py-0 text-left hover:bg-transparent"
-										onClick={() =>
-											setIsCommandTraceOpen((current) => !current)
-										}
-										aria-expanded={isCommandTraceOpen}
-									>
-										{isCommandTraceOpen ? (
-											<ChevronDown className="size-4 text-text-secondary" />
-										) : (
-											<ChevronRight className="size-4 text-text-secondary" />
-										)}
-										<Terminal className="size-4 text-text-secondary" />
-										<span className="workspace-section-label">Command Trace</span>
-									</Button>
-									<div className="flex items-center gap-2">
-										<div className="font-mono text-xs text-text-tertiary">
-											{commandTrace.length}
-										</div>
-									</div>
-								</div>
-								{isCommandTraceOpen ? (
-									<div className="mt-3">
-										<CommandTrace commands={commandTrace} />
-									</div>
-								) : null}
-							</section>
-
-							<section className="mt-4 rounded-[18px] border border-border-subtle bg-[rgba(255,255,255,0.026)] p-4">
-								<div className="flex items-center justify-between gap-3">
-									<Button
-										type="button"
-										variant="toolbar"
-										size="sm"
-										className="h-auto px-0 py-0 text-left hover:bg-transparent"
-										onClick={() =>
-											setIsEventStreamOpen((current) => !current)
-										}
-										aria-expanded={isEventStreamOpen}
-									>
-										{isEventStreamOpen ? (
-											<ChevronDown className="size-4 text-text-secondary" />
-										) : (
-											<ChevronRight className="size-4 text-text-secondary" />
-										)}
-										<AlertTriangle className="size-4 text-text-secondary" />
-										<span className="workspace-section-label">Event Stream</span>
-									</Button>
-									<div className="flex items-center gap-2">
-										<div className="font-mono text-xs text-text-tertiary">
-											{reasoningTrace.length}
-										</div>
-									</div>
-								</div>
-								{isEventStreamOpen ? (
-									<div className="mt-3">
-										<EventFeed entries={reasoningTrace} />
-									</div>
-								) : null}
-							</section>
-						</div>
-					</SheetContent>
-				) : null}
-			</Sheet>
-		</>
+		</div>
 	);
 }

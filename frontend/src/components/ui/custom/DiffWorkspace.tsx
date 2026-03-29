@@ -69,6 +69,10 @@ type DiffWorkspaceProps = {
   emptyTitle: string;
   emptyDescription?: string;
   summaryActions?: DiffWorkspaceSummaryActions;
+  rightRail?: ReactNode;
+  isRightRailOpen?: boolean;
+  isRightRailFullscreen?: boolean;
+  rightRailCollapsedSummary?: ReactNode;
 };
 
 function focusSearchInput(inputId: string) {
@@ -157,6 +161,10 @@ export const DiffWorkspace = forwardRef<
     emptyTitle,
     emptyDescription,
     summaryActions,
+    rightRail,
+    isRightRailOpen = false,
+    isRightRailFullscreen = false,
+    rightRailCollapsedSummary,
   },
   ref,
 ) {
@@ -360,6 +368,11 @@ export const DiffWorkspace = forwardRef<
 
   const hasFiles = files.length > 0;
   const isCompactChrome = chromeDensity === "compact";
+  const desktopRightRailContent = isRightRailFullscreen
+    ? rightRail
+    : isRightRailOpen
+      ? rightRail
+      : rightRailCollapsedSummary;
   const headerPadding = isCompactChrome ? "px-4 py-3" : "px-4 py-4 sm:px-5";
   const fileTreeSearch = (
     <DiffSearchField
@@ -399,7 +412,14 @@ export const DiffWorkspace = forwardRef<
             )}
 
             {hasFiles ? (
-              <div className="w-full xl:max-w-[22rem]">{codeSearch}</div>
+              <div
+                className={cn(
+                  "w-full xl:max-w-[22rem]",
+                  isRightRailFullscreen ? "xl:hidden" : undefined,
+                )}
+              >
+                {codeSearch}
+              </div>
             ) : null}
           </div>
         </div>
@@ -412,23 +432,30 @@ export const DiffWorkspace = forwardRef<
       ) : hasFiles ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <div className="flex h-full min-h-0 flex-col xl:flex-row">
-            <CommitFileTree
-              files={filteredFiles}
-              totalFileCount={files.length}
-              selectedFilePath={selectedFilePath}
-              topContent={fileTreeSearch}
-              isCollapsed={fileTreeCollapsible && isFileTreeCollapsed}
-              hasActiveSearch={hasActiveSearch}
-              forceExpandAll={hasActiveSearch}
-              onToggleCollapsed={
-                fileTreeCollapsible
-                  ? () => setIsFileTreeCollapsed((current) => !current)
-                  : undefined
-              }
-              onSelectFile={handleSelectFile}
-            />
+            <div className={cn(isRightRailFullscreen ? "xl:hidden" : undefined)}>
+              <CommitFileTree
+                files={filteredFiles}
+                totalFileCount={files.length}
+                selectedFilePath={selectedFilePath}
+                topContent={fileTreeSearch}
+                isCollapsed={fileTreeCollapsible && isFileTreeCollapsed}
+                hasActiveSearch={hasActiveSearch}
+                forceExpandAll={hasActiveSearch}
+                onToggleCollapsed={
+                  fileTreeCollapsible
+                    ? () => setIsFileTreeCollapsed((current) => !current)
+                    : undefined
+                }
+                onSelectFile={handleSelectFile}
+              />
+            </div>
 
-            <div className="min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(16,18,23,0.54),rgba(10,12,15,0.92))]">
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(16,18,23,0.54),rgba(10,12,15,0.92))]",
+                isRightRailFullscreen ? "xl:hidden" : undefined,
+              )}
+            >
               <div
                 className={cn(
                   "h-full min-h-0 overflow-hidden",
@@ -529,6 +556,23 @@ export const DiffWorkspace = forwardRef<
                 </div>
               </div>
             </div>
+
+            {desktopRightRailContent ? (
+              <div
+                className={cn(
+                  "hidden min-h-0 shrink-0 border-l border-border-subtle bg-[linear-gradient(180deg,rgba(11,14,19,0.98),rgba(8,10,14,0.94))] transition-[width] duration-200 ease-out xl:flex",
+                  isRightRailFullscreen
+                    ? "w-full min-w-0 grow shrink border-l-0"
+                    : isRightRailOpen
+                      ? "w-[24rem]"
+                      : "w-[3.75rem]",
+                )}
+              >
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  {desktopRightRailContent}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : (
