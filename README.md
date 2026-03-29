@@ -46,6 +46,8 @@ docker compose up -d db
 ### 4. Launch the desktop app
 
 ```bash
+npm start
+# or
 npm run desktop:dev
 ```
 
@@ -76,6 +78,7 @@ AI_SECRET_VALUES_JSON={"provider:openai-default:api-key":"your-openai-api-key"}
 ## Useful Commands
 
 ```bash
+npm start
 npm run desktop:dev
 npm run desktop:build
 npm run desktop:smoke

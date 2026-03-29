@@ -2,6 +2,7 @@
   "name": "git-odyssey",
   "private": true,
   "scripts": {
+    "start": "npm run desktop:dev",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
     "frontend:lint": "npm --prefix frontend run lint",
