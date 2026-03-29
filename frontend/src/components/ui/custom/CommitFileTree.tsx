@@ -245,7 +245,7 @@ export function CommitFileTree({
 
 	if (isCollapsed) {
 		return (
-			<aside className="flex min-h-[3.75rem] items-center justify-between gap-3 border-b border-border-subtle bg-[rgba(9,11,14,0.96)] px-3 py-2.5 xl:min-h-0 xl:w-[4.25rem] xl:min-w-[4.25rem] xl:flex-col xl:justify-start xl:border-b-0 xl:border-r xl:px-2 xl:py-3">
+			<aside className="flex h-full min-h-[3.75rem] items-center justify-between gap-3 border-b border-border-subtle bg-[rgba(9,11,14,0.96)] px-3 py-2.5 xl:min-h-0 xl:w-[4.25rem] xl:min-w-[4.25rem] xl:flex-col xl:justify-start xl:border-b-0 xl:border-r xl:px-2 xl:py-3">
 				{collapseButton}
 
 				<div className="flex min-w-0 items-center gap-2 xl:hidden">
@@ -275,7 +275,7 @@ export function CommitFileTree({
 	return (
 		<aside
 			style={desktopWidthStyle}
-			className="flex min-h-[15rem] flex-col overflow-hidden border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:min-h-0 xl:w-[var(--commit-file-tree-width,20rem)] xl:min-w-[var(--commit-file-tree-width,20rem)] xl:border-b-0 xl:border-r"
+			className="flex h-full min-h-[15rem] flex-col overflow-hidden border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:min-h-0 xl:w-[var(--commit-file-tree-width,20rem)] xl:min-w-[var(--commit-file-tree-width,20rem)] xl:border-b-0 xl:border-r"
 		>
 			{topContent ? (
 				<div className="border-b border-border-subtle px-3 py-3">
