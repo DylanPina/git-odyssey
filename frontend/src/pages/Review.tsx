@@ -46,7 +46,6 @@ import {
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
 import { useRepoData } from "@/hooks/useRepoData";
-import { useDesktopTitleBarActions } from "@/lib/desktop-titlebar-actions";
 import { getFileChangeLabelPath } from "@/lib/diff";
 import type { Commit } from "@/lib/definitions/repo";
 import type {
@@ -1203,7 +1202,6 @@ export function Review() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
-	const setDesktopTitleBarActions = useDesktopTitleBarActions();
 	const { baseRef: queryBaseRef, headRef: queryHeadRef } = useMemo(
 		() => readReviewRefsFromSearchParams(searchParams),
 		[searchParams],
@@ -2631,24 +2629,6 @@ export function Review() {
 				</span>
 			</button>
 		) : undefined;
-	const canCollapseAllFiles = Boolean(displayedSession?.file_changes?.length);
-
-	useEffect(() => {
-		setDesktopTitleBarActions([
-			{
-				id: "collapse-all-files",
-				label: "Collapse all files",
-				disabled: !canCollapseAllFiles,
-				onClick: () => {
-					diffWorkspaceRef.current?.collapseAll();
-				},
-			},
-		]);
-
-		return () => {
-			setDesktopTitleBarActions([]);
-		};
-	}, [canCollapseAllFiles, setDesktopTitleBarActions]);
 
 	return (
 		<div className="workspace-shell overflow-y-auto">

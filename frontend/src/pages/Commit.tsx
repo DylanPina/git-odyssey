@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { GitCommitHorizontal } from "lucide-react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -8,7 +8,6 @@ import {
 	type DiffWorkspaceHandle,
 } from "@/components/ui/custom/DiffWorkspace";
 import { useCommitDetails } from "@/hooks/useCommitDetails";
-import { useDesktopTitleBarActions } from "@/lib/desktop-titlebar-actions";
 import {
 	readCommitSearchContextFromSearchParams,
 	readRepoPathFromSearchParams,
@@ -31,7 +30,6 @@ export function Commit() {
 	const [searchParams] = useSearchParams();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
 	const commitSearchContext = readCommitSearchContextFromSearchParams(searchParams);
-	const setDesktopTitleBarActions = useDesktopTitleBarActions();
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
 
 	const shortSha = useMemo(
@@ -174,24 +172,6 @@ export function Commit() {
 			</div>
 		</div>
 	);
-	const canCollapseAllFiles = allFiles.length > 0;
-
-	useEffect(() => {
-		setDesktopTitleBarActions([
-			{
-				id: "collapse-all-files",
-				label: "Collapse all files",
-				disabled: !canCollapseAllFiles,
-				onClick: () => {
-					diffWorkspaceRef.current?.collapseAll();
-				},
-			},
-		]);
-
-		return () => {
-			setDesktopTitleBarActions([]);
-		};
-	}, [canCollapseAllFiles, setDesktopTitleBarActions]);
 
 	return (
 		<div className="workspace-shell overflow-y-auto">
