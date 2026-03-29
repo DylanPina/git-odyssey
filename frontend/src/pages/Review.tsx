@@ -50,6 +50,7 @@ import type {
 import {
 	buildRepoRoute,
 	buildReviewRoute,
+	getRepoStableKey,
 	readRepoPathFromSearchParams,
 	readReviewRefsFromSearchParams,
 } from "@/lib/repoPaths";
@@ -57,6 +58,7 @@ import { cn } from "@/lib/utils";
 
 const DETACHED_HEAD_LABEL = "HEAD (detached)";
 const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "awaiting_approval"]);
+const REVIEW_SELECTED_REFS_STORAGE_KEY_PREFIX = "git-odyssey.review.selected_refs";
 const REVIEW_FILE_TREE_WIDTH_STORAGE_KEY = "git-odyssey.review.file_tree_width";
 const REVIEW_RIGHT_RAIL_WIDTH_STORAGE_KEY = "git-odyssey.review.right_rail_width";
 const REVIEW_FILE_TREE_WIDTH_DEFAULT = 320;
@@ -89,9 +91,19 @@ type ReasoningTraceEntry = {
 };
 
 type ReviewPanelMode = "collapsed" | "rail" | "fullscreen";
+type PersistedReviewRefs = {
+	baseRef: string;
+	headRef: string;
+};
 
 function clampPanelWidth(width: number, minWidth: number) {
 	return Math.max(minWidth, width);
+}
+
+function getReviewRefsStorageKey(repoPath?: string | null) {
+	return repoPath
+		? `${REVIEW_SELECTED_REFS_STORAGE_KEY_PREFIX}:${getRepoStableKey(repoPath)}`
+		: null;
 }
 
 function getStoredReviewPanelWidth(
@@ -118,6 +130,56 @@ function getStoredReviewPanelWidth(
 		return clampPanelWidth(parsedWidth, minWidth);
 	} catch {
 		return fallbackWidth;
+	}
+}
+
+function getStoredReviewRefs(storageKey: string | null): PersistedReviewRefs | null {
+	if (typeof window === "undefined" || !storageKey) {
+		return null;
+	}
+
+	try {
+		const storedRefs = window.localStorage.getItem(storageKey);
+		if (!storedRefs) {
+			return null;
+		}
+
+		const parsed = JSON.parse(storedRefs);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return null;
+		}
+
+		const baseRef =
+			typeof parsed.baseRef === "string" ? parsed.baseRef : "";
+		const headRef =
+			typeof parsed.headRef === "string" ? parsed.headRef : "";
+
+		return baseRef || headRef ? { baseRef, headRef } : null;
+	} catch {
+		return null;
+	}
+}
+
+function persistStoredReviewRefs(
+	storageKey: string | null,
+	{ baseRef, headRef }: PersistedReviewRefs,
+) {
+	if (typeof window === "undefined" || !storageKey) {
+		return;
+	}
+
+	try {
+		if (!baseRef && !headRef) {
+			window.localStorage.removeItem(storageKey);
+			return;
+		}
+
+		window.localStorage.setItem(
+			storageKey,
+			JSON.stringify({ baseRef, headRef }),
+		);
+	} catch {
+		// Ignore storage issues and keep the in-memory state.
 	}
 }
 
@@ -1055,6 +1117,10 @@ export function Review() {
 			REVIEW_RIGHT_RAIL_WIDTH_MIN,
 		),
 	);
+	const reviewRefsStorageKey = useMemo(
+		() => getReviewRefsStorageKey(repoPath),
+		[repoPath],
+	);
 
 	const {
 		commits,
@@ -1062,14 +1128,6 @@ export function Review() {
 		isLoading: isRepoLoading,
 		error: repoError,
 	} = useRepoData({ repoPath });
-
-	useEffect(() => {
-		setBaseRef(queryBaseRef ?? "");
-	}, [queryBaseRef]);
-
-	useEffect(() => {
-		setHeadRef(queryHeadRef ?? "");
-	}, [queryHeadRef]);
 
 	useEffect(() => {
 		setSession(null);
@@ -1096,6 +1154,7 @@ export function Review() {
 			),
 		[branches],
 	);
+	const branchOptionSet = useMemo(() => new Set(branchOptions), [branchOptions]);
 
 	const commitBySha = useMemo(
 		() => new Map(commits.map((commit) => [commit.sha, commit])),
@@ -1149,6 +1208,77 @@ export function Review() {
 		[navigate, repoPath],
 	);
 
+	const setStoredReviewRefs = useCallback(
+		(nextBaseRef: string, nextHeadRef: string) => {
+			persistStoredReviewRefs(reviewRefsStorageKey, {
+				baseRef: nextBaseRef,
+				headRef: nextHeadRef,
+			});
+		},
+		[reviewRefsStorageKey],
+	);
+
+	useEffect(() => {
+		const storedReviewRefs = getStoredReviewRefs(reviewRefsStorageKey);
+		const nextBaseRef = queryBaseRef ?? storedReviewRefs?.baseRef ?? "";
+		const nextHeadRef = queryHeadRef ?? storedReviewRefs?.headRef ?? "";
+
+		setBaseRef((current) => (current === nextBaseRef ? current : nextBaseRef));
+		setHeadRef((current) => (current === nextHeadRef ? current : nextHeadRef));
+		setStoredReviewRefs(nextBaseRef, nextHeadRef);
+
+		if (
+			repoPath &&
+			(queryBaseRef == null || queryHeadRef == null) &&
+			((queryBaseRef ?? "") !== nextBaseRef ||
+				(queryHeadRef ?? "") !== nextHeadRef)
+		) {
+			updateRoute(nextBaseRef, nextHeadRef);
+		}
+	}, [
+		queryBaseRef,
+		queryHeadRef,
+		repoPath,
+		reviewRefsStorageKey,
+		setStoredReviewRefs,
+		updateRoute,
+	]);
+
+	useEffect(() => {
+		if (isRepoLoading) {
+			return;
+		}
+
+		const nextBaseRef = baseRef && branchOptionSet.has(baseRef) ? baseRef : "";
+		const nextHeadRef = headRef && branchOptionSet.has(headRef) ? headRef : "";
+
+		if (nextBaseRef === baseRef && nextHeadRef === headRef) {
+			return;
+		}
+
+		setBaseRef(nextBaseRef);
+		setHeadRef(nextHeadRef);
+		setStoredReviewRefs(nextBaseRef, nextHeadRef);
+
+		if (
+			repoPath &&
+			((queryBaseRef ?? "") !== nextBaseRef ||
+				(queryHeadRef ?? "") !== nextHeadRef)
+		) {
+			updateRoute(nextBaseRef, nextHeadRef);
+		}
+	}, [
+		baseRef,
+		branchOptionSet,
+		headRef,
+		isRepoLoading,
+		queryBaseRef,
+		queryHeadRef,
+		repoPath,
+		setStoredReviewRefs,
+		updateRoute,
+	]);
+
 	const setFileTreePreferredWidth = useCallback((nextWidth: number) => {
 		const clampedWidth = clampPanelWidth(
 			nextWidth,
@@ -1194,17 +1324,19 @@ export function Review() {
 	const handleBaseRefChange = useCallback(
 		(nextBaseRef: string) => {
 			setBaseRef(nextBaseRef);
+			setStoredReviewRefs(nextBaseRef, headRef);
 			updateRoute(nextBaseRef, headRef);
 		},
-		[headRef, updateRoute],
+		[headRef, setStoredReviewRefs, updateRoute],
 	);
 
 	const handleHeadRefChange = useCallback(
 		(nextHeadRef: string) => {
 			setHeadRef(nextHeadRef);
+			setStoredReviewRefs(baseRef, nextHeadRef);
 			updateRoute(baseRef, nextHeadRef);
 		},
-		[baseRef, updateRoute],
+		[baseRef, setStoredReviewRefs, updateRoute],
 	);
 
 	const refreshSessionState = useCallback(
@@ -1497,6 +1629,9 @@ export function Review() {
 			ACTIVE_RUN_STATUSES.has(activeRun.status) &&
 			!isRunCancelling,
 	);
+	const hasCancelableRun = Boolean(
+		activeRun && ACTIVE_RUN_STATUSES.has(activeRun.status),
+	);
 
 	const findingsLabel = reviewResult
 		? `${reviewResult.findings.length} finding${reviewResult.findings.length === 1 ? "" : "s"}`
@@ -1549,11 +1684,6 @@ export function Review() {
 		},
 	];
 
-	const reviewToggleLabel = reviewPanelMode === "collapsed" ? "Show Review" : "Hide Review";
-	const reviewToggleCount = reviewResult
-		? reviewResult.findings.length
-		: pendingApprovals.length;
-
 	const pageTopContent = (
 		<div className="space-y-3">
 			<div className="rounded-[20px] border border-border-strong bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
@@ -1604,53 +1734,27 @@ export function Review() {
 								)}
 							</Button>
 
-							<Button
-								variant="danger"
-								size="sm"
-								className="min-w-[8.5rem]"
-								onClick={() => void handleCancelReview()}
-								disabled={!canCancelReview}
-							>
-								{isRunCancelling ? (
-									<>
-										<Loader2 className="size-4 animate-spin" />
-										Cancelling
-									</>
-								) : (
-									<>
-										<Square className="size-4" />
-										Cancel Run
-									</>
-								)}
-							</Button>
-
-							<Button
-								variant="toolbar"
-								size="sm"
-								className="min-w-[8.5rem] justify-between"
-								onClick={() =>
-									setReviewPanelMode((current) =>
-										current === "collapsed" ? "rail" : "collapsed",
-									)
-								}
-								disabled={!activeRun}
-								aria-pressed={isReviewVisible}
-							>
-								<span className="flex items-center gap-2">
-									<PanelRightOpen
-										className={cn(
-											"size-4 transition-transform duration-150",
-											isReviewVisible ? "rotate-180" : "",
-										)}
-									/>
-									{reviewToggleLabel}
-								</span>
-								{activeRun ? (
-									<span className="rounded-full border border-border-subtle bg-control px-1.5 py-0.5 font-mono text-[10px] text-text-primary">
-										{reviewToggleCount}
-									</span>
-								) : null}
-							</Button>
+							{hasCancelableRun ? (
+								<Button
+									variant="danger"
+									size="sm"
+									className="min-w-[8.5rem]"
+									onClick={() => void handleCancelReview()}
+									disabled={!canCancelReview}
+								>
+									{isRunCancelling ? (
+										<>
+											<Loader2 className="size-4 animate-spin" />
+											Cancelling
+										</>
+									) : (
+										<>
+											<Square className="size-4" />
+											Cancel Run
+										</>
+									)}
+								</Button>
+							) : null}
 						</div>
 					</div>
 
@@ -1686,19 +1790,6 @@ export function Review() {
 									isMono={false}
 								/>
 							</>
-						) : null}
-						{session ? (
-							<StatusPill tone={getRunStatusTone(session.status)}>
-								Session {formatLabel(session.status)}
-							</StatusPill>
-						) : null}
-						{activeRun ? (
-							<StatusPill
-								tone={getRunStatusTone(activeRun.status)}
-								pulse={ACTIVE_RUN_STATUSES.has(activeRun.status)}
-							>
-								Run {formatLabel(activeRun.status)}
-							</StatusPill>
 						) : null}
 					</div>
 
