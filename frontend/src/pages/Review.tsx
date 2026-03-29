@@ -57,6 +57,13 @@ import { cn } from "@/lib/utils";
 
 const DETACHED_HEAD_LABEL = "HEAD (detached)";
 const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "awaiting_approval"]);
+const REVIEW_FILE_TREE_WIDTH_STORAGE_KEY = "git-odyssey.review.file_tree_width";
+const REVIEW_RIGHT_RAIL_WIDTH_STORAGE_KEY = "git-odyssey.review.right_rail_width";
+const REVIEW_FILE_TREE_WIDTH_DEFAULT = 320;
+const REVIEW_FILE_TREE_WIDTH_MIN = 240;
+const REVIEW_RIGHT_RAIL_WIDTH_DEFAULT = 384;
+const REVIEW_RIGHT_RAIL_WIDTH_MIN = 320;
+const REVIEW_DIFF_MIN_WIDTH = 512;
 
 type ReviewBranchTipCardProps = {
 	label: string;
@@ -82,6 +89,37 @@ type ReasoningTraceEntry = {
 };
 
 type ReviewPanelMode = "collapsed" | "rail" | "fullscreen";
+
+function clampPanelWidth(width: number, minWidth: number) {
+	return Math.max(minWidth, width);
+}
+
+function getStoredReviewPanelWidth(
+	storageKey: string,
+	defaultWidth: number,
+	minWidth: number,
+) {
+	const fallbackWidth = clampPanelWidth(defaultWidth, minWidth);
+	if (typeof window === "undefined") {
+		return fallbackWidth;
+	}
+
+	try {
+		const storedWidth = window.localStorage.getItem(storageKey);
+		if (storedWidth === null) {
+			return fallbackWidth;
+		}
+
+		const parsedWidth = Number.parseFloat(storedWidth);
+		if (Number.isNaN(parsedWidth)) {
+			return fallbackWidth;
+		}
+
+		return clampPanelWidth(parsedWidth, minWidth);
+	} catch {
+		return fallbackWidth;
+	}
+}
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Something went wrong.";
@@ -1003,6 +1041,20 @@ export function Review() {
 	>({});
 	const [reviewPanelMode, setReviewPanelMode] = useState<ReviewPanelMode>("collapsed");
 	const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
+	const [fileTreePreferredWidth, setFileTreePreferredWidthState] = useState(() =>
+		getStoredReviewPanelWidth(
+			REVIEW_FILE_TREE_WIDTH_STORAGE_KEY,
+			REVIEW_FILE_TREE_WIDTH_DEFAULT,
+			REVIEW_FILE_TREE_WIDTH_MIN,
+		),
+	);
+	const [reviewRailPreferredWidth, setReviewRailPreferredWidthState] = useState(() =>
+		getStoredReviewPanelWidth(
+			REVIEW_RIGHT_RAIL_WIDTH_STORAGE_KEY,
+			REVIEW_RIGHT_RAIL_WIDTH_DEFAULT,
+			REVIEW_RIGHT_RAIL_WIDTH_MIN,
+		),
+	);
 
 	const {
 		commits,
@@ -1096,6 +1148,48 @@ export function Review() {
 		},
 		[navigate, repoPath],
 	);
+
+	const setFileTreePreferredWidth = useCallback((nextWidth: number) => {
+		const clampedWidth = clampPanelWidth(
+			nextWidth,
+			REVIEW_FILE_TREE_WIDTH_MIN,
+		);
+		setFileTreePreferredWidthState(clampedWidth);
+
+		if (typeof window === "undefined") {
+			return;
+		}
+
+		try {
+			window.localStorage.setItem(
+				REVIEW_FILE_TREE_WIDTH_STORAGE_KEY,
+				String(clampedWidth),
+			);
+		} catch {
+			// Ignore local storage failures and keep the in-memory state.
+		}
+	}, []);
+
+	const setReviewRailPreferredWidth = useCallback((nextWidth: number) => {
+		const clampedWidth = clampPanelWidth(
+			nextWidth,
+			REVIEW_RIGHT_RAIL_WIDTH_MIN,
+		);
+		setReviewRailPreferredWidthState(clampedWidth);
+
+		if (typeof window === "undefined") {
+			return;
+		}
+
+		try {
+			window.localStorage.setItem(
+				REVIEW_RIGHT_RAIL_WIDTH_STORAGE_KEY,
+				String(clampedWidth),
+			);
+		} catch {
+			// Ignore local storage failures and keep the in-memory state.
+		}
+	}, []);
 
 	const handleBaseRefChange = useCallback(
 		(nextBaseRef: string) => {
@@ -1774,6 +1868,21 @@ export function Review() {
 							emptyDescription="GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
 							chromeDensity="compact"
 							fileTreeCollapsible
+							desktopResize={{
+								minContentWidth: REVIEW_DIFF_MIN_WIDTH,
+								fileTree: {
+									preferredWidth: fileTreePreferredWidth,
+									defaultWidth: REVIEW_FILE_TREE_WIDTH_DEFAULT,
+									minWidth: REVIEW_FILE_TREE_WIDTH_MIN,
+									onPreferredWidthChange: setFileTreePreferredWidth,
+								},
+								rightRail: {
+									preferredWidth: reviewRailPreferredWidth,
+									defaultWidth: REVIEW_RIGHT_RAIL_WIDTH_DEFAULT,
+									minWidth: REVIEW_RIGHT_RAIL_WIDTH_MIN,
+									onPreferredWidthChange: setReviewRailPreferredWidth,
+								},
+							}}
 							rightRail={
 								activeRun ? (
 									<ReviewInsightsPanel

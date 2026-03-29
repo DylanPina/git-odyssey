@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -30,6 +36,7 @@ type CommitFileTreeProps = {
   files: FileChange[];
   totalFileCount: number;
   selectedFilePath: string | null;
+  desktopWidth?: number;
   topContent?: ReactNode;
   isCollapsed?: boolean;
   hasActiveSearch?: boolean;
@@ -75,6 +82,7 @@ export function CommitFileTree({
   files,
   totalFileCount,
   selectedFilePath,
+  desktopWidth,
   topContent,
   isCollapsed = false,
   hasActiveSearch = false,
@@ -228,6 +236,12 @@ export function CommitFileTree({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const desktopWidthStyle =
+    desktopWidth != null
+      ? ({
+          "--commit-file-tree-width": `${desktopWidth}px`,
+        } as CSSProperties)
+      : undefined;
 
   if (isCollapsed) {
     return (
@@ -259,7 +273,10 @@ export function CommitFileTree({
   }
 
   return (
-    <aside className="flex min-h-[15rem] flex-col overflow-hidden border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:min-h-0 xl:w-[20rem] xl:min-w-[20rem] xl:border-b-0 xl:border-r">
+    <aside
+      style={desktopWidthStyle}
+      className="flex min-h-[15rem] flex-col overflow-hidden border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:min-h-0 xl:w-[var(--commit-file-tree-width,20rem)] xl:min-w-[var(--commit-file-tree-width,20rem)] xl:border-b-0 xl:border-r"
+    >
       {topContent ? (
         <div className="border-b border-border-subtle px-3 py-3">{topContent}</div>
       ) : null}
