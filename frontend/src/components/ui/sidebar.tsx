@@ -82,6 +82,30 @@ function getStoredSidebarWidth(
 	}
 }
 
+function resolveSidebarMaxWidth({
+	maxWidth,
+	minWidth,
+	maxWidthRatio,
+	wrapperWidth,
+}: {
+	maxWidth: number;
+	minWidth: number;
+	maxWidthRatio?: number;
+	wrapperWidth: number | null;
+}) {
+	if (
+		maxWidthRatio == null ||
+		!Number.isFinite(maxWidthRatio) ||
+		maxWidthRatio <= 0 ||
+		wrapperWidth == null ||
+		wrapperWidth <= 0
+	) {
+		return maxWidth;
+	}
+
+	return Math.max(minWidth, Math.floor(wrapperWidth * maxWidthRatio));
+}
+
 type SidebarContextProps = {
 	state: "expanded" | "collapsed";
 	open: boolean;
@@ -113,6 +137,7 @@ function SidebarProvider({
 	defaultWidth = SIDEBAR_WIDTH_DEFAULT,
 	minWidth = SIDEBAR_WIDTH_MIN,
 	maxWidth = SIDEBAR_WIDTH_MAX,
+	maxWidthRatio,
 	open: openProp,
 	onOpenChange: setOpenProp,
 	className,
@@ -124,13 +149,26 @@ function SidebarProvider({
 	defaultWidth?: number;
 	minWidth?: number;
 	maxWidth?: number;
+	maxWidthRatio?: number;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
 }) {
 	const isMobile = useIsMobile();
+	const wrapperRef = React.useRef<HTMLDivElement | null>(null);
 	const [openMobile, setOpenMobile] = React.useState(false);
+	const [wrapperWidth, setWrapperWidth] = React.useState<number | null>(null);
 	const [desktopWidth, setDesktopWidthState] = React.useState(() =>
 		getStoredSidebarWidth(defaultWidth, minWidth, maxWidth)
+	);
+	const effectiveMaxWidth = React.useMemo(
+		() =>
+			resolveSidebarMaxWidth({
+				maxWidth,
+				minWidth,
+				maxWidthRatio,
+				wrapperWidth,
+			}),
+		[maxWidth, minWidth, maxWidthRatio, wrapperWidth]
 	);
 
 	// This is the internal state of the sidebar.
@@ -162,7 +200,7 @@ function SidebarProvider({
 			const nextWidth = clampSidebarWidth(
 				typeof value === "function" ? value(desktopWidth) : value,
 				minWidth,
-				maxWidth
+				effectiveMaxWidth
 			);
 			setDesktopWidthState(nextWidth);
 
@@ -175,7 +213,7 @@ function SidebarProvider({
 				// Ignore local storage failures and keep the in-memory state.
 			}
 		},
-		[desktopWidth, maxWidth, minWidth]
+		[desktopWidth, effectiveMaxWidth, minWidth]
 	);
 
 	const resetDesktopWidth = React.useCallback(() => {
@@ -186,6 +224,61 @@ function SidebarProvider({
 	const toggleSidebar = React.useCallback(() => {
 		return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
 	}, [isMobile, setOpen, setOpenMobile]);
+
+	React.useEffect(() => {
+		if (maxWidthRatio == null) {
+			setWrapperWidth(null);
+			return;
+		}
+
+		const wrapperElement = wrapperRef.current;
+		if (!wrapperElement) {
+			return;
+		}
+
+		const updateWidth = () => {
+			setWrapperWidth(wrapperElement.getBoundingClientRect().width);
+		};
+
+		updateWidth();
+
+		if (typeof ResizeObserver !== "undefined") {
+			const observer = new ResizeObserver(() => {
+				updateWidth();
+			});
+			observer.observe(wrapperElement);
+
+			return () => observer.disconnect();
+		}
+
+		const ownerWindow = wrapperElement.ownerDocument.defaultView ?? window;
+		ownerWindow.addEventListener("resize", updateWidth);
+		return () => ownerWindow.removeEventListener("resize", updateWidth);
+	}, [maxWidthRatio]);
+
+	React.useEffect(() => {
+		setDesktopWidthState((currentWidth) => {
+			const nextWidth = clampSidebarWidth(
+				currentWidth,
+				minWidth,
+				effectiveMaxWidth
+			);
+			if (nextWidth === currentWidth) {
+				return currentWidth;
+			}
+
+			try {
+				window.localStorage.setItem(
+					SIDEBAR_WIDTH_STORAGE_KEY,
+					String(nextWidth)
+				);
+			} catch {
+				// Ignore local storage failures and keep the in-memory state.
+			}
+
+			return nextWidth;
+		});
+	}, [effectiveMaxWidth, minWidth]);
 
 	// Adds a keyboard shortcut to toggle the sidebar.
 	React.useEffect(() => {
@@ -220,7 +313,7 @@ function SidebarProvider({
 			setDesktopWidth,
 			resetDesktopWidth,
 			minDesktopWidth: minWidth,
-			maxDesktopWidth: maxWidth,
+			maxDesktopWidth: effectiveMaxWidth,
 		}),
 		[
 			state,
@@ -234,7 +327,7 @@ function SidebarProvider({
 			setDesktopWidth,
 			resetDesktopWidth,
 			minWidth,
-			maxWidth,
+			effectiveMaxWidth,
 		]
 	);
 
@@ -243,6 +336,7 @@ function SidebarProvider({
 			<TooltipProvider delayDuration={0}>
 				<div
 					data-slot="sidebar-wrapper"
+					ref={wrapperRef}
 					style={
 						{
 							"--sidebar-width": `${desktopWidth}px`,

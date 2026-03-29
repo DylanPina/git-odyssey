@@ -342,7 +342,7 @@ function RepoWorkspace() {
 
 export function Repo() {
 	return (
-		<SidebarProvider>
+		<SidebarProvider maxWidthRatio={0.5}>
 			<RepoWorkspace />
 		</SidebarProvider>
 	);
