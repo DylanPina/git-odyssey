@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { CommitListView } from "@/components/ui/custom/CommitListView";
@@ -6,7 +6,8 @@ import CommitNode from "@/components/ui/custom/CommitNode";
 import { GraphView } from "@/components/ui/custom/GraphView";
 import { RepoSidebar } from "@/components/ui/custom/RepoSidebar";
 import {
-	RepoToolbar,
+	RepoTitleBarLeading,
+	RepoTitleBarTrailing,
 	type RepoViewMode,
 } from "@/components/ui/custom/RepoToolbar";
 import { InlineBanner } from "@/components/ui/inline-banner";
@@ -19,6 +20,7 @@ import {
 	buildReviewRoute,
 	readRepoPathFromSearchParams,
 } from "@/lib/repoPaths";
+import { useDesktopTitleBarChrome } from "@/lib/desktop-titlebar-actions";
 
 const nodeTypes = {
 	commit: CommitNode,
@@ -67,7 +69,8 @@ function RepoWorkspace() {
 	const [viewMode, setViewMode] = useState<RepoViewMode>(() => loadRepoViewMode());
 	const previousViewModeRef = useRef<RepoViewMode | null>(null);
 	const shouldZoomFirstNodeOnGraphInitRef = useRef(false);
-	const { isMobile, setOpen, setOpenMobile } = useSidebar();
+	const { isMobile, setOpen, setOpenMobile, toggleSidebar } = useSidebar();
+	const setDesktopTitleBarChrome = useDesktopTitleBarChrome();
 	const { setSelectedTab } = useSidebarTab();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
 
@@ -170,6 +173,73 @@ function RepoWorkspace() {
 	const canResetScope =
 		hasActiveFilters || Boolean(searchQuery.trim()) || Boolean(lastSearchQuery);
 	const defaultVisibleCommitSha = filteredCommits[0]?.sha ?? nodes[0]?.id;
+	const branchOptions = useMemo(
+		() => branches.map((branch) => branch.name),
+		[branches],
+	);
+	const handleExit = useCallback(() => {
+		navigate("/");
+	}, [navigate]);
+	const handleRefresh = useCallback(() => {
+		void refresh({ force: true });
+	}, [refresh]);
+	const handleReview = useCallback(() => {
+		if (!repoPath) {
+			return;
+		}
+
+		navigate(buildReviewRoute(repoPath));
+	}, [navigate, repoPath]);
+	const desktopTitleBarChrome = useMemo(
+		() => ({
+			leading: <RepoTitleBarLeading onToggleSidebar={toggleSidebar} />,
+			trailing: (
+				<RepoTitleBarTrailing
+					viewMode={viewMode}
+					filters={filters}
+					hasActiveFilters={hasActiveFilters}
+					canResetScope={canResetScope}
+					branchOptions={branchOptions}
+					isLoading={isLoading}
+					isIngesting={isIngesting}
+					ingestStatus={ingestStatus}
+					onExit={handleExit}
+					onClearFilters={handleClearFilters}
+					onFiltersChange={handleFiltersChange}
+					onRefresh={handleRefresh}
+					onReview={repoPath ? handleReview : undefined}
+					onViewModeChange={setViewMode}
+				/>
+			),
+		}),
+		[
+			branchOptions,
+			canResetScope,
+			filters,
+			handleClearFilters,
+			handleExit,
+			handleFiltersChange,
+			handleRefresh,
+			handleReview,
+			hasActiveFilters,
+			ingestStatus,
+			isIngesting,
+			isLoading,
+			repoPath,
+			toggleSidebar,
+			viewMode,
+		],
+	);
+
+	useEffect(() => {
+		setDesktopTitleBarChrome(desktopTitleBarChrome);
+
+		return () => {
+			setDesktopTitleBarChrome((currentChrome) =>
+				currentChrome === desktopTitleBarChrome ? null : currentChrome,
+			);
+		};
+	}, [desktopTitleBarChrome, setDesktopTitleBarChrome]);
 
 	return (
 		<>
@@ -193,26 +263,7 @@ function RepoWorkspace() {
 
 			<SidebarInset className="overflow-hidden bg-transparent">
 				<div className="flex h-full flex-col overflow-hidden">
-					<RepoToolbar
-						viewMode={viewMode}
-						filters={filters}
-						hasActiveFilters={hasActiveFilters}
-						canResetScope={canResetScope}
-						branchOptions={branches.map((branch) => branch.name)}
-						isLoading={isLoading}
-						isIngesting={isIngesting}
-						ingestStatus={ingestStatus}
-						onExit={() => navigate("/")}
-						onClearFilters={handleClearFilters}
-						onFiltersChange={handleFiltersChange}
-						onRefresh={() => void refresh({ force: true })}
-						onReview={
-							repoPath ? () => navigate(buildReviewRoute(repoPath)) : undefined
-						}
-						onViewModeChange={setViewMode}
-					/>
-
-					<div className="min-h-0 flex-1 pt-4">
+					<div className="min-h-0 flex-1">
 						<div className="workspace-panel relative flex h-full flex-col overflow-hidden">
 							{pageError ? (
 								<div className="p-4">

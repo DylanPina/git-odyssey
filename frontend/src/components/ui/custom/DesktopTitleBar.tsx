@@ -1,8 +1,11 @@
-import { ArrowLeft, ChevronsDown } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronsDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { DesktopTitleBarAction } from "@/lib/desktop-titlebar-actions";
+import type {
+  DesktopTitleBarAction,
+  DesktopTitleBarChrome,
+} from "@/lib/desktop-titlebar-actions";
 import type { DesktopTitleBarMeta } from "@/lib/desktop-titlebar";
 
 type DesktopPlatform = "macos" | "windows" | "linux" | "unknown";
@@ -47,90 +50,140 @@ function renderTitleBarActionIcon(action: DesktopTitleBarAction) {
 export function DesktopTitleBar({
   meta,
   actions = [],
-  showGoBack = false,
-  onGoBack,
+  chrome,
+  navigation,
 }: {
   meta: DesktopTitleBarMeta;
   actions?: DesktopTitleBarAction[];
-  showGoBack?: boolean;
-  onGoBack?: () => void;
+  chrome?: DesktopTitleBarChrome | null;
+  navigation?: {
+    canGoBack: boolean;
+    canGoForward: boolean;
+    onGoBack: () => void;
+    onGoForward: () => void;
+  } | null;
 }) {
   const platform = getDesktopPlatform();
   const title = [meta.scopeLabel, meta.detailTitle ?? meta.detailLabel]
     .filter(Boolean)
     .join(" · ");
+  const { leading, trailing } = chrome ?? {};
 
   return (
-    <header className="desktop-titlebar" data-platform={platform}>
-      <div
-        className="desktop-titlebar__safe-space desktop-titlebar__safe-space--leading"
-        aria-hidden="true"
-      />
+    <header
+      className="desktop-titlebar"
+      data-platform={platform}
+      data-surface={meta.surface ?? "default"}
+    >
+      <div className="desktop-titlebar__side desktop-titlebar__side--leading">
+        <div
+          className="desktop-titlebar__safe-space desktop-titlebar__safe-space--leading"
+          aria-hidden="true"
+        />
 
-      <div
-        className="desktop-titlebar__content"
-        title={title || meta.documentTitle}
-      >
-        <span className="desktop-titlebar__section">{meta.sectionLabel}</span>
+        {leading || navigation ? (
+          <div className="desktop-titlebar__start">
+            {leading ? (
+              <div className="desktop-titlebar__leading">{leading}</div>
+            ) : null}
 
-        {meta.scopeLabel ? (
-          <span className="desktop-titlebar__scope">{meta.scopeLabel}</span>
-        ) : null}
+            {navigation ? (
+              <div className="desktop-titlebar__navigation">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="toolbar"
+                        size="toolbar-icon"
+                        className="desktop-titlebar__action-button"
+                        onClick={navigation.onGoBack}
+                        disabled={!navigation.canGoBack}
+                        aria-label="Go back"
+                      >
+                        <ArrowLeft className="size-4" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Go back</TooltipContent>
+                </Tooltip>
 
-        {meta.detailLabel ? (
-          <>
-            <span className="desktop-titlebar__dot" aria-hidden="true" />
-            <span className="desktop-titlebar__detail">{meta.detailLabel}</span>
-          </>
-        ) : null}
-      </div>
-
-      <div className="desktop-titlebar__trailing">
-        <div className="desktop-titlebar__drag-spacer" aria-hidden="true" />
-
-        {actions.length > 0 || showGoBack ? (
-          <div className="desktop-titlebar__actions">
-            {actions.map((action) => (
-              <Tooltip key={action.id}>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      variant="toolbar"
-                      size="toolbar-icon"
-                      className="desktop-titlebar__action-button"
-                      onClick={action.onClick}
-                      disabled={action.disabled}
-                      aria-label={action.label}
-                    >
-                      {renderTitleBarActionIcon(action)}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{action.label}</TooltipContent>
-              </Tooltip>
-            ))}
-
-            {showGoBack ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      variant="toolbar"
-                      size="toolbar-icon"
-                      className="desktop-titlebar__action-button"
-                      onClick={onGoBack}
-                      disabled={!onGoBack}
-                      aria-label="Go back"
-                    >
-                      <ArrowLeft className="size-4" />
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Go back</TooltipContent>
-              </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="toolbar"
+                        size="toolbar-icon"
+                        className="desktop-titlebar__action-button"
+                        onClick={navigation.onGoForward}
+                        disabled={!navigation.canGoForward}
+                        aria-label="Go forward"
+                      >
+                        <ArrowRight className="size-4" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Go forward</TooltipContent>
+                </Tooltip>
+              </div>
             ) : null}
           </div>
         ) : null}
+      </div>
+
+      <div className="desktop-titlebar__center">
+        <div
+          className="desktop-titlebar__content"
+          title={title || meta.documentTitle}
+        >
+          {meta.sectionLabel ? (
+            <span className="desktop-titlebar__section">{meta.sectionLabel}</span>
+          ) : null}
+
+          {meta.scopeLabel ? (
+            <span className="desktop-titlebar__scope">{meta.scopeLabel}</span>
+          ) : null}
+
+          {meta.detailLabel ? (
+            <>
+              <span className="desktop-titlebar__dot" aria-hidden="true" />
+              <span className="desktop-titlebar__detail">{meta.detailLabel}</span>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="desktop-titlebar__side desktop-titlebar__side--trailing">
+        <div className="desktop-titlebar__trailing">
+          {trailing ? (
+            <div className="desktop-titlebar__slot desktop-titlebar__slot--trailing">
+              {trailing}
+            </div>
+          ) : null}
+
+          {actions.length > 0 ? (
+            <div className="desktop-titlebar__actions">
+              {actions.map((action) => (
+                <Tooltip key={action.id}>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="toolbar"
+                        size="toolbar-icon"
+                        className="desktop-titlebar__action-button"
+                        onClick={action.onClick}
+                        disabled={action.disabled}
+                        aria-label={action.label}
+                      >
+                        {renderTitleBarActionIcon(action)}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{action.label}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          ) : null}
+        </div>
 
         <div
           className="desktop-titlebar__safe-space desktop-titlebar__safe-space--trailing"

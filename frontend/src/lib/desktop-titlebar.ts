@@ -9,10 +9,11 @@ import {
 const APP_NAME = "GitOdyssey";
 
 export type DesktopTitleBarMeta = {
-  sectionLabel: string;
+  sectionLabel: string | null;
   scopeLabel: string | null;
   detailLabel: string | null;
   detailTitle?: string | null;
+  surface?: "default" | "transparent";
   documentTitle: string;
 };
 
@@ -32,9 +33,10 @@ export function resolveDesktopTitleBarMeta(
 
   if (pathname === "/" || pathname === "/index.html") {
     return {
-      sectionLabel: "Desktop",
-      scopeLabel: "Local Workspace",
+      sectionLabel: null,
+      scopeLabel: null,
       detailLabel: null,
+      surface: "transparent",
       documentTitle: buildDocumentTitle("Desktop"),
     };
   }
@@ -44,10 +46,11 @@ export function resolveDesktopTitleBarMeta(
     const shortSha = commitSha ? commitSha.slice(0, 8) : null;
 
     return {
-      sectionLabel: "Commit",
+      sectionLabel: null,
       scopeLabel: repoDisplayName ?? "Repository",
       detailLabel: shortSha,
       detailTitle: commitSha,
+      surface: "default",
       documentTitle: buildDocumentTitle(
         shortSha ? `Commit ${shortSha}` : "Commit",
         repoDisplayName
@@ -60,10 +63,11 @@ export function resolveDesktopTitleBarMeta(
     const reviewRefLabel = baseRef && headRef ? `${baseRef} -> ${headRef}` : null;
 
     return {
-      sectionLabel: "Review",
+      sectionLabel: null,
       scopeLabel: repoDisplayName ?? "Repository",
       detailLabel: reviewRefLabel ?? repoPathDetail,
       detailTitle: reviewRefLabel ?? repoPath,
+      surface: "default",
       documentTitle: buildDocumentTitle("Review", repoDisplayName, reviewRefLabel),
     };
   }
@@ -74,16 +78,18 @@ export function resolveDesktopTitleBarMeta(
       scopeLabel: repoDisplayName ?? "Local Workspace",
       detailLabel: repoPathDetail,
       detailTitle: repoPath,
+      surface: "default",
       documentTitle: buildDocumentTitle("Settings", repoDisplayName),
     };
   }
 
   if (pathname === "/repo") {
     return {
-      sectionLabel: "Repository",
+      sectionLabel: null,
       scopeLabel: repoDisplayName ?? "Repository",
       detailLabel: repoPathDetail,
       detailTitle: repoPath,
+      surface: "default",
       documentTitle: buildDocumentTitle("Repository", repoDisplayName),
     };
   }
@@ -93,6 +99,7 @@ export function resolveDesktopTitleBarMeta(
     scopeLabel: repoDisplayName,
     detailLabel: repoPathDetail,
     detailTitle: repoPath,
+    surface: "default",
     documentTitle: buildDocumentTitle("Workspace", repoDisplayName),
   };
 }

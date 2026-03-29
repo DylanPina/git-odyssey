@@ -1,34 +1,12 @@
 import { useEffect } from "react";
-import { matchPath, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import {
   buildRepoRoute,
   readRepoPathFromSearchParams,
 } from "@/lib/repoPaths";
-
-type RepoWorkflowRoute = "repo" | "commit" | "review";
+import { getHistoryIndex, getRepoWorkflowRoute } from "@/lib/repoNavigation";
 type NavigationShortcut = "back" | "forward";
-
-function getRepoWorkflowRoute(pathname: string): RepoWorkflowRoute | null {
-  if (matchPath("/repo/commit/:commitSha", pathname)) {
-    return "commit";
-  }
-
-  if (matchPath("/repo/review", pathname)) {
-    return "review";
-  }
-
-  if (matchPath("/repo", pathname)) {
-    return "repo";
-  }
-
-  return null;
-}
-
-function getHistoryIndex(): number {
-  const index = window.history.state?.idx;
-  return typeof index === "number" ? index : 0;
-}
 
 function isMacPlatform(): boolean {
   const nav = navigator as Navigator & {

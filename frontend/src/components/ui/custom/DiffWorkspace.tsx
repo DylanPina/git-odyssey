@@ -282,6 +282,28 @@ function focusSearchInput(inputId: string) {
   }
 }
 
+function isMacPlatform() {
+  if (typeof navigator === "undefined") {
+    return true;
+  }
+
+  const browserNavigator = navigator as Navigator & {
+    userAgentData?: {
+      platform?: string;
+    };
+  };
+  const platform =
+    browserNavigator.userAgentData?.platform ||
+    browserNavigator.platform ||
+    browserNavigator.userAgent;
+
+  return /mac|iphone|ipad|ipod/i.test(platform);
+}
+
+function getCodeSearchShortcutLabel() {
+  return isMacPlatform() ? "Cmd+Shift+F" : "Ctrl+Shift+F";
+}
+
 function sortCodeMatches(matches: DiffCodeSearchMatch[]): DiffCodeSearchMatch[] {
   return [...matches].sort((left, right) => {
     if (left.startLine !== right.startLine) {
@@ -400,6 +422,7 @@ function DiffSearchField({
   className,
   onKeyDown,
   trailingContent,
+  ariaKeyShortcuts,
 }: {
   inputId: string;
   value: string;
@@ -409,6 +432,7 @@ function DiffSearchField({
   className?: string;
   onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   trailingContent?: ReactNode;
+  ariaKeyShortcuts?: string;
 }) {
   const isCompactChrome = density === "compact";
 
@@ -433,6 +457,7 @@ function DiffSearchField({
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         aria-label={placeholder}
+        aria-keyshortcuts={ariaKeyShortcuts}
         className={cn("text-sm", isCompactChrome ? "px-1.5 py-3" : "px-2 py-3.5")}
       />
 
@@ -806,6 +831,27 @@ export const DiffWorkspace = forwardRef<
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [fileSearchInputId, fileTreeCollapsible, isFileTreeCollapsed]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey) {
+        return;
+      }
+
+      if (event.key.toLowerCase() !== "f") {
+        return;
+      }
+
+      event.preventDefault();
+
+      window.requestAnimationFrame(() => {
+        focusSearchInput(codeSearchInputId);
+      });
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [codeSearchInputId]);
 
   useEffect(() => {
     const visiblePaths = filteredFiles.map((fileChange) =>
@@ -1257,6 +1303,8 @@ export const DiffWorkspace = forwardRef<
         } as CSSProperties)
       : undefined;
   const headerPadding = isCompactChrome ? "px-4 py-3" : "px-4 py-4 sm:px-5";
+  const codeSearchShortcutLabel = useMemo(() => getCodeSearchShortcutLabel(), []);
+  const codeSearchFieldPlaceholder = `${codeSearchPlaceholder} (${codeSearchShortcutLabel})`;
   const fileTreeSearch = (
     <DiffSearchField
       inputId={fileSearchInputId}
@@ -1278,8 +1326,9 @@ export const DiffWorkspace = forwardRef<
         setCodeQuery(nextValue);
       }}
       onKeyDown={handleCodeSearchKeyDown}
-      placeholder={codeSearchPlaceholder}
+      placeholder={codeSearchFieldPlaceholder}
       density={chromeDensity}
+      ariaKeyShortcuts="Meta+Shift+F Control+Shift+F"
       trailingContent={
         normalizedCodeQuery ? (
           <>
