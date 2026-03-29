@@ -37,8 +37,11 @@ export function CommitToolbar({
   onCollapseAll,
 }: CommitToolbarProps) {
   const breadcrumbs = getRepoBreadcrumbs(repoPath);
-  const commitLabel = detailLabel || shortSha || "Commit";
-  const breadcrumbTitle = repoPath ? `${repoPath} @ ${commitLabel}` : commitLabel;
+  const commitLabel = detailLabel || shortSha || null;
+  const breadcrumbTitle =
+    repoPath && commitLabel
+      ? `${repoPath} @ ${commitLabel}`
+      : repoPath || commitLabel || "Repository";
 
   return (
     <header className="workspace-header-frame sticky top-0 z-20 flex h-[var(--header-height)] items-center gap-3 overflow-hidden px-3 py-2 backdrop-blur-md">
@@ -68,11 +71,14 @@ export function CommitToolbar({
                 </span>
               </div>
             ))}
-
-            <ChevronRight className="size-3 shrink-0 text-text-tertiary" />
-            <span className="shrink-0 font-mono text-sm leading-none text-text-primary">
-              {commitLabel}
-            </span>
+            {commitLabel ? (
+              <>
+                <ChevronRight className="size-3 shrink-0 text-text-tertiary" />
+                <span className="shrink-0 font-mono text-sm leading-none text-text-primary">
+                  {commitLabel}
+                </span>
+              </>
+            ) : null}
           </div>
         </TooltipTrigger>
         {repoPath ? <TooltipContent>{repoPath}</TooltipContent> : null}

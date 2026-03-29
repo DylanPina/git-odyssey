@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from api.api_model import (
     GenerateReviewRequest,
+    ReviewHistoryResponse,
     ReviewRunStartRequest,
     ReviewCompareRequest,
     ReviewCompareResponse,
@@ -157,6 +158,49 @@ class ReviewRouterTests(unittest.TestCase):
 
         self.assertEqual(result, expected)
         review_session_service.create_session.assert_called_once()
+
+    def test_list_review_history_returns_service_payload(self) -> None:
+        review_session_service = Mock()
+        expected = ReviewHistoryResponse(
+            items=[
+                {
+                    "session_id": "rev_sess_123",
+                    "run_id": "rev_run_456",
+                    "repo_path": "/tmp/example-repo",
+                    "base_ref": "main",
+                    "head_ref": "feature",
+                    "merge_base_sha": "merge123",
+                    "base_head_sha": "base456",
+                    "head_head_sha": "head789",
+                    "engine": "codex_cli",
+                    "mode": "native_review",
+                    "partial": False,
+                    "summary": "Looks good overall.",
+                    "findings_count": 0,
+                    "severity_counts": {"high": 0, "medium": 0, "low": 0},
+                    "generated_at": "2026-03-29T14:00:00Z",
+                    "completed_at": "2026-03-29T14:01:00Z",
+                    "run_created_at": "2026-03-29T13:59:00Z",
+                }
+            ]
+        )
+        review_session_service.list_history.return_value = expected
+
+        result = asyncio.run(
+            review_router.list_review_history(
+                repo_path="/tmp/example-repo",
+                base_ref="main",
+                head_ref="feature",
+                review_session_service=review_session_service,
+            )
+        )
+
+        self.assertEqual(result, expected)
+        review_session_service.list_history.assert_called_once_with(
+            repo_path="/tmp/example-repo",
+            base_ref="main",
+            head_ref="feature",
+        )
 
     def test_create_review_run_returns_service_payload(self) -> None:
         review_session_service = Mock()

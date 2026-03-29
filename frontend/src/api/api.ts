@@ -7,6 +7,7 @@ import type {
   CommitsResponse,
 } from "../lib/definitions/api";
 import type {
+  ReviewHistoryResponse,
   ReviewCompareResponse,
   ReviewRun,
   ReviewReport,
@@ -152,6 +153,14 @@ export const getReviewSession = async (
   sessionId: string
 ): Promise<ReviewSession> => {
   return getDesktopBridge().api.getReviewSession(sessionId);
+};
+
+export const getReviewHistory = async (input: {
+  repoPath: string;
+  baseRef: string;
+  headRef: string;
+}): Promise<ReviewHistoryResponse> => {
+  return getDesktopBridge().api.getReviewHistory(input);
 };
 
 export const startReviewRun = async (input: {

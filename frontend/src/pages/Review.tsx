@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -17,6 +17,7 @@ import {
 	cancelReviewRun,
 	createReviewSession,
 	getDesktopRepoSettings,
+	getReviewHistory,
 	getReviewRun,
 	getReviewSession,
 	onReviewRuntimeEvent,
@@ -25,13 +26,24 @@ import {
 } from "@/api/api";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/custom/Combobox";
+import { DatePicker } from "@/components/ui/custom/DatePicker";
 import {
 	DiffWorkspace,
 	type DiffWorkspaceHandle,
 } from "@/components/ui/custom/DiffWorkspace";
 import { CommitToolbar } from "@/components/ui/custom/CommitToolbar";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
 import { InlineBanner } from "@/components/ui/inline-banner";
+import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
 import { useRepoData } from "@/hooks/useRepoData";
@@ -41,6 +53,7 @@ import type {
 	ReviewApproval,
 	ReviewApprovalDecision,
 	ReviewFinding,
+	ReviewHistoryEntry,
 	ReviewResult,
 	ReviewRun,
 	ReviewRunEvent,
@@ -95,6 +108,33 @@ type PersistedReviewRefs = {
 	baseRef: string;
 	headRef: string;
 };
+
+type SelectedReviewHistoryView = {
+	entry: ReviewHistoryEntry;
+	session: ReviewSession;
+	run: ReviewRun;
+};
+
+type ReviewHistoryOutcomeFilter = "all" | "with_findings" | "clean";
+type ReviewHistorySeverityFilter = "any" | "has_high" | "has_medium" | "has_low";
+
+const REVIEW_HISTORY_OUTCOME_OPTIONS: Array<{
+	value: ReviewHistoryOutcomeFilter;
+	label: string;
+}> = [
+	{ value: "all", label: "All reviews" },
+	{ value: "with_findings", label: "With findings" },
+	{ value: "clean", label: "Clean reviews" },
+];
+const REVIEW_HISTORY_SEVERITY_OPTIONS: Array<{
+	value: ReviewHistorySeverityFilter;
+	label: string;
+}> = [
+	{ value: "any", label: "Any severity" },
+	{ value: "has_high", label: "Has high" },
+	{ value: "has_medium", label: "Has medium" },
+	{ value: "has_low", label: "Has low" },
+];
 
 function clampPanelWidth(width: number, minWidth: number) {
 	return Math.max(minWidth, width);
@@ -256,6 +296,95 @@ function formatGeneratedAt(value?: string | null) {
 		hour: "numeric",
 		minute: "2-digit",
 	});
+}
+
+function getFindingCountLabel(count: number) {
+	return count === 0 ? "Clean" : `${count} finding${count === 1 ? "" : "s"}`;
+}
+
+function getHistoryOutcomeTone(entry: ReviewHistoryEntry) {
+	if (entry.severity_counts.high > 0) {
+		return "danger";
+	}
+
+	if (entry.severity_counts.medium > 0) {
+		return "warning";
+	}
+
+	if (entry.findings_count > 0) {
+		return "accent";
+	}
+
+	return "success";
+}
+
+function getSeverityCountEntries(entry: ReviewHistoryEntry) {
+	return [
+		{
+			key: "high",
+			label: `High ${entry.severity_counts.high}`,
+			count: entry.severity_counts.high,
+			tone: "danger" as const,
+		},
+		{
+			key: "medium",
+			label: `Medium ${entry.severity_counts.medium}`,
+			count: entry.severity_counts.medium,
+			tone: "warning" as const,
+		},
+		{
+			key: "low",
+			label: `Low ${entry.severity_counts.low}`,
+			count: entry.severity_counts.low,
+			tone: "accent" as const,
+		},
+	].filter((item) => item.count > 0);
+}
+
+function startOfLocalDay(value: Date) {
+	const normalized = new Date(value);
+	normalized.setHours(0, 0, 0, 0);
+	return normalized.getTime();
+}
+
+function endOfLocalDay(value: Date) {
+	const normalized = new Date(value);
+	normalized.setHours(23, 59, 59, 999);
+	return normalized.getTime();
+}
+
+function buildReviewHistorySearchText(entry: ReviewHistoryEntry) {
+	const severityTokens = [
+		entry.severity_counts.high > 0 ? "has high" : "",
+		entry.severity_counts.medium > 0 ? "has medium" : "",
+		entry.severity_counts.low > 0 ? "has low" : "",
+	];
+
+	return [
+		entry.session_id,
+		entry.run_id,
+		entry.base_ref,
+		entry.head_ref,
+		entry.merge_base_sha,
+		entry.base_head_sha,
+		entry.head_head_sha,
+		formatShortSha(entry.merge_base_sha),
+		formatShortSha(entry.base_head_sha),
+		formatShortSha(entry.head_head_sha),
+		entry.engine,
+		entry.mode,
+		"completed",
+		"successful",
+		entry.partial ? "partial" : "full",
+		entry.findings_count === 0 ? "clean" : "with findings",
+		getFindingCountLabel(entry.findings_count),
+		entry.generated_at,
+		entry.completed_at ?? "",
+		entry.run_created_at,
+		formatGeneratedAt(entry.generated_at),
+		formatGeneratedAt(entry.completed_at),
+		...severityTokens,
+	].join(" ").toLowerCase();
 }
 
 function formatCommitTime(value?: number | null) {
@@ -760,17 +889,10 @@ function ReviewFindingsList({
 				const canNavigate = canNavigateToFinding(finding);
 				const content = (
 					<>
-						<div className="flex items-start justify-between gap-3">
-							<div className="min-w-0">
-								<div className="flex flex-wrap items-center gap-2">
-									<StatusPill tone={getSeverityTone(finding.severity)}>
-										{formatSeverityLabel(finding.severity)}
-									</StatusPill>
-									<span className="text-sm font-semibold text-text-primary">
-										{finding.title}
-									</span>
-								</div>
-							</div>
+						<div className="flex flex-wrap items-start justify-between gap-2">
+							<StatusPill tone={getSeverityTone(finding.severity)}>
+								{formatSeverityLabel(finding.severity)}
+							</StatusPill>
 							<span
 								className={cn(
 									"shrink-0 rounded-full border px-2.5 py-1 font-mono text-[11px]",
@@ -781,6 +903,9 @@ function ReviewFindingsList({
 							>
 								{label}
 							</span>
+						</div>
+						<div className="mt-3 text-sm font-semibold leading-6 text-text-primary">
+							{finding.title}
 						</div>
 						<div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
 							{sideLabel ? <span>{sideLabel} side</span> : null}
@@ -1085,22 +1210,47 @@ export function Review() {
 	);
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
 	const sessionRequestIdRef = useRef(0);
+	const historyRequestIdRef = useRef(0);
+	const historySelectionRequestIdRef = useRef(0);
 	const refreshTimerRef = useRef<number | null>(null);
 	const lastOpenedRunIdRef = useRef<string | null>(null);
+	const lastHistorySyncRunKeyRef = useRef<string | null>(null);
 
 	const [baseRef, setBaseRef] = useState(queryBaseRef ?? "");
 	const [headRef, setHeadRef] = useState(queryHeadRef ?? "");
 	const [customInstructions, setCustomInstructions] = useState("");
 	const [session, setSession] = useState<ReviewSession | null>(null);
+	const [reviewHistory, setReviewHistory] = useState<ReviewHistoryEntry[]>([]);
 	const [sessionError, setSessionError] = useState<string | null>(null);
+	const [historyError, setHistoryError] = useState<string | null>(null);
 	const [runError, setRunError] = useState<string | null>(null);
 	const [isSessionLoading, setIsSessionLoading] = useState(false);
+	const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 	const [isRunStarting, setIsRunStarting] = useState(false);
 	const [isRunCancelling, setIsRunCancelling] = useState(false);
 	const [runDetail, setRunDetail] = useState<ReviewRun | null>(null);
+	const [selectedHistoryView, setSelectedHistoryView] =
+		useState<SelectedReviewHistoryView | null>(null);
+	const [historySelectionLoadingRunId, setHistorySelectionLoadingRunId] =
+		useState<string | null>(null);
+	const [historySelectionError, setHistorySelectionError] = useState<string | null>(
+		null,
+	);
 	const [approvalLoadingById, setApprovalLoadingById] = useState<
 		Record<string, boolean>
 	>({});
+	const [historySearchQuery, setHistorySearchQuery] = useState("");
+	const deferredHistorySearchQuery = useDeferredValue(historySearchQuery);
+	const [historyOutcomeFilter, setHistoryOutcomeFilter] =
+		useState<ReviewHistoryOutcomeFilter>("all");
+	const [historySeverityFilter, setHistorySeverityFilter] =
+		useState<ReviewHistorySeverityFilter>("any");
+	const [historyStartDate, setHistoryStartDate] = useState<Date | undefined>(
+		undefined,
+	);
+	const [historyEndDate, setHistoryEndDate] = useState<Date | undefined>(
+		undefined,
+	);
 	const [reviewPanelMode, setReviewPanelMode] = useState<ReviewPanelMode>("collapsed");
 	const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
 	const [fileTreePreferredWidth, setFileTreePreferredWidthState] = useState(() =>
@@ -1132,10 +1282,17 @@ export function Review() {
 	useEffect(() => {
 		setSession(null);
 		setRunDetail(null);
+		setReviewHistory([]);
+		setSelectedHistoryView(null);
+		setHistorySelectionLoadingRunId(null);
 		setSessionError(null);
+		setHistoryError(null);
+		setHistorySelectionError(null);
 		setRunError(null);
 		setApprovalLoadingById({});
 		setSelectedFindingId(null);
+		historySelectionRequestIdRef.current += 1;
+		lastHistorySyncRunKeyRef.current = null;
 	}, [baseRef, headRef, repoPath]);
 
 	const branchOptions = useMemo(
@@ -1361,6 +1518,57 @@ export function Review() {
 		[],
 	);
 
+	const loadReviewHistory = useCallback(
+		async ({
+			baseRef: nextBaseRef = baseRef,
+			headRef: nextHeadRef = headRef,
+		}: {
+			baseRef?: string;
+			headRef?: string;
+		} = {}) => {
+			if (!repoPath) {
+				setHistoryError("No Git project path was provided.");
+				setReviewHistory([]);
+				return;
+			}
+
+			if (!nextBaseRef || !nextHeadRef) {
+				setReviewHistory([]);
+				setHistoryError(null);
+				return;
+			}
+
+			const requestId = ++historyRequestIdRef.current;
+			setIsHistoryLoading(true);
+			setHistoryError(null);
+
+			try {
+				const nextHistory = await getReviewHistory({
+					repoPath,
+					baseRef: nextBaseRef,
+					headRef: nextHeadRef,
+				});
+				if (historyRequestIdRef.current !== requestId) {
+					return;
+				}
+
+				setReviewHistory(nextHistory.items);
+			} catch (error) {
+				if (historyRequestIdRef.current !== requestId) {
+					return;
+				}
+
+				setReviewHistory([]);
+				setHistoryError(getErrorMessage(error));
+			} finally {
+				if (historyRequestIdRef.current === requestId) {
+					setIsHistoryLoading(false);
+				}
+			}
+		},
+		[baseRef, headRef, repoPath],
+	);
+
 	const loadSession = useCallback(
 		async ({
 			baseRef: nextBaseRef = baseRef,
@@ -1395,7 +1603,30 @@ export function Review() {
 					return null;
 				}
 				setSession(nextSession);
-				setRunDetail(null);
+				const nextRunId = nextSession.runs[0]?.id ?? null;
+				if (!nextRunId) {
+					setRunDetail(null);
+					return nextSession;
+				}
+
+				try {
+					const nextRun = await getReviewRun({
+						sessionId: nextSession.id,
+						runId: nextRunId,
+					});
+					if (sessionRequestIdRef.current !== requestId) {
+						return null;
+					}
+					setRunDetail(nextRun);
+					setRunError(null);
+				} catch (error) {
+					if (sessionRequestIdRef.current !== requestId) {
+						return null;
+					}
+					setRunDetail(nextSession.runs[0] ?? null);
+					setRunError(getErrorMessage(error));
+				}
+
 				return nextSession;
 			} catch (error) {
 				if (sessionRequestIdRef.current !== requestId) {
@@ -1423,6 +1654,18 @@ export function Review() {
 
 		void loadSession({ baseRef, headRef });
 	}, [baseRef, headRef, loadSession, repoPath]);
+
+	useEffect(() => {
+		if (!repoPath || !baseRef || !headRef) {
+			historyRequestIdRef.current += 1;
+			setReviewHistory([]);
+			setIsHistoryLoading(false);
+			setHistoryError(null);
+			return;
+		}
+
+		void loadReviewHistory({ baseRef, headRef });
+	}, [baseRef, headRef, loadReviewHistory, repoPath]);
 
 	useEffect(() => {
 		if (!session?.id) {
@@ -1458,17 +1701,51 @@ export function Review() {
 		};
 	}, [refreshSessionState, session?.id]);
 
-	const activeRunSummary = session?.runs[0] ?? null;
-	const activeRun =
-		runDetail?.id === activeRunSummary?.id ? runDetail : runDetail ?? activeRunSummary;
+	const currentRunSummary = session?.runs[0] ?? null;
+	const currentActiveRun =
+		runDetail?.id === currentRunSummary?.id ? runDetail : runDetail ?? currentRunSummary;
+	const isViewingHistory = selectedHistoryView !== null;
+	const displayedSession = selectedHistoryView?.session ?? session;
+	const activeRun = selectedHistoryView?.run ?? currentActiveRun;
 	const reviewResult: ReviewResult | null = activeRun?.result ?? null;
 	const pendingApprovals = (activeRun?.approvals ?? []).filter(
 		(approval) => approval.status === "pending",
 	);
 	const reasoningTrace = useMemo(
-		() => extractReasoningTraces(runDetail?.events ?? []),
-		[runDetail?.events],
+		() => extractReasoningTraces(activeRun?.events ?? []),
+		[activeRun?.events],
 	);
+
+	useEffect(() => {
+		if (!repoPath || !baseRef || !headRef) {
+			lastHistorySyncRunKeyRef.current = null;
+			return;
+		}
+
+		if (
+			!currentActiveRun?.id ||
+			currentActiveRun.status !== "completed" ||
+			!currentActiveRun.completed_at
+		) {
+			return;
+		}
+
+		const syncKey = `${currentActiveRun.id}:${currentActiveRun.completed_at}`;
+		if (lastHistorySyncRunKeyRef.current === syncKey) {
+			return;
+		}
+
+		lastHistorySyncRunKeyRef.current = syncKey;
+		void loadReviewHistory({ baseRef, headRef });
+	}, [
+		baseRef,
+		headRef,
+		currentActiveRun?.completed_at,
+		currentActiveRun?.id,
+		currentActiveRun?.status,
+		loadReviewHistory,
+		repoPath,
+	]);
 
 	useEffect(() => {
 		if (activeRun?.id && activeRun.id !== lastOpenedRunIdRef.current) {
@@ -1498,7 +1775,7 @@ export function Review() {
 	const availableFindingPaths = useMemo(() => {
 		const paths = new Set<string>();
 
-		for (const fileChange of session?.file_changes ?? []) {
+		for (const fileChange of displayedSession?.file_changes ?? []) {
 			paths.add(getFileChangeLabelPath(fileChange));
 			if (fileChange.new_path) {
 				paths.add(fileChange.new_path);
@@ -1509,12 +1786,144 @@ export function Review() {
 		}
 
 		return paths;
-	}, [session?.file_changes]);
+	}, [displayedSession?.file_changes]);
 
 	const canNavigateToFinding = useCallback(
 		(finding: ReviewFinding) => availableFindingPaths.has(finding.file_path),
 		[availableFindingPaths],
 	);
+	const handleSelectHistoryReview = useCallback(
+		async (entry: ReviewHistoryEntry) => {
+			if (selectedHistoryView?.entry.run_id === entry.run_id && !historySelectionLoadingRunId) {
+				setReviewPanelMode("rail");
+				return;
+			}
+
+			const requestId = ++historySelectionRequestIdRef.current;
+			setHistorySelectionLoadingRunId(entry.run_id);
+			setHistorySelectionError(null);
+
+			try {
+				const [nextSession, nextRun] = await Promise.all([
+					getReviewSession(entry.session_id),
+					getReviewRun({
+						sessionId: entry.session_id,
+						runId: entry.run_id,
+					}),
+				]);
+				if (historySelectionRequestIdRef.current !== requestId) {
+					return;
+				}
+
+				setSelectedHistoryView({
+					entry,
+					session: nextSession,
+					run: nextRun,
+				});
+				setReviewPanelMode("rail");
+			} catch (error) {
+				if (historySelectionRequestIdRef.current !== requestId) {
+					return;
+				}
+
+				setHistorySelectionError(getErrorMessage(error));
+			} finally {
+				if (historySelectionRequestIdRef.current === requestId) {
+					setHistorySelectionLoadingRunId(null);
+				}
+			}
+		},
+		[historySelectionLoadingRunId, selectedHistoryView?.entry.run_id],
+	);
+	const handleReturnToLatestReview = useCallback(() => {
+		historySelectionRequestIdRef.current += 1;
+		setSelectedHistoryView(null);
+		setHistorySelectionLoadingRunId(null);
+		setHistorySelectionError(null);
+		setReviewPanelMode(currentActiveRun ? "rail" : "collapsed");
+	}, [currentActiveRun]);
+	const previousReviewHistory = useMemo(
+		() =>
+			reviewHistory.filter((entry) =>
+				currentActiveRun?.id ? entry.run_id !== currentActiveRun.id : true,
+			),
+		[currentActiveRun?.id, reviewHistory],
+	);
+	const filteredPreviousReviewHistory = useMemo(() => {
+		const normalizedQuery = deferredHistorySearchQuery.trim().toLowerCase();
+		const startBoundary = historyStartDate ? startOfLocalDay(historyStartDate) : null;
+		const endBoundary = historyEndDate ? endOfLocalDay(historyEndDate) : null;
+
+		return previousReviewHistory.filter((entry) => {
+			if (
+				historyOutcomeFilter === "with_findings" &&
+				entry.findings_count === 0
+			) {
+				return false;
+			}
+
+			if (historyOutcomeFilter === "clean" && entry.findings_count > 0) {
+				return false;
+			}
+
+			if (
+				historySeverityFilter === "has_high" &&
+				entry.severity_counts.high === 0
+			) {
+				return false;
+			}
+
+			if (
+				historySeverityFilter === "has_medium" &&
+				entry.severity_counts.medium === 0
+			) {
+				return false;
+			}
+
+			if (
+				historySeverityFilter === "has_low" &&
+				entry.severity_counts.low === 0
+			) {
+				return false;
+			}
+
+			const generatedAt = new Date(entry.generated_at).getTime();
+			if (startBoundary != null && !Number.isNaN(generatedAt) && generatedAt < startBoundary) {
+				return false;
+			}
+
+			if (endBoundary != null && !Number.isNaN(generatedAt) && generatedAt > endBoundary) {
+				return false;
+			}
+
+			if (!normalizedQuery) {
+				return true;
+			}
+
+			return buildReviewHistorySearchText(entry).includes(normalizedQuery);
+		});
+	}, [
+		deferredHistorySearchQuery,
+		historyEndDate,
+		historyOutcomeFilter,
+		historySeverityFilter,
+		historyStartDate,
+		previousReviewHistory,
+	]);
+	const hasActiveHistoryFilters =
+		Boolean(historySearchQuery.trim()) ||
+		historyOutcomeFilter !== "all" ||
+		historySeverityFilter !== "any" ||
+		Boolean(historyStartDate) ||
+		Boolean(historyEndDate);
+
+	const resetHistoryFilters = useCallback(() => {
+		setHistorySearchQuery("");
+		setHistoryOutcomeFilter("all");
+		setHistorySeverityFilter("any");
+		setHistoryStartDate(undefined);
+		setHistoryEndDate(undefined);
+	}, []);
 
 	const handleStartReview = useCallback(async () => {
 		if (!session) {
@@ -1537,7 +1946,7 @@ export function Review() {
 	}, [customInstructions, refreshSessionState, session]);
 
 	const handleCancelReview = useCallback(async () => {
-		if (!session || !activeRun) {
+		if (!session || !currentActiveRun) {
 			return;
 		}
 
@@ -1546,19 +1955,19 @@ export function Review() {
 		try {
 			await cancelReviewRun({
 				sessionId: session.id,
-				runId: activeRun.id,
+				runId: currentActiveRun.id,
 			});
-			await refreshSessionState(session.id, activeRun.id);
+			await refreshSessionState(session.id, currentActiveRun.id);
 		} catch (error) {
 			setRunError(getErrorMessage(error));
 		} finally {
 			setIsRunCancelling(false);
 		}
-	}, [activeRun, refreshSessionState, session]);
+	}, [currentActiveRun, refreshSessionState, session]);
 
 	const handleApprovalDecision = useCallback(
 		async (approval: ReviewApproval, decision: ReviewApprovalDecision) => {
-			if (!session || !activeRun) {
+			if (!session || !currentActiveRun) {
 				return;
 			}
 
@@ -1569,11 +1978,11 @@ export function Review() {
 			try {
 				await respondReviewApproval({
 					sessionId: session.id,
-					runId: activeRun.id,
+					runId: currentActiveRun.id,
 					approvalId: approval.id,
 					decision,
 				});
-				await refreshSessionState(session.id, activeRun.id);
+				await refreshSessionState(session.id, currentActiveRun.id);
 			} catch (error) {
 				setRunError(getErrorMessage(error));
 			} finally {
@@ -1584,7 +1993,7 @@ export function Review() {
 				});
 			}
 		},
-		[activeRun, refreshSessionState, session],
+		[currentActiveRun, refreshSessionState, session],
 	);
 
 	const handleFindingSelect = useCallback(
@@ -1618,19 +2027,26 @@ export function Review() {
 	);
 
 	const canStartReview = Boolean(
+		historySelectionLoadingRunId === null &&
+		!isViewingHistory &&
 		session &&
 			!isSessionLoading &&
 			!isRunStarting &&
-			!(activeRun && ACTIVE_RUN_STATUSES.has(activeRun.status)),
+			!(currentActiveRun && ACTIVE_RUN_STATUSES.has(currentActiveRun.status)),
 	);
 	const canCancelReview = Boolean(
+		historySelectionLoadingRunId === null &&
+		!isViewingHistory &&
 		session &&
-			activeRun &&
-			ACTIVE_RUN_STATUSES.has(activeRun.status) &&
+			currentActiveRun &&
+			ACTIVE_RUN_STATUSES.has(currentActiveRun.status) &&
 			!isRunCancelling,
 	);
 	const hasCancelableRun = Boolean(
-		activeRun && ACTIVE_RUN_STATUSES.has(activeRun.status),
+		historySelectionLoadingRunId === null &&
+			!isViewingHistory &&
+			currentActiveRun &&
+			ACTIVE_RUN_STATUSES.has(currentActiveRun.status),
 	);
 
 	const findingsLabel = reviewResult
@@ -1644,34 +2060,42 @@ export function Review() {
 
 	const compareMetadata = [
 		{
-			label: "Base",
-			value: baseRef
-				? baseTipCommit
-					? formatShortSha(baseTipCommit.sha)
-					: isRepoLoading
-						? "Loading"
-						: "Unavailable"
-				: "Not selected",
+			label: isViewingHistory ? "Reviewed Base" : "Base",
+			value: isViewingHistory
+				? displayedSession?.base_head_sha
+					? formatShortSha(displayedSession.base_head_sha)
+					: "Unavailable"
+				: baseRef
+					? baseTipCommit
+						? formatShortSha(baseTipCommit.sha)
+						: isRepoLoading
+							? "Loading"
+							: "Unavailable"
+					: "Not selected",
 		},
 		{
-			label: "Head",
-			value: headRef
-				? headTipCommit
-					? formatShortSha(headTipCommit.sha)
-					: isRepoLoading
-						? "Loading"
-						: "Unavailable"
-				: "Not selected",
+			label: isViewingHistory ? "Reviewed Head" : "Head",
+			value: isViewingHistory
+				? displayedSession?.head_head_sha
+					? formatShortSha(displayedSession.head_head_sha)
+					: "Unavailable"
+				: headRef
+					? headTipCommit
+						? formatShortSha(headTipCommit.sha)
+						: isRepoLoading
+							? "Loading"
+							: "Unavailable"
+					: "Not selected",
 		},
 		{
 			label: "Merge",
-			value: session?.merge_base_sha
-				? formatShortSha(session.merge_base_sha)
+			value: displayedSession?.merge_base_sha
+				? formatShortSha(displayedSession.merge_base_sha)
 				: "Pending",
 		},
 		{
 			label: "Files",
-			value: session ? String(session.stats.files_changed) : "Pending",
+			value: displayedSession ? String(displayedSession.stats.files_changed) : "Pending",
 		},
 		{
 			label: "Run",
@@ -1758,16 +2182,6 @@ export function Review() {
 						</div>
 					</div>
 
-					<label className="flex flex-col gap-1.5">
-						<span className="workspace-section-label">Optional Review Instructions</span>
-						<Textarea
-							value={customInstructions}
-							onChange={(event) => setCustomInstructions(event.target.value)}
-							placeholder="Optional: steer Codex toward specific areas of concern."
-							className="min-h-24"
-						/>
-					</label>
-
 					<div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
 						{compareMetadata.map((item) => (
 							<ReviewMetaPill
@@ -1795,18 +2209,29 @@ export function Review() {
 
 					<div className="grid gap-3 lg:grid-cols-2">
 						<ReviewBranchTipCard
-							label="Base"
+							label={isViewingHistory ? "Base (Current Tip)" : "Base"}
 							branchName={baseRef}
 							commit={baseTipCommit}
 							isLoading={isRepoLoading}
 						/>
 						<ReviewBranchTipCard
-							label="Head"
+							label={isViewingHistory ? "Head (Current Tip)" : "Head"}
 							branchName={headRef}
 							commit={headTipCommit}
 							isLoading={isRepoLoading}
 						/>
 					</div>
+
+					<label className="flex flex-col gap-1.5">
+						<span className="workspace-section-label">Optional Review Instructions</span>
+						<Textarea
+							value={customInstructions}
+							onChange={(event) => setCustomInstructions(event.target.value)}
+							placeholder="Optional: steer Codex toward specific areas of concern."
+							className="min-h-24"
+							disabled={isViewingHistory || historySelectionLoadingRunId !== null}
+						/>
+					</label>
 				</div>
 			</div>
 
@@ -1820,8 +2245,15 @@ export function Review() {
 				/>
 			) : null}
 
-			{sessionError ? <InlineBanner tone="danger" title={sessionError} /> : null}
-			{runError ? <InlineBanner tone="danger" title={runError} /> : null}
+			{!isViewingHistory && sessionError ? (
+				<InlineBanner tone="danger" title={sessionError} />
+			) : null}
+			{!isViewingHistory && runError ? (
+				<InlineBanner tone="danger" title={runError} />
+			) : null}
+			{historySelectionError ? (
+				<InlineBanner tone="danger" title={historySelectionError} />
+			) : null}
 			{pendingApprovals.length > 0 ? (
 				<PendingApprovals
 					approvals={pendingApprovals}
@@ -1833,10 +2265,221 @@ export function Review() {
 			) : null}
 		</div>
 	);
+	const previousReviewsSection =
+		repoPath && baseRef && headRef ? (
+			<section className="rounded-[20px] border border-border-strong bg-[linear-gradient(180deg,rgba(255,255,255,0.038),rgba(255,255,255,0.018))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+				<div className="flex flex-col gap-3">
+					<div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+						<div>
+							<div className="text-sm font-semibold text-text-primary">
+								Previous Reviews
+							</div>
+							<div className="mt-1 text-sm text-text-secondary">
+								{previousReviewHistory.length === 0
+									? "Completed successful reviews for this branch pair will appear here."
+									: `Showing ${filteredPreviousReviewHistory.length} of ${previousReviewHistory.length} previous review${previousReviewHistory.length === 1 ? "" : "s"}.`}
+							</div>
+						</div>
 
-	const changedFilesLabel = session
-		? `${session.stats.files_changed} file${session.stats.files_changed === 1 ? "" : "s"} changed`
+						<div className="flex flex-wrap items-center gap-2">
+							{isViewingHistory ? (
+								<Button
+									variant="toolbar"
+									size="sm"
+									className="self-start"
+									onClick={handleReturnToLatestReview}
+								>
+									Return to Latest Review
+								</Button>
+							) : null}
+							{hasActiveHistoryFilters ? (
+								<Button
+									variant="toolbar"
+									size="sm"
+									className="self-start"
+									onClick={resetHistoryFilters}
+								>
+									Clear filters
+								</Button>
+							) : null}
+						</div>
+					</div>
+
+					<div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,0.8fr))]">
+						<label className="flex min-w-0 flex-col gap-1.5">
+							<Label className="text-sm text-text-secondary">
+								Search metadata
+							</Label>
+							<Input
+								value={historySearchQuery}
+								onChange={(event) => setHistorySearchQuery(event.target.value)}
+								placeholder="Search ids, refs, SHAs, timestamps, or review metadata"
+							/>
+						</label>
+
+						<label className="flex min-w-0 flex-col gap-1.5">
+							<Label className="text-sm text-text-secondary">Outcome</Label>
+							<Select
+								value={historyOutcomeFilter}
+								onValueChange={(value) =>
+									setHistoryOutcomeFilter(value as ReviewHistoryOutcomeFilter)
+								}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="All reviews" />
+								</SelectTrigger>
+								<SelectContent>
+									{REVIEW_HISTORY_OUTCOME_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</label>
+
+						<label className="flex min-w-0 flex-col gap-1.5">
+							<Label className="text-sm text-text-secondary">Severity</Label>
+							<Select
+								value={historySeverityFilter}
+								onValueChange={(value) =>
+									setHistorySeverityFilter(value as ReviewHistorySeverityFilter)
+								}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Any severity" />
+								</SelectTrigger>
+								<SelectContent>
+									{REVIEW_HISTORY_SEVERITY_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</label>
+
+						<DatePicker
+							label="Generated After"
+							value={historyStartDate}
+							onChange={setHistoryStartDate}
+							id="review-history-start-date"
+							placeholder="Start date"
+						/>
+
+						<DatePicker
+							label="Generated Before"
+							value={historyEndDate}
+							onChange={setHistoryEndDate}
+							id="review-history-end-date"
+							placeholder="End date"
+						/>
+					</div>
+
+					{historyError ? (
+						<InlineBanner tone="danger" title={historyError} />
+					) : null}
+
+					<div className="space-y-3">
+						{filteredPreviousReviewHistory.length > 0 ? (
+							filteredPreviousReviewHistory.map((entry) => {
+								const severityEntries = getSeverityCountEntries(entry);
+								const isSelected =
+									selectedHistoryView?.entry.run_id === entry.run_id;
+								const isLoading = historySelectionLoadingRunId === entry.run_id;
+
+								return (
+									<button
+										type="button"
+										key={entry.run_id}
+										className={cn(
+											"w-full cursor-pointer rounded-[18px] border p-3 text-left transition-[border-color,background-color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-wait disabled:opacity-100",
+											isSelected
+												? "border-[rgba(122,162,255,0.38)] bg-[rgba(122,162,255,0.08)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(122,162,255,0.12)] hover:border-[rgba(122,162,255,0.48)] hover:bg-[rgba(122,162,255,0.11)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_0_1px_rgba(122,162,255,0.18),0_14px_30px_rgba(8,15,28,0.18)]"
+												: "border-border-subtle bg-[rgba(255,255,255,0.028)] shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] hover:-translate-y-px hover:border-border-strong hover:bg-[rgba(255,255,255,0.04)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_14px_30px_rgba(8,15,28,0.18)]",
+										)}
+										disabled={isLoading}
+										onClick={() => {
+											void handleSelectHistoryReview(entry);
+										}}
+										aria-pressed={isSelected}
+										aria-label={`Load previous review ${entry.run_id}`}
+									>
+										<div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+											<div className="min-w-0 flex-1">
+												<div className="flex flex-wrap items-center gap-2">
+													<div className="text-sm font-medium text-text-primary">
+														{formatGeneratedAt(entry.generated_at)}
+													</div>
+													<StatusPill tone={getHistoryOutcomeTone(entry)}>
+														{getFindingCountLabel(entry.findings_count)}
+													</StatusPill>
+													{severityEntries.map((severity) => (
+														<StatusPill
+															key={`${entry.run_id}:${severity.key}`}
+															tone={severity.tone}
+														>
+															{severity.label}
+														</StatusPill>
+													))}
+												</div>
+
+												<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
+													<span className="font-mono">
+														base {formatShortSha(entry.base_head_sha)}
+													</span>
+													<span className="font-mono">
+														head {formatShortSha(entry.head_head_sha)}
+													</span>
+													<span className="font-mono">
+														merge {formatShortSha(entry.merge_base_sha)}
+													</span>
+												</div>
+											</div>
+
+											<div className="flex shrink-0 items-center gap-2 text-xs text-text-secondary">
+												{isLoading ? (
+													<Loader2 className="size-4 animate-spin" />
+												) : null}
+												<span>
+													Completed {formatGeneratedAt(entry.completed_at)}
+												</span>
+											</div>
+										</div>
+
+										<p className="mt-3 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-text-secondary">
+											{entry.summary}
+										</p>
+									</button>
+								);
+							})
+						) : (
+							<EmptyState
+								title={
+									hasActiveHistoryFilters
+										? "No previous reviews match the current filters."
+										: isHistoryLoading
+											? "Loading previous reviews..."
+											: "No previous successful reviews yet."
+								}
+								description={
+									hasActiveHistoryFilters
+										? "Try broadening the metadata search or clearing one or more filters."
+										: "Completed reviews for this base/head branch pair will appear here once they finish successfully."
+								}
+								className="items-center text-center"
+							/>
+						)}
+					</div>
+				</div>
+			</section>
+		) : null;
+
+	const changedFilesLabel = displayedSession
+		? `${displayedSession.stats.files_changed} file${displayedSession.stats.files_changed === 1 ? "" : "s"} changed`
 		: "Review diff";
+	const isDisplayedSessionLoading =
+		historySelectionLoadingRunId !== null || (!isViewingHistory && isSessionLoading);
 	const workspaceTopContent = (
 		<div className="flex min-w-0 items-center gap-3">
 			<div className="flex size-9 shrink-0 items-center justify-center rounded-[12px] border border-border-subtle bg-[rgba(255,255,255,0.035)]">
@@ -1848,10 +2491,10 @@ export function Review() {
 					<div className="text-sm font-semibold text-text-primary">
 						{changedFilesLabel}
 					</div>
-					{session ? (
+					{displayedSession ? (
 						<div className="flex items-center gap-2 font-mono text-[11px]">
-							<span className="text-success">+{session.stats.additions}</span>
-							<span className="text-danger">-{session.stats.deletions}</span>
+							<span className="text-success">+{displayedSession.stats.additions}</span>
+							<span className="text-danger">-{displayedSession.stats.deletions}</span>
 							<span className="text-text-secondary">lines changed</span>
 						</div>
 					) : null}
@@ -1865,11 +2508,11 @@ export function Review() {
 					<span className="font-mono text-text-primary">
 						{headRef || "Head"}
 					</span>
-					{session?.merge_base_sha ? (
+					{displayedSession?.merge_base_sha ? (
 						<>
 							<span className="text-text-tertiary">merge</span>
 							<span className="font-mono">
-								{formatShortSha(session.merge_base_sha)}
+								{formatShortSha(displayedSession.merge_base_sha)}
 							</span>
 						</>
 					) : null}
@@ -1927,10 +2570,9 @@ export function Review() {
 				<div className="px-4 pt-4">
 					<CommitToolbar
 						repoPath={repoPath}
-						detailLabel="Review"
 						onExit={() => navigate(repoPath ? buildRepoRoute(repoPath) : "/")}
 						onCollapseAll={
-							session?.file_changes?.length
+							displayedSession?.file_changes?.length
 								? () => diffWorkspaceRef.current?.collapseAll()
 								: undefined
 						}
@@ -1938,6 +2580,9 @@ export function Review() {
 				</div>
 
 				<div className="px-4 pt-4">{pageTopContent}</div>
+				{previousReviewsSection ? (
+					<div className="px-4 pt-4">{previousReviewsSection}</div>
+				) : null}
 
 				{mobileReviewPanel ? <div className="px-4 pt-4">{mobileReviewPanel}</div> : null}
 
@@ -1946,11 +2591,17 @@ export function Review() {
 						<DiffWorkspace
 							ref={diffWorkspaceRef}
 							repoPath={repoPath}
-							viewerId={session ? `review:${session.id}` : "review"}
-							files={session?.file_changes ?? []}
-							isLoading={isSessionLoading}
+							viewerId={displayedSession ? `review:${displayedSession.id}` : "review"}
+							files={displayedSession?.file_changes ?? []}
+							isLoading={isDisplayedSessionLoading}
 							error={
-								!repoPath ? "No Git project path was provided." : sessionError
+								!repoPath
+									? "No Git project path was provided."
+									: displayedSession
+										? null
+										: isViewingHistory
+											? historySelectionError
+											: sessionError
 							}
 							topContent={workspaceTopContent}
 							fileSearchInputId="review-file-search-input"

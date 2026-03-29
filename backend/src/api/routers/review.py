@@ -6,6 +6,7 @@ from api.api_model import (
     ReviewApprovalUpsertRequest,
     ReviewCompareRequest,
     ReviewCompareResponse,
+    ReviewHistoryResponse,
     ReviewResultResponse,
     ReviewResultSubmitRequest,
     ReviewReport,
@@ -80,6 +81,25 @@ async def get_review_session(
 ):
     try:
         return review_session_service.get_session(session_id)
+    except ReviewServiceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+
+
+@router.get("/history", response_model=ReviewHistoryResponse)
+async def list_review_history(
+    repo_path: str,
+    base_ref: str,
+    head_ref: str,
+    review_session_service: ReviewSessionPersistenceService = Depends(
+        get_review_session_persistence_service
+    ),
+):
+    try:
+        return review_session_service.list_history(
+            repo_path=repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
     except ReviewServiceError as error:
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 

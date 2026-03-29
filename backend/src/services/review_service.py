@@ -57,6 +57,10 @@ class ReviewServiceError(ValueError):
 
 
 class ReviewCompareService:
+    def resolve_repo_path(self, repo_path: str) -> str:
+        _repo, resolved_repo_path = self._open_repo(repo_path)
+        return resolved_repo_path
+
     def compare(self, request: ReviewCompareRequest) -> ReviewCompareResponse:
         base_ref = request.base_ref.strip()
         head_ref = request.head_ref.strip()
@@ -78,7 +82,7 @@ class ReviewCompareService:
         (
             repo,
             repo_path,
-            base_commit,
+            _base_commit,
             head_commit,
             merge_base_commit,
         ) = self.resolve_compare_target(
@@ -86,8 +90,29 @@ class ReviewCompareService:
             base_ref=base_ref,
             head_ref=head_ref,
         )
+        return self.compare_resolved(
+            repo=repo,
+            repo_path=repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            head_commit=head_commit,
+            merge_base_commit=merge_base_commit,
+            context_lines=request.context_lines,
+        )
+
+    def compare_resolved(
+        self,
+        *,
+        repo: pygit2.Repository,
+        repo_path: str,
+        base_ref: str,
+        head_ref: str,
+        head_commit: pygit2.Commit,
+        merge_base_commit: pygit2.Commit,
+        context_lines: int,
+    ) -> ReviewCompareResponse:
         diff = merge_base_commit.tree.diff_to_tree(
-            head_commit.tree, context_lines=request.context_lines
+            head_commit.tree, context_lines=context_lines
         )
         try:
             diff.find_similar(

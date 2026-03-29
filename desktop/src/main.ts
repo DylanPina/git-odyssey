@@ -344,6 +344,16 @@ function registerIpcHandlers(): void {
     return requireBackendManager().request(`/api/review/sessions/${sessionId}`);
   });
 
+  ipcMain.handle("git-odyssey:api:get-review-history", async (_event, input) => {
+    const project = requireConfigStore().recordRecentProject(input.repoPath);
+    const params = new URLSearchParams({
+      repo_path: project.path,
+      base_ref: input.baseRef,
+      head_ref: input.headRef,
+    });
+    return requireBackendManager().request(`/api/review/history?${params.toString()}`);
+  });
+
   ipcMain.handle("git-odyssey:api:start-review-run", async (_event, input) => {
     return requireReviewRuntimeManager().startRun(input);
   });

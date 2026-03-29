@@ -82,6 +82,11 @@ const bridge = {
     }) => invoke("git-odyssey:api:create-review-session", input),
     getReviewSession: (sessionId: string) =>
       invoke("git-odyssey:api:get-review-session", sessionId),
+    getReviewHistory: (input: {
+      repoPath: string;
+      baseRef: string;
+      headRef: string;
+    }) => invoke("git-odyssey:api:get-review-history", input),
     startReviewRun: (input: {
       sessionId: string;
       customInstructions?: string | null;

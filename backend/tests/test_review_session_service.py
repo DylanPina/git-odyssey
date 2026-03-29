@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
-from api.api_model import ReviewSubmittedFinding
+from api.api_model import ReviewSessionCreateRequest, ReviewSubmittedFinding
 from data.data_model import DiffHunk, FileChange, FileSnapshot
 from data.schema import FileChangeStatus
 from services.review_service import ReviewServiceError
@@ -139,6 +141,109 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
         self.assertEqual(len(normalized), 1)
         self.assertEqual(normalized[0].file_path, "version-history.json")
         self.assertEqual(normalized[0].new_start, 3)
+
+    def test_create_session_reuses_existing_exact_session(self) -> None:
+        existing_session = object()
+        expected_response = object()
+        self.service.compare_service.resolve_compare_target.return_value = (
+            None,
+            "/tmp/example-repo",
+            SimpleNamespace(id="base-sha"),
+            SimpleNamespace(id="head-sha"),
+            None,
+        )
+        query = self.service.session.query.return_value
+        query.filter.return_value.order_by.return_value.first.return_value = (
+            existing_session
+        )
+        self.service._build_session_response = Mock(return_value=expected_response)
+
+        result = self.service.create_session(
+            ReviewSessionCreateRequest(
+                repo_path="/tmp/example-repo",
+                base_ref="main",
+                head_ref="feature",
+                context_lines=3,
+            )
+        )
+
+        self.assertIs(result, expected_response)
+        self.service.compare_service.compare.assert_not_called()
+        self.service.session.add.assert_not_called()
+        self.service.session.commit.assert_not_called()
+        self.service._build_session_response.assert_called_once_with(
+            existing_session, include_runs=True
+        )
+
+    def test_list_history_returns_successful_completed_review_runs(self) -> None:
+        generated_at = datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc)
+        completed_at = datetime(2026, 3, 29, 12, 5, tzinfo=timezone.utc)
+        created_at = datetime(2026, 3, 29, 11, 58, tzinfo=timezone.utc)
+        run = SimpleNamespace(
+            id="rev_run_123",
+            session_id="rev_sess_123",
+            engine="codex_cli",
+            mode="native_review",
+            completed_at=completed_at,
+            created_at=created_at,
+            session=SimpleNamespace(
+                repo_path="/tmp/example-repo",
+                base_ref="main",
+                head_ref="feature",
+                merge_base_sha="merge-sha",
+                base_head_sha="base-sha",
+                head_head_sha="head-sha",
+            ),
+            result=SimpleNamespace(
+                summary="Review summary",
+                findings=[
+                    {
+                        "id": "finding-1",
+                        "severity": "high",
+                        "title": "Bug",
+                        "body": "Body",
+                        "file_path": "src/file.py",
+                        "new_start": 10,
+                    },
+                    {
+                        "id": "finding-2",
+                        "severity": "low",
+                        "title": "Nit",
+                        "body": "Body",
+                        "file_path": "src/file.py",
+                        "new_start": 20,
+                    },
+                ],
+                partial=False,
+                generated_at=generated_at,
+            ),
+        )
+        self.service.compare_service.resolve_repo_path.return_value = "/tmp/example-repo"
+        query = self.service.session.query.return_value
+        query.join.return_value = query
+        query.options.return_value = query
+        query.filter.return_value = query
+        query.order_by.return_value.all.return_value = [run]
+
+        result = self.service.list_history(
+            repo_path="/tmp/example-repo",
+            base_ref=" main ",
+            head_ref=" feature ",
+        )
+
+        self.assertEqual(len(result.items), 1)
+        item = result.items[0]
+        self.assertEqual(item.session_id, "rev_sess_123")
+        self.assertEqual(item.run_id, "rev_run_123")
+        self.assertEqual(item.repo_path, "/tmp/example-repo")
+        self.assertEqual(item.base_ref, "main")
+        self.assertEqual(item.head_ref, "feature")
+        self.assertEqual(item.findings_count, 2)
+        self.assertEqual(item.severity_counts.high, 1)
+        self.assertEqual(item.severity_counts.medium, 0)
+        self.assertEqual(item.severity_counts.low, 1)
+        self.assertEqual(item.generated_at, generated_at)
+        self.assertEqual(item.completed_at, completed_at)
 
 
 if __name__ == "__main__":

@@ -230,6 +230,36 @@ class ReviewResultResponse(BaseModel):
     updated_at: datetime
 
 
+class ReviewSeverityCounts(BaseModel):
+    high: int = 0
+    medium: int = 0
+    low: int = 0
+
+
+class ReviewHistoryEntry(BaseModel):
+    session_id: str
+    run_id: str
+    repo_path: str
+    base_ref: str
+    head_ref: str
+    merge_base_sha: str
+    base_head_sha: str
+    head_head_sha: str
+    engine: str
+    mode: str
+    partial: bool = False
+    summary: str
+    findings_count: int = 0
+    severity_counts: ReviewSeverityCounts = Field(default_factory=ReviewSeverityCounts)
+    generated_at: datetime
+    completed_at: datetime | None = None
+    run_created_at: datetime
+
+
+class ReviewHistoryResponse(BaseModel):
+    items: List[ReviewHistoryEntry] = Field(default_factory=list)
+
+
 class ReviewRunResponse(BaseModel):
     id: str
     session_id: str

@@ -108,6 +108,36 @@ export interface ReviewResult {
 	updated_at: string;
 }
 
+export interface ReviewSeverityCounts {
+	high: number;
+	medium: number;
+	low: number;
+}
+
+export interface ReviewHistoryEntry {
+	session_id: string;
+	run_id: string;
+	repo_path: string;
+	base_ref: string;
+	head_ref: string;
+	merge_base_sha: string;
+	base_head_sha: string;
+	head_head_sha: string;
+	engine: string;
+	mode: string;
+	partial: boolean;
+	summary: string;
+	findings_count: number;
+	severity_counts: ReviewSeverityCounts;
+	generated_at: string;
+	completed_at?: string | null;
+	run_created_at: string;
+}
+
+export interface ReviewHistoryResponse {
+	items: ReviewHistoryEntry[];
+}
+
 export interface ReviewRun {
 	id: string;
 	session_id: string;

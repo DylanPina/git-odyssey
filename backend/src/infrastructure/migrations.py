@@ -878,6 +878,25 @@ def _review_sessions_schema_repair_migration(connection, settings: Settings) -> 
     )
 
 
+def _review_session_history_index_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_sessions_lookup
+            ON review_sessions (
+                repo_path,
+                base_ref,
+                head_ref,
+                base_head_sha,
+                head_head_sha,
+                context_lines,
+                created_at DESC
+            )
+            """
+        )
+    )
+
+
 MIGRATIONS = [
     Migration(
         version="20260321_ai_runtime_embeddings",
@@ -890,6 +909,10 @@ MIGRATIONS = [
     Migration(
         version="20260328_review_sessions_repair",
         run=_review_sessions_schema_repair_migration,
+    ),
+    Migration(
+        version="20260329_review_session_history_index",
+        run=_review_session_history_index_migration,
     ),
 ]
 

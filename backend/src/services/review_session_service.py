@@ -4,13 +4,14 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from api.api_model import (
     ReviewApprovalResponse,
     ReviewApprovalUpsertRequest,
-    ReviewCompareRequest,
     ReviewFinding,
+    ReviewHistoryEntry,
+    ReviewHistoryResponse,
     ReviewResultResponse,
     ReviewResultSubmitRequest,
     ReviewRunEventInput,
@@ -19,6 +20,7 @@ from api.api_model import (
     ReviewRunResponse,
     ReviewRunStartRequest,
     ReviewRunStatusUpdateRequest,
+    ReviewSeverityCounts,
     ReviewSessionCreateRequest,
     ReviewSessionResponse,
 )
@@ -70,24 +72,38 @@ class ReviewSessionPersistenceService:
         self.compare_service = compare_service
 
     def create_session(self, request: ReviewSessionCreateRequest) -> ReviewSessionResponse:
-        compare = self.compare_service.compare(
-            ReviewCompareRequest(
-                repo_path=request.repo_path,
-                base_ref=request.base_ref,
-                head_ref=request.head_ref,
-                context_lines=request.context_lines,
-            )
-        )
+        base_ref = request.base_ref.strip()
+        head_ref = request.head_ref.strip()
         (
-            _repo,
+            repo,
             repo_path,
             base_commit,
             head_commit,
-            _merge_base_commit,
+            merge_base_commit,
         ) = self.compare_service.resolve_compare_target(
             repo_path=request.repo_path,
-            base_ref=request.base_ref.strip(),
-            head_ref=request.head_ref.strip(),
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
+        existing_session = self._find_matching_session(
+            repo_path=repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            base_head_sha=str(base_commit.id),
+            head_head_sha=str(head_commit.id),
+            context_lines=request.context_lines,
+        )
+        if existing_session is not None:
+            return self._build_session_response(existing_session, include_runs=True)
+
+        compare = self.compare_service.compare_resolved(
+            repo=repo,
+            repo_path=repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            head_commit=head_commit,
+            merge_base_commit=merge_base_commit,
+            context_lines=request.context_lines,
         )
 
         now = _utcnow()
@@ -118,13 +134,55 @@ class ReviewSessionPersistenceService:
         self.session.add(session_row)
         self.session.commit()
         self.session.refresh(session_row)
-        return self._build_session_response(session_row, include_runs=False)
+        return self._build_session_response(session_row, include_runs=True)
 
     def get_session(
         self, session_id: str, *, include_runs: bool = True
     ) -> ReviewSessionResponse:
         session_row = self._get_session_or_404(session_id)
         return self._build_session_response(session_row, include_runs=include_runs)
+
+    def list_history(
+        self,
+        *,
+        repo_path: str,
+        base_ref: str,
+        head_ref: str,
+    ) -> ReviewHistoryResponse:
+        normalized_repo_path = self.compare_service.resolve_repo_path(repo_path)
+        normalized_base_ref = base_ref.strip()
+        normalized_head_ref = head_ref.strip()
+        if not normalized_base_ref or not normalized_head_ref:
+            raise ReviewServiceError(
+                "Select both a base branch and a head branch before loading review history.",
+                status_code=400,
+            )
+
+        runs = (
+            self.session.query(SQLReviewRun)
+            .join(SQLReviewRun.session)
+            .join(SQLReviewRun.result)
+            .options(
+                joinedload(SQLReviewRun.session),
+                joinedload(SQLReviewRun.result),
+            )
+            .filter(
+                SQLReviewSession.repo_path == normalized_repo_path,
+                SQLReviewSession.base_ref == normalized_base_ref,
+                SQLReviewSession.head_ref == normalized_head_ref,
+                SQLReviewRun.status == "completed",
+            )
+            .order_by(
+                SQLReviewResult.generated_at.desc(),
+                SQLReviewRun.completed_at.desc(),
+                SQLReviewRun.created_at.desc(),
+            )
+            .all()
+        )
+
+        return ReviewHistoryResponse(
+            items=[self._build_history_entry(run) for run in runs if run.result is not None]
+        )
 
     def create_run(
         self, session_id: str, request: ReviewRunStartRequest
@@ -543,6 +601,30 @@ class ReviewSessionPersistenceService:
             raise ReviewServiceError("Review run was not found.", status_code=404)
         return run
 
+    def _find_matching_session(
+        self,
+        *,
+        repo_path: str,
+        base_ref: str,
+        head_ref: str,
+        base_head_sha: str,
+        head_head_sha: str,
+        context_lines: int,
+    ) -> SQLReviewSession | None:
+        return (
+            self.session.query(SQLReviewSession)
+            .filter(
+                SQLReviewSession.repo_path == repo_path,
+                SQLReviewSession.base_ref == base_ref,
+                SQLReviewSession.head_ref == head_ref,
+                SQLReviewSession.base_head_sha == base_head_sha,
+                SQLReviewSession.head_head_sha == head_head_sha,
+                SQLReviewSession.context_lines == context_lines,
+            )
+            .order_by(SQLReviewSession.created_at.desc())
+            .first()
+        )
+
     def _build_session_response(
         self, session_row: SQLReviewSession, *, include_runs: bool
     ) -> ReviewSessionResponse:
@@ -639,8 +721,48 @@ class ReviewSessionPersistenceService:
             updated_at=result.updated_at,
         )
 
+    def _build_history_entry(self, run: SQLReviewRun) -> ReviewHistoryEntry:
+        result = run.result
+        if result is None:
+            raise ReviewServiceError(
+                "Review history can only be built from persisted review results.",
+                status_code=500,
+            )
+
+        severity_counts = self._count_finding_severities(result.findings or [])
+
+        return ReviewHistoryEntry(
+            session_id=run.session_id,
+            run_id=run.id,
+            repo_path=run.session.repo_path,
+            base_ref=run.session.base_ref,
+            head_ref=run.session.head_ref,
+            merge_base_sha=run.session.merge_base_sha,
+            base_head_sha=run.session.base_head_sha,
+            head_head_sha=run.session.head_head_sha,
+            engine=run.engine,
+            mode=run.mode,
+            partial=result.partial,
+            summary=result.summary,
+            findings_count=len(result.findings or []),
+            severity_counts=ReviewSeverityCounts(**severity_counts),
+            generated_at=result.generated_at,
+            completed_at=run.completed_at,
+            run_created_at=run.created_at,
+        )
+
     def _next_id(self, prefix: str) -> str:
         return f"{prefix}_{uuid4().hex[:12]}"
+
+    def _count_finding_severities(self, findings: list) -> dict[str, int]:
+        counts = {severity: 0 for severity in VALID_SEVERITIES}
+        for raw_finding in findings:
+            try:
+                finding = ReviewFinding.model_validate(raw_finding)
+            except Exception:
+                continue
+            counts[finding.severity] += 1
+        return counts
 
     def _build_changed_files(self, file_changes: list[FileChange]) -> list[dict]:
         changed_files: list[dict] = []

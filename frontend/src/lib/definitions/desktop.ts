@@ -10,6 +10,7 @@ import type {
 import type {
   ReviewCompareResponse,
   ReviewApprovalDecision,
+  ReviewHistoryResponse,
   ReviewReport,
   ReviewRun,
   ReviewRuntimeEvent,
@@ -218,6 +219,11 @@ export interface GitOdysseyDesktopApi {
     contextLines: number;
   }): Promise<ReviewSession>;
   getReviewSession(sessionId: string): Promise<ReviewSession>;
+  getReviewHistory(input: {
+    repoPath: string;
+    baseRef: string;
+    headRef: string;
+  }): Promise<ReviewHistoryResponse>;
   startReviewRun(input: {
     sessionId: string;
     customInstructions?: string | null;

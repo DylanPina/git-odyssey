@@ -64,6 +64,11 @@ test("preload exposes review IPC bridge methods", async () => {
   await exposed.gitOdysseyDesktop.api.generateReview(input);
   await exposed.gitOdysseyDesktop.api.createReviewSession(input);
   await exposed.gitOdysseyDesktop.api.getReviewSession("rev_sess_123");
+  await exposed.gitOdysseyDesktop.api.getReviewHistory({
+    repoPath: "/tmp/example-repo",
+    baseRef: "main",
+    headRef: "feature",
+  });
   await exposed.gitOdysseyDesktop.api.startReviewRun({
     sessionId: "rev_sess_123",
     customInstructions: "Focus on bugs",
@@ -90,27 +95,35 @@ test("preload exposes review IPC bridge methods", async () => {
   assert.deepEqual(invocations[2], ["git-odyssey:api:create-review-session", input]);
   assert.deepEqual(invocations[3], ["git-odyssey:api:get-review-session", "rev_sess_123"]);
   assert.deepEqual(invocations[4], [
+    "git-odyssey:api:get-review-history",
+    {
+      repoPath: "/tmp/example-repo",
+      baseRef: "main",
+      headRef: "feature",
+    },
+  ]);
+  assert.deepEqual(invocations[5], [
     "git-odyssey:api:start-review-run",
     {
       sessionId: "rev_sess_123",
       customInstructions: "Focus on bugs",
     },
   ]);
-  assert.deepEqual(invocations[5], [
+  assert.deepEqual(invocations[6], [
     "git-odyssey:api:get-review-run",
     {
       sessionId: "rev_sess_123",
       runId: "rev_run_456",
     },
   ]);
-  assert.deepEqual(invocations[6], [
+  assert.deepEqual(invocations[7], [
     "git-odyssey:api:cancel-review-run",
     {
       sessionId: "rev_sess_123",
       runId: "rev_run_456",
     },
   ]);
-  assert.deepEqual(invocations[7], [
+  assert.deepEqual(invocations[8], [
     "git-odyssey:api:respond-review-approval",
     {
       sessionId: "rev_sess_123",
@@ -298,6 +311,7 @@ test("main process review handlers forward requests to the backend", async () =>
   const generateHandler = handlers.get("git-odyssey:api:generate-review");
   const createSessionHandler = handlers.get("git-odyssey:api:create-review-session");
   const getSessionHandler = handlers.get("git-odyssey:api:get-review-session");
+  const getHistoryHandler = handlers.get("git-odyssey:api:get-review-history");
   const startRunHandler = handlers.get("git-odyssey:api:start-review-run");
   const getRunHandler = handlers.get("git-odyssey:api:get-review-run");
   const cancelRunHandler = handlers.get("git-odyssey:api:cancel-review-run");
@@ -313,6 +327,11 @@ test("main process review handlers forward requests to the backend", async () =>
   await generateHandler({}, input);
   await createSessionHandler({}, input);
   await getSessionHandler({}, "rev_sess_123");
+  await getHistoryHandler({}, {
+    repoPath: "/tmp/example-repo",
+    baseRef: "main",
+    headRef: "feature",
+  });
   await startRunHandler({}, {
     sessionId: "rev_sess_123",
     customInstructions: "Focus on auth flows",
@@ -373,10 +392,14 @@ test("main process review handlers forward requests to the backend", async () =>
     options: undefined,
   });
   assert.deepEqual(backendManagerInstance.requests[4], {
-    apiPath: "/api/review/sessions/rev_sess_123/runs/rev_run_456",
+    apiPath: "/api/review/history?repo_path=%2Ftmp%2Fexample-repo&base_ref=main&head_ref=feature",
     options: undefined,
   });
   assert.deepEqual(backendManagerInstance.requests[5], {
+    apiPath: "/api/review/sessions/rev_sess_123/runs/rev_run_456",
+    options: undefined,
+  });
+  assert.deepEqual(backendManagerInstance.requests[6], {
     apiPath: "/api/review/sessions/rev_sess_123/runs/rev_run_456",
     options: undefined,
   });
