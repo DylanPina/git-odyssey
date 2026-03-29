@@ -1,5 +1,4 @@
 import { Handle, Position } from "@xyflow/react";
-import { toast } from "react-toastify";
 import { memo, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -10,6 +9,11 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useClipboardToast } from "@/hooks/useClipboardToast";
+import {
+	formatCommitTimestamp,
+	getCommitAuthorLabel,
+} from "@/lib/commitPresentation";
 import { buildCommitRoute, readRepoPathFromSearchParams } from "@/lib/repoPaths";
 
 function CommitNode(props: {
@@ -27,34 +31,19 @@ function CommitNode(props: {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const repoPath = readRepoPathFromSearchParams(searchParams);
-
-  const copyToClipboard = useCallback(async (text: string, type: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`${type} copied to clipboard`, {
-        position: "top-right",
-        autoClose: 1800,
-        theme: "dark",
-      });
-    } catch (error) {
-      console.error("Failed to copy text:", error);
-      toast.error(`Failed to copy ${type.toLowerCase()}`, {
-        position: "top-right",
-        autoClose: 2600,
-        theme: "dark",
-      });
-    }
-  }, []);
+  const copyToClipboard = useClipboardToast();
 
   const formattedTime = useMemo(() => {
-    if (!time) return null;
-    const date = new Date(time * 1000);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return formatCommitTimestamp(
+      time,
+      {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      },
+      "",
+    );
   }, [time]);
 
   const handleOpenCommitDiff = useCallback(() => {
@@ -112,7 +101,7 @@ function CommitNode(props: {
 
           <div className="mt-auto flex items-center gap-3 text-[11px]">
             <span className="truncate text-text-tertiary">
-              {author || "Unknown author"}
+              {getCommitAuthorLabel(author)}
             </span>
           </div>
 

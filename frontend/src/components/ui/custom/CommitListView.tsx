@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { formatDistanceToNow } from "date-fns";
+import { useEffect, useMemo, useRef } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "react-toastify";
 
 import { CommitSummaryButton } from "@/components/ui/custom/CommitSummaryButton";
 import { LoadingOverlay } from "@/components/ui/custom/LoadingOverlay";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useClipboardToast } from "@/hooks/useClipboardToast";
+import {
+	formatCommitRelativeTime,
+	formatCommitTimestamp,
+	getCommitAuthorLabel,
+	getCommitDate,
+	getCommitSubject,
+} from "@/lib/commitPresentation";
 import type { Commit } from "@/lib/definitions/repo";
 import { buildCommitRoute } from "@/lib/repoPaths";
 
@@ -20,49 +26,6 @@ type CommitListViewProps = {
 	onCommitSummaryUpdate: (commitSha: string, summary: string) => void;
 };
 
-function getCommitSubject(message?: string | null) {
-	const lines = (message || "")
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.filter(Boolean);
-
-	return lines[0] || null;
-}
-
-function getCommitDate(timestamp?: number | null) {
-	if (timestamp == null) {
-		return null;
-	}
-
-	return new Date(timestamp * 1000);
-}
-
-function formatCommitRelativeTime(timestamp?: number | null) {
-	const commitDate = getCommitDate(timestamp);
-	if (!commitDate) {
-		return "Unknown date";
-	}
-
-	return formatDistanceToNow(commitDate, { addSuffix: true });
-}
-
-function formatCommitExactTime(timestamp?: number | null) {
-	const commitDate = getCommitDate(timestamp);
-	if (!commitDate) {
-		return "Unknown date";
-	}
-
-	return commitDate.toLocaleString(undefined, {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-		second: "2-digit",
-		timeZoneName: "short",
-	});
-}
-
 export function CommitListView({
 	commits,
 	repoPath,
@@ -74,6 +37,7 @@ export function CommitListView({
 }: CommitListViewProps) {
 	const navigate = useNavigate();
 	const rowRefs = useRef<Record<string, HTMLElement | null>>({});
+	const copyToClipboard = useClipboardToast();
 
 	const sortedCommits = useMemo(
 		() =>
@@ -87,24 +51,6 @@ export function CommitListView({
 			}),
 		[commits],
 	);
-
-	const copyToClipboard = useCallback(async (text: string, type: string) => {
-		try {
-			await navigator.clipboard.writeText(text);
-			toast.success(`${type} copied to clipboard`, {
-				position: "top-right",
-				autoClose: 1800,
-				theme: "dark",
-			});
-		} catch (error) {
-			console.error("Failed to copy text:", error);
-			toast.error(`Failed to copy ${type.toLowerCase()}`, {
-				position: "top-right",
-				autoClose: 2600,
-				theme: "dark",
-			});
-		}
-	}, []);
 
 	useEffect(() => {
 		if (!focusedCommitSha) {
@@ -133,9 +79,12 @@ export function CommitListView({
 						{sortedCommits.map((commit) => {
 							const subject = getCommitSubject(commit.message);
 							const shortSha = commit.sha.slice(0, 7);
-							const authorLabel = commit.author || "Unknown author";
+							const authorLabel = getCommitAuthorLabel(commit.author);
 							const relativeTimeLabel = formatCommitRelativeTime(commit.time);
-							const exactTimeLabel = formatCommitExactTime(commit.time);
+							const exactTimeLabel = formatCommitTimestamp(commit.time, {
+								second: "2-digit",
+								timeZoneName: "short",
+							});
 							const commitDate = getCommitDate(commit.time);
 							const effectiveRepoPath = repoPath ?? commit.repo_path;
 							const isSelected = focusedCommitSha === commit.sha;

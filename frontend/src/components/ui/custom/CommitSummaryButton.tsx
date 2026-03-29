@@ -10,6 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useClipboardToast } from "@/hooks/useClipboardToast";
 import { cn } from "@/lib/utils";
 
 type CommitSummaryButtonProps = {
@@ -26,30 +27,13 @@ export function CommitSummaryButton({
   compact = false,
 }: CommitSummaryButtonProps) {
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const copyToClipboard = useClipboardToast();
 
   const shortSha = useMemo(() => sha.slice(0, 8), [sha]);
   const triggerClassName = cn(
     "nodrag",
     compact && "h-7 w-7 rounded-full p-0 [&_svg]:size-3.5"
   );
-
-  const copyToClipboard = useCallback(async (text: string, type: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`${type} copied to clipboard`, {
-        position: "top-right",
-        autoClose: 1800,
-        theme: "dark",
-      });
-    } catch (error) {
-      console.error("Failed to copy text:", error);
-      toast.error(`Failed to copy ${type.toLowerCase()}`, {
-        position: "top-right",
-        autoClose: 2600,
-        theme: "dark",
-      });
-    }
-  }, []);
 
   const handleSummarizeCommit = useCallback(async () => {
     try {

@@ -1,14 +1,34 @@
-# GitOdyssey Desktop
+# GitOdyssey
 
-GitOdyssey is now a desktop-first, fully local codebase analysis app. The React UI runs inside Electron, the backend runs as a local FastAPI sidecar, and repository analysis stays on your machine.
+GitOdyssey is a code intelligence platform for Git repositories. It combines semantic AI search, code review, chat, and commit summaries in an AI-driven workflow that runs on your own machine.
 
-## What Changed
+## Features
 
-- Browser deployment, hosted auth, and cloud infrastructure settings have been removed.
-- GitHub OAuth, GitHub App setup, cookies, and session secrets are no longer part of the runtime model.
-- Desktop users configure AI providers during first-run setup, and provider secrets are stored locally in the macOS Keychain.
-- The desktop shell owns renderer loading, backend startup, health checks, and local configuration.
-- Repositories are opened directly from local disk with a Git Project picker and recent-project shortcuts.
+- Semantic AI search across commit history, file changes, and diff hunks using embeddings and pgvector
+- Code review with structured findings, severity levels, and file or line anchors
+- Security-focused review workflows via custom instructions for auth, validation, secrets handling, and risky behavior changes
+- Local-first architecture with Electron, FastAPI, PostgreSQL + pgvector, and macOS Keychain-backed secret storage
+- Provider flexibility with OpenAI and OpenAI-compatible text and embeddings endpoints
+
+## Multi-Agent Review Architecture
+
+GitOdyssey's review pipeline is built as an orchestrated local intelligence runtime:
+
+- The Electron desktop shell opens local repositories, manages provider configuration, and starts the local backend
+- The FastAPI sidecar ingests repository history, stores embeddings, retrieves context, and persists review sessions and results
+- PostgreSQL + pgvector power semantic AI search over commit messages and diff content
+- The Codex review runtime creates a disposable Git worktree, primes a base thread, launches a dedicated review thread or rollout when available, and converts the completed analysis into structured JSON findings
+
+This architecture supports broad PR reviews, targeted security reviews, regression sweeps, and follow-up investigation without relying on a hosted code intelligence service.
+
+## Core Workflows
+
+1. Open a local Git repository directly from disk.
+2. Ingest commits into the local PostgreSQL + pgvector store.
+3. Run semantic AI search to find relevant changes across commits, file changes, and hunks.
+4. Ask repository questions in chat or inspect AI-generated commit summaries.
+5. Review one local branch against another and generate structured findings.
+6. Add custom instructions when you want a security review or a focused pass on a subsystem.
 
 ## Local Development
 
@@ -51,12 +71,16 @@ npm start
 npm run desktop:dev
 ```
 
-On first launch, GitOdyssey will prompt for:
+## AI Configuration
+
+On first launch, GitOdyssey prompts for:
 
 - a text-generation provider and model
 - an embeddings provider and model, or an explicit text-only mode
 
-Provider secrets are stored in the macOS Keychain. The Electron shell passes the structured AI runtime config and resolved secrets to the local FastAPI sidecar at runtime.
+Provider secrets are stored in the macOS Keychain. The Electron shell passes the structured AI runtime configuration and resolved secrets to the local FastAPI sidecar at runtime.
+
+GitOdyssey expects an OpenAI-style `/v1/responses` endpoint for chat, summaries, and review generation, plus `/v1/embeddings` for semantic AI search when embeddings are enabled.
 
 ## Optional Backend Overrides
 
@@ -88,7 +112,7 @@ docker compose down
 docker compose down -v
 ```
 
-## Desktop Runtime Layout
+## Runtime Layout
 
 - Renderer: `frontend/` built with Vite and loaded inside Electron
 - Desktop shell: `desktop/` with Electron main, preload IPC bridge, keychain access, and backend orchestration
@@ -103,11 +127,11 @@ docker compose down -v
 - Desktop logs: `~/Library/Application Support/git-odyssey-desktop/logs/`
 - Backend log: `~/Library/Application Support/git-odyssey-desktop/logs/backend.log`
 
-## Current Development Notes
+## Project Status
 
-- The repo is desktop-only now; there is no supported browser deployment path.
-- The root Compose file is only for local Postgres during development.
-- `desktop:build` packages the Electron shell and renderer. Bundling the FastAPI sidecar and PostgreSQL distribution into a clean-machine macOS build is still the remaining packaging milestone.
+- The repo is desktop-only; there is no supported browser deployment path
+- The root Compose file is only for local Postgres during development
+- `desktop:build` packages the Electron shell and renderer; bundling the FastAPI sidecar and PostgreSQL distribution into a clean-machine macOS build is still the remaining packaging milestone
 
 ## Contributors
 
