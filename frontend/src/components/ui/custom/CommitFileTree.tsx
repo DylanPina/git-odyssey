@@ -36,6 +36,7 @@ type CommitFileTreeProps = {
 	files: FileChange[];
 	totalFileCount: number;
 	selectedFilePath: string | null;
+	codeSearchMatchCounts?: Record<string, number>;
 	desktopWidth?: number;
 	topContent?: ReactNode;
 	isCollapsed?: boolean;
@@ -82,6 +83,7 @@ export function CommitFileTree({
 	files,
 	totalFileCount,
 	selectedFilePath,
+	codeSearchMatchCounts = {},
 	desktopWidth,
 	topContent,
 	isCollapsed = false,
@@ -186,6 +188,7 @@ export function CommitFileTree({
 			}
 
 			const isSelected = selectedFilePath === node.path;
+			const searchMatchCount = codeSearchMatchCounts[node.path] ?? 0;
 
 			return (
 				<button
@@ -201,7 +204,7 @@ export function CommitFileTree({
 					onClick={() => onSelectFile(node.path)}
 					aria-current={isSelected ? "true" : undefined}
 					title={node.path}
-				>
+					>
 					<span
 						className={cn(
 							"ml-1 size-2 shrink-0 rounded-full",
@@ -210,6 +213,11 @@ export function CommitFileTree({
 					/>
 					<FileCode2 className="size-4 shrink-0 text-text-tertiary" />
 					<span className="truncate font-mono text-[12px]">{node.name}</span>
+					{searchMatchCount > 0 ? (
+						<span className="ml-auto rounded-full border border-border-subtle bg-control px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+							{searchMatchCount}
+						</span>
+					) : null}
 				</button>
 			);
 		});

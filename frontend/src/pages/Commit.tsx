@@ -1,15 +1,18 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { GitCommitHorizontal } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import {
 	DiffWorkspace,
 	type DiffWorkspaceHandle,
 } from "@/components/ui/custom/DiffWorkspace";
-import { CommitToolbar } from "@/components/ui/custom/CommitToolbar";
 import { useCommitDetails } from "@/hooks/useCommitDetails";
-import { buildRepoRoute, readRepoPathFromSearchParams } from "@/lib/repoPaths";
+import { useDesktopTitleBarActions } from "@/lib/desktop-titlebar-actions";
+import {
+	readCommitSearchContextFromSearchParams,
+	readRepoPathFromSearchParams,
+} from "@/lib/repoPaths";
 
 function getCommitMessageParts(message?: string | null) {
 	const lines = (message || "")
@@ -25,9 +28,10 @@ function getCommitMessageParts(message?: string | null) {
 
 export function Commit() {
 	const { commitSha } = useParams();
-	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
+	const commitSearchContext = readCommitSearchContextFromSearchParams(searchParams);
+	const setDesktopTitleBarActions = useDesktopTitleBarActions();
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
 
 	const shortSha = useMemo(
@@ -170,27 +174,32 @@ export function Commit() {
 			</div>
 		</div>
 	);
+	const canCollapseAllFiles = allFiles.length > 0;
+
+	useEffect(() => {
+		setDesktopTitleBarActions([
+			{
+				id: "collapse-all-files",
+				label: "Collapse all files",
+				disabled: !canCollapseAllFiles,
+				onClick: () => {
+					diffWorkspaceRef.current?.collapseAll();
+				},
+			},
+		]);
+
+		return () => {
+			setDesktopTitleBarActions([]);
+		};
+	}, [canCollapseAllFiles, setDesktopTitleBarActions]);
 
 	return (
-		<div className="workspace-shell min-h-screen">
-			<div className="flex min-h-screen flex-col pb-4">
-				<div className="px-4 pt-4">
-					<CommitToolbar
-						repoPath={repoPath}
-						shortSha={shortSha}
-						onExit={() => navigate(repoPath ? buildRepoRoute(repoPath) : "/")}
-						onCollapseAll={
-							allFiles.length > 0
-								? () => diffWorkspaceRef.current?.collapseAll()
-								: undefined
-						}
-					/>
-				</div>
-
+		<div className="workspace-shell overflow-y-auto">
+			<div className="flex min-h-full flex-col pb-4">
 				{pageTopContent ? <div className="px-4 pt-4">{pageTopContent}</div> : null}
 
 				<div className="px-4 pb-4 pt-4">
-					<div className="sticky top-[calc(var(--header-height)+1rem)] z-10 h-[calc(100dvh-var(--header-height)-2rem)]">
+					<div className="sticky top-4 z-10 h-[calc(var(--app-content-height)-2rem)]">
 						<DiffWorkspace
 							ref={diffWorkspaceRef}
 							repoPath={repoPath ?? targetCommit?.repo_path}
@@ -204,6 +213,7 @@ export function Commit() {
 							emptyTitle="No file changes in this commit."
 							emptyDescription="This commit does not contain diffable file content."
 							chromeDensity="compact"
+							searchContext={commitSearchContext}
 							summaryActions={
 								targetCommit
 									? {

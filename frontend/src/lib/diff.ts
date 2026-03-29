@@ -7,7 +7,39 @@ export type DiffNavigationTarget = {
   token: number;
 };
 
+export type DiffViewerSide = "original" | "modified";
 export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+export type DiffSearchHighlightStrategy =
+  | "exact_query"
+  | "target_hunk"
+  | "file_header"
+  | "none";
+export type DiffSearchContext = {
+  query?: string | null;
+  matchType: "commit" | "file_change" | "hunk";
+  filePath?: string | null;
+  newStart?: number | null;
+  oldStart?: number | null;
+  highlightStrategy: DiffSearchHighlightStrategy;
+};
+
+export type DiffCodeSearchMatch = {
+  id: string;
+  filePath: string;
+  side: DiffViewerSide;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  startOffset: number;
+  endOffset: number;
+};
+
+export type DiffCodeSearchFileIndex = {
+  original: DiffCodeSearchMatch[];
+  modified: DiffCodeSearchMatch[];
+  total: number;
+};
 
 type DiffStatusTone = "neutral" | "accent" | "success" | "warning" | "danger";
 
@@ -146,26 +178,110 @@ export function getFileChangeSearchPaths(fileChange: FileChange): string[] {
   return Array.from(new Set(paths));
 }
 
+export function getFileChangeDiffContents(fileChange: FileChange): {
+  status: DiffFileStatus;
+  original: string;
+  modified: string;
+} {
+  const status = normalizeDiffFileStatus(fileChange.status);
+
+  if (status === "added") {
+    return {
+      status,
+      original: "",
+      modified: fileChange.snapshot?.content || "",
+    };
+  }
+
+  if (status === "deleted") {
+    return {
+      status,
+      original: fileChange.snapshot?.content || "",
+      modified: "",
+    };
+  }
+
+  return {
+    status,
+    original: fileChange.snapshot?.previous_snapshot?.content || "",
+    modified: fileChange.snapshot?.content || "",
+  };
+}
+
 function getSnapshotSearchText(fileChange: FileChange): string {
-  return [
-    fileChange.snapshot?.previous_snapshot?.content,
-    fileChange.snapshot?.content,
-  ]
+  const { original, modified } = getFileChangeDiffContents(fileChange);
+
+  return [original, modified]
     .filter((value): value is string => Boolean(value))
     .join("\n");
 }
 
 export function getFileChangeCodeSearchText(fileChange: FileChange): string {
-  const hunkText = (fileChange.hunks || [])
-    .map((hunk) => hunk.content?.trim())
-    .filter((value): value is string => Boolean(value))
-    .join("\n");
+  return getSnapshotSearchText(fileChange);
+}
 
-  if (hunkText) {
-    return hunkText;
+function findMatchesInText(
+  text: string,
+  query: string,
+  filePath: string,
+  side: DiffViewerSide,
+): DiffCodeSearchMatch[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery || normalizedQuery.includes("\n")) {
+    return [];
   }
 
-  return getSnapshotSearchText(fileChange);
+  const normalizedText = text.replace(/\r\n?/g, "\n");
+  const lines = normalizedText.split("\n");
+  const matches: DiffCodeSearchMatch[] = [];
+  let currentOffset = 0;
+
+  lines.forEach((line, lineIndex) => {
+    const lowerLine = line.toLowerCase();
+    let searchOffset = 0;
+
+    while (searchOffset <= lowerLine.length - normalizedQuery.length) {
+      const matchOffset = lowerLine.indexOf(normalizedQuery, searchOffset);
+      if (matchOffset === -1) {
+        break;
+      }
+
+      const startOffset = currentOffset + matchOffset;
+      const endOffset = startOffset + normalizedQuery.length;
+      matches.push({
+        id: `${filePath}:${side}:${lineIndex + 1}:${matchOffset}`,
+        filePath,
+        side,
+        startLine: lineIndex + 1,
+        startColumn: matchOffset + 1,
+        endLine: lineIndex + 1,
+        endColumn: matchOffset + normalizedQuery.length + 1,
+        startOffset,
+        endOffset,
+      });
+      searchOffset = matchOffset + Math.max(normalizedQuery.length, 1);
+    }
+
+    currentOffset += line.length + 1;
+  });
+
+  return matches;
+}
+
+export function buildFileChangeCodeSearchIndex(
+  fileChange: FileChange,
+  query: string,
+): DiffCodeSearchFileIndex {
+  const filePath = getFileChangeLabelPath(fileChange);
+  const { original, modified } = getFileChangeDiffContents(fileChange);
+  const originalMatches = findMatchesInText(original, query, filePath, "original");
+  const modifiedMatches = findMatchesInText(modified, query, filePath, "modified");
+
+  return {
+    original: originalMatches,
+    modified: modifiedMatches,
+    total: originalMatches.length + modifiedMatches.length,
+  };
 }
 
 function matchesQuery(value: string, query: string): boolean {
@@ -189,7 +305,7 @@ export function fileChangeMatchesCodeQuery(
   fileChange: FileChange,
   query: string
 ): boolean {
-  return matchesQuery(getFileChangeCodeSearchText(fileChange), query);
+  return buildFileChangeCodeSearchIndex(fileChange, query).total > 0;
 }
 
 export function fileChangeMatchesQueries(

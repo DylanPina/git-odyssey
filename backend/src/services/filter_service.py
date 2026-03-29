@@ -7,10 +7,13 @@ class FilterService:
         self.retriever = retriever
 
     def filter(self, request: FilterRequest) -> FilterResponse:
-        commit_shas = self.retriever.filter(
+        results = self.retriever.filter(
             request.query,
             request.filters,
             request.repo_path,
             request.max_results,
         )
-        return FilterResponse(commit_shas=commit_shas)
+        return FilterResponse(
+            commit_shas=[result["sha"] for result in results],
+            results=results,
+        )

@@ -1,5 +1,4 @@
 import {
-  ChevronRight,
   Database,
   Filter as FilterIcon,
   GitPullRequest,
@@ -20,12 +19,10 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { FilterFormData } from "@/lib/filter-utils";
-import { getRepoPathBreadcrumbs } from "@/lib/repoPaths";
 
 export type RepoViewMode = "graph" | "list";
 
 type RepoToolbarProps = {
-  repoPath?: string | null;
   viewMode?: RepoViewMode;
   filters: FilterFormData;
   hasActiveFilters?: boolean;
@@ -42,21 +39,7 @@ type RepoToolbarProps = {
   onViewModeChange?: (viewMode: RepoViewMode) => void;
 };
 
-function getRepoBreadcrumbs(repoPath?: string | null) {
-	if (!repoPath) {
-		return [{ label: "Repository", current: true }];
-	}
-
-	const segments = getRepoPathBreadcrumbs(repoPath);
-
-	return segments.map((segment, index) => ({
-		label: segment,
-		current: index === segments.length - 1,
-	}));
-}
-
 export function RepoToolbar({
-  repoPath,
   viewMode,
   filters,
   hasActiveFilters = false,
@@ -72,8 +55,6 @@ export function RepoToolbar({
   onReview,
   onViewModeChange,
 }: RepoToolbarProps) {
-	const breadcrumbs = getRepoBreadcrumbs(repoPath);
-
 	const statusTone = isIngesting
 		? "accent"
 		: isLoading
@@ -100,41 +81,12 @@ export function RepoToolbar({
 	};
 
   return (
-    <header className="workspace-header-frame sticky top-0 z-20 flex h-[var(--header-height)] items-center gap-3 overflow-hidden px-3 py-2 backdrop-blur-md">
+    <header className="workspace-header-frame sticky top-0 z-20 flex h-[var(--header-height)] items-center justify-between gap-3 overflow-hidden px-3 py-2 backdrop-blur-md">
       <div className="flex shrink-0 items-center gap-2">
         <SidebarTrigger />
       </div>
 
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<div
-						className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap"
-						title={repoPath ?? undefined}
-					>
-						{breadcrumbs.map((crumb, index) => (
-							<div
-								key={`${crumb.label}-${index}`}
-								className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden"
-							>
-								{index > 0 ? (
-									<ChevronRight className="size-3 shrink-0 text-text-tertiary" />
-								) : null}
-								<span
-									className={[
-										"block truncate font-mono text-sm leading-none",
-										crumb.current
-											? "max-w-[18rem] text-text-primary"
-											: "max-w-[10rem] text-text-tertiary",
-									].join(" ")}
-								>
-									{crumb.label}
-								</span>
-							</div>
-						))}
-					</div>
-				</TooltipTrigger>
-				{repoPath ? <TooltipContent>{repoPath}</TooltipContent> : null}
-			</Tooltip>
+      <div className="min-w-0 flex-1" />
 
       <div className="flex shrink-0 items-center gap-2">
 				{viewMode ? (

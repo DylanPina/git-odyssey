@@ -28,7 +28,7 @@ export function Home() {
 		<div className="workspace-shell workspace-shell-plain relative overflow-x-hidden overflow-y-auto">
 			<HomeSpaceBackdrop />
 
-			<div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center px-4 py-14 sm:px-6">
+			<div className="relative z-10 mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-4 py-14 sm:px-6">
 				<div className="w-full space-y-10">
 					<header className="flex flex-col items-center gap-6 text-center">
 						<h1 className="font-sans text-[42px] font-bold leading-none tracking-[-0.08em] text-text-primary sm:text-[52px]">

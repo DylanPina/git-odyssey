@@ -93,6 +93,7 @@ function RepoWorkspace() {
 		focusedCommitSha,
 		searchQuery,
 		lastSearchQuery,
+		searchResults,
 		setSearchQuery,
 		layoutDirection,
 		toggleLayoutDirection,
@@ -176,6 +177,7 @@ function RepoWorkspace() {
 				repoPath={repoPath}
 				allCommitsCount={commits.length}
 				filteredCommits={filteredCommits}
+				searchResults={searchResults}
 				searchQuery={searchQuery}
 				searchFilters={filters}
 				lastSearchQuery={lastSearchQuery}
@@ -192,7 +194,6 @@ function RepoWorkspace() {
 			<SidebarInset className="overflow-hidden bg-transparent">
 				<div className="flex h-full flex-col overflow-hidden">
 					<RepoToolbar
-						repoPath={repoPath}
 						viewMode={viewMode}
 						filters={filters}
 						hasActiveFilters={hasActiveFilters}

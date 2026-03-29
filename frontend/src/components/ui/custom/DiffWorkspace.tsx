@@ -8,9 +8,10 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
 import { CommitFilePanel } from "@/components/ui/custom/CommitFilePanel";
 import { CommitFileTree } from "@/components/ui/custom/CommitFileTree";
@@ -25,9 +26,14 @@ import {
   InputGroupText,
 } from "@/components/ui/input-group";
 import {
-  fileChangeMatchesQueries,
+  buildFileChangeCodeSearchIndex,
+  fileChangeMatchesFileQuery,
   getFileChangeLabelPath,
+  type DiffCodeSearchFileIndex,
+  type DiffCodeSearchMatch,
   type DiffNavigationTarget,
+  type DiffSearchContext,
+  type DiffViewerSide,
 } from "@/lib/diff";
 import type { FileChange, FileHunk } from "@/lib/definitions/repo";
 import { cn } from "@/lib/utils";
@@ -88,11 +94,24 @@ type DiffWorkspaceProps = {
   isRightRailFullscreen?: boolean;
   rightRailCollapsedSummary?: ReactNode;
   desktopResize?: DiffWorkspaceDesktopResize;
+  searchContext?: DiffSearchContext | null;
 };
 
 const FILE_TREE_COLLAPSED_DESKTOP_WIDTH = 68;
 const RIGHT_RAIL_COLLAPSED_DESKTOP_WIDTH = 60;
 const DESKTOP_RESIZE_STEP = 16;
+
+type DiffWorkspaceCodeNavigationTarget = DiffCodeSearchMatch & {
+  token: number;
+  focusEditor?: boolean;
+};
+
+type DiffWorkspaceContextHighlight = {
+  filePath: string;
+  side?: DiffViewerSide;
+  line?: number | null;
+  highlightStrategy: DiffSearchContext["highlightStrategy"];
+};
 
 function clampPanelWidth(width: number, minWidth: number, maxWidth: number) {
   return Math.min(maxWidth, Math.max(minWidth, width));
@@ -263,6 +282,115 @@ function focusSearchInput(inputId: string) {
   }
 }
 
+function sortCodeMatches(matches: DiffCodeSearchMatch[]): DiffCodeSearchMatch[] {
+  return [...matches].sort((left, right) => {
+    if (left.startLine !== right.startLine) {
+      return left.startLine - right.startLine;
+    }
+
+    if (left.side !== right.side) {
+      return left.side === "original" ? -1 : 1;
+    }
+
+    if (left.startColumn !== right.startColumn) {
+      return left.startColumn - right.startColumn;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function resolveContextHighlight(
+  searchContext: DiffSearchContext | null | undefined,
+  resolveFilePath: (filePath: string) => string | null,
+): DiffWorkspaceContextHighlight | null {
+  if (!searchContext?.filePath) {
+    return null;
+  }
+
+  const resolvedPath = resolveFilePath(searchContext.filePath);
+  if (!resolvedPath) {
+    return null;
+  }
+
+  const side: DiffViewerSide | undefined =
+    searchContext.newStart != null
+      ? "modified"
+      : searchContext.oldStart != null
+        ? "original"
+        : undefined;
+  const line =
+    side === "modified"
+      ? searchContext.newStart ?? null
+      : side === "original"
+        ? searchContext.oldStart ?? null
+        : null;
+
+  return {
+    filePath: resolvedPath,
+    side,
+    line,
+    highlightStrategy: searchContext.highlightStrategy,
+  };
+}
+
+function findInitialCodeMatchIndex(
+  matches: DiffCodeSearchMatch[],
+  searchContext: DiffSearchContext | null | undefined,
+  resolveFilePath: (filePath: string) => string | null,
+): number {
+  if (matches.length === 0) {
+    return -1;
+  }
+
+  if (!searchContext?.filePath) {
+    return 0;
+  }
+
+  const resolvedPath = resolveFilePath(searchContext.filePath);
+  if (!resolvedPath) {
+    return 0;
+  }
+
+  const relevantMatches = matches
+    .map((match, index) => ({ match, index }))
+    .filter(({ match }) => match.filePath === resolvedPath);
+
+  if (relevantMatches.length === 0) {
+    return 0;
+  }
+
+  if (searchContext.newStart == null && searchContext.oldStart == null) {
+    return relevantMatches[0].index;
+  }
+
+  const targetLine =
+    searchContext.newStart ??
+    searchContext.oldStart ??
+    relevantMatches[0].match.startLine;
+  const preferredSide: DiffViewerSide | null =
+    searchContext.newStart != null
+      ? "modified"
+      : searchContext.oldStart != null
+        ? "original"
+        : null;
+
+  let bestIndex = relevantMatches[0].index;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  relevantMatches.forEach(({ match, index }) => {
+    const sidePenalty =
+      preferredSide == null || match.side === preferredSide ? 0 : 0.5;
+    const score = Math.abs(match.startLine - targetLine) + sidePenalty;
+    if (score < bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+
+  return bestIndex;
+}
+
 function DiffSearchField({
   inputId,
   value,
@@ -270,6 +398,8 @@ function DiffSearchField({
   placeholder,
   density = "default",
   className,
+  onKeyDown,
+  trailingContent,
 }: {
   inputId: string;
   value: string;
@@ -277,6 +407,8 @@ function DiffSearchField({
   placeholder: string;
   density?: "default" | "compact";
   className?: string;
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  trailingContent?: ReactNode;
 }) {
   const isCompactChrome = density === "compact";
 
@@ -298,6 +430,7 @@ function DiffSearchField({
         id={inputId}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         aria-label={placeholder}
         className={cn("text-sm", isCompactChrome ? "px-1.5 py-3" : "px-2 py-3.5")}
@@ -305,8 +438,12 @@ function DiffSearchField({
 
       <InputGroupAddon
         align="inline-end"
-        className={cn(isCompactChrome ? "pr-1.5" : "pr-2")}
+        className={cn(
+          "flex items-center gap-1",
+          isCompactChrome ? "pr-1.5" : "pr-2",
+        )}
       >
+        {trailingContent}
         {value ? (
           <InputGroupButton
             size="icon-sm"
@@ -471,6 +608,7 @@ export const DiffWorkspace = forwardRef<
     isRightRailFullscreen = false,
     rightRailCollapsedSummary,
     desktopResize,
+    searchContext = null,
   },
   ref,
 ) {
@@ -483,9 +621,15 @@ export const DiffWorkspace = forwardRef<
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false);
   const [navigationTarget, setNavigationTarget] =
     useState<DiffNavigationTarget | null>(null);
+  const [codeNavigationTarget, setCodeNavigationTarget] =
+    useState<DiffWorkspaceCodeNavigationTarget | null>(null);
+  const [selectedCodeMatchId, setSelectedCodeMatchId] = useState<string | null>(null);
+  const [activeCodeMatchId, setActiveCodeMatchId] = useState<string | null>(null);
   const desktopWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const diffListScrollRef = useRef<HTMLDivElement | null>(null);
   const fileSectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const appliedSearchContextKeyRef = useRef<string | null>(null);
+  const shouldAutoNavigateToCodeMatchRef = useRef(false);
   const [desktopWorkspaceWidth, setDesktopWorkspaceWidth] = useState<number | null>(
     null,
   );
@@ -494,17 +638,84 @@ export const DiffWorkspace = forwardRef<
   const normalizedCodeQuery = deferredCodeQuery.trim();
   const hasActiveSearch =
     normalizedFileQuery.length > 0 || normalizedCodeQuery.length > 0;
+  const codeSearchIndexByPath = useMemo(() => {
+    if (!normalizedCodeQuery) {
+      return new Map<string, DiffCodeSearchFileIndex>();
+    }
+
+    const next = new Map<string, DiffCodeSearchFileIndex>();
+    files.forEach((fileChange) => {
+      const labelPath = getFileChangeLabelPath(fileChange);
+      next.set(
+        labelPath,
+        buildFileChangeCodeSearchIndex(fileChange, normalizedCodeQuery),
+      );
+    });
+    return next;
+  }, [files, normalizedCodeQuery]);
 
   const filteredFiles = useMemo(
     () =>
-      files.filter((fileChange) =>
-        fileChangeMatchesQueries(fileChange, {
-          fileQuery: normalizedFileQuery,
-          codeQuery: normalizedCodeQuery,
-        }),
-      ),
-    [files, normalizedFileQuery, normalizedCodeQuery],
+      files.filter((fileChange) => {
+        if (!fileChangeMatchesFileQuery(fileChange, normalizedFileQuery)) {
+          return false;
+        }
+
+        if (!normalizedCodeQuery) {
+          return true;
+        }
+
+        return (
+          codeSearchIndexByPath.get(getFileChangeLabelPath(fileChange))?.total ?? 0
+        ) > 0;
+      }),
+    [codeSearchIndexByPath, files, normalizedFileQuery, normalizedCodeQuery],
   );
+  const flattenedCodeMatches = useMemo(() => {
+    if (!normalizedCodeQuery) {
+      return [] as DiffCodeSearchMatch[];
+    }
+
+    const matches: DiffCodeSearchMatch[] = [];
+    filteredFiles.forEach((fileChange) => {
+      const labelPath = getFileChangeLabelPath(fileChange);
+      const fileMatches = codeSearchIndexByPath.get(labelPath);
+      if (!fileMatches) {
+        return;
+      }
+
+      matches.push(
+        ...sortCodeMatches([
+          ...fileMatches.original,
+          ...fileMatches.modified,
+        ]),
+      );
+    });
+
+    return matches;
+  }, [codeSearchIndexByPath, filteredFiles, normalizedCodeQuery]);
+  const codeMatchCountsByFile = useMemo(() => {
+    const counts: Record<string, number> = {};
+
+    if (!normalizedCodeQuery) {
+      return counts;
+    }
+
+    filteredFiles.forEach((fileChange) => {
+      const labelPath = getFileChangeLabelPath(fileChange);
+      counts[labelPath] = codeSearchIndexByPath.get(labelPath)?.total ?? 0;
+    });
+
+    return counts;
+  }, [codeSearchIndexByPath, filteredFiles, normalizedCodeQuery]);
+  const codeSearchMatchById = useMemo(
+    () =>
+      new Map(flattenedCodeMatches.map((match) => [match.id, match] as const)),
+    [flattenedCodeMatches],
+  );
+  const activeCodeMatch = activeCodeMatchId
+    ? codeSearchMatchById.get(activeCodeMatchId) ?? null
+    : null;
   const hasFiles = files.length > 0;
 
   useEffect(() => {
@@ -520,6 +731,11 @@ export const DiffWorkspace = forwardRef<
     setCodeQuery("");
     setSelectedFilePath(null);
     setNavigationTarget(null);
+    setCodeNavigationTarget(null);
+    setSelectedCodeMatchId(null);
+    setActiveCodeMatchId(null);
+    shouldAutoNavigateToCodeMatchRef.current = false;
+    appliedSearchContextKeyRef.current = null;
     fileSectionRefs.current = {};
   }, [viewerId]);
 
@@ -658,6 +874,169 @@ export const DiffWorkspace = forwardRef<
     },
     [files],
   );
+  const contextHighlight = useMemo(
+    () => resolveContextHighlight(searchContext, resolveFilePath),
+    [resolveFilePath, searchContext],
+  );
+
+  const navigateToCodeMatch = useCallback(
+    (
+      match: DiffCodeSearchMatch,
+      options?: {
+        focusEditor?: boolean;
+      },
+    ) => {
+      setSelectedCodeMatchId(match.id);
+      setActiveCodeMatchId(match.id);
+      setCodeNavigationTarget({
+        ...match,
+        token: Date.now(),
+        focusEditor: options?.focusEditor ?? false,
+      });
+      handleSelectFile(match.filePath);
+    },
+    [handleSelectFile],
+  );
+
+  useEffect(() => {
+    if (!normalizedCodeQuery) {
+      setSelectedCodeMatchId(null);
+      setActiveCodeMatchId(null);
+      setCodeNavigationTarget(null);
+      return;
+    }
+
+    if (filteredFiles.length === 0) {
+      return;
+    }
+
+    setExpanded((prev) => {
+      const next = { ...prev };
+      filteredFiles.forEach((fileChange) => {
+        next[getFileChangeLabelPath(fileChange)] = true;
+      });
+      return next;
+    });
+  }, [filteredFiles, normalizedCodeQuery]);
+
+  useEffect(() => {
+    if (!normalizedCodeQuery) {
+      setSelectedCodeMatchId(null);
+      setActiveCodeMatchId(null);
+      setCodeNavigationTarget(null);
+      shouldAutoNavigateToCodeMatchRef.current = false;
+      return;
+    }
+
+    if (flattenedCodeMatches.length === 0) {
+      setSelectedCodeMatchId(null);
+      setActiveCodeMatchId(null);
+      setCodeNavigationTarget(null);
+      if (hasFiles) {
+        shouldAutoNavigateToCodeMatchRef.current = false;
+      }
+      return;
+    }
+
+    if (selectedCodeMatchId && codeSearchMatchById.has(selectedCodeMatchId)) {
+      if (!shouldAutoNavigateToCodeMatchRef.current) {
+        return;
+      }
+    } else {
+      const initialMatchIndex = findInitialCodeMatchIndex(
+        flattenedCodeMatches,
+        searchContext,
+        resolveFilePath,
+      );
+      const initialMatch =
+        flattenedCodeMatches[Math.max(initialMatchIndex, 0)] ??
+        flattenedCodeMatches[0];
+      if (initialMatch) {
+        setSelectedCodeMatchId(initialMatch.id);
+      }
+      if (!shouldAutoNavigateToCodeMatchRef.current) {
+        return;
+      }
+    }
+
+    if (!shouldAutoNavigateToCodeMatchRef.current) {
+      return;
+    }
+
+    const initialMatchIndex = findInitialCodeMatchIndex(
+      flattenedCodeMatches,
+      searchContext,
+      resolveFilePath,
+    );
+    const initialMatch =
+      flattenedCodeMatches[Math.max(initialMatchIndex, 0)] ??
+      flattenedCodeMatches[0];
+    if (initialMatch) {
+      navigateToCodeMatch(initialMatch);
+    }
+    shouldAutoNavigateToCodeMatchRef.current = false;
+  }, [
+    codeSearchMatchById,
+    flattenedCodeMatches,
+    navigateToCodeMatch,
+    hasFiles,
+    normalizedCodeQuery,
+    resolveFilePath,
+    selectedCodeMatchId,
+    searchContext,
+  ]);
+
+  useEffect(() => {
+    if (!searchContext) {
+      return;
+    }
+
+    const searchContextKey = JSON.stringify(searchContext);
+    if (appliedSearchContextKeyRef.current === searchContextKey) {
+      return;
+    }
+    appliedSearchContextKeyRef.current = searchContextKey;
+
+    const resolvedPath = searchContext.filePath
+      ? resolveFilePath(searchContext.filePath)
+      : null;
+
+    setFileQuery("");
+    if (
+      searchContext.highlightStrategy === "exact_query" &&
+      searchContext.query?.trim()
+    ) {
+      shouldAutoNavigateToCodeMatchRef.current = true;
+      setSelectedCodeMatchId(null);
+      setActiveCodeMatchId(null);
+      setCodeNavigationTarget(null);
+      setCodeQuery(searchContext.query.trim());
+    } else {
+      setCodeQuery("");
+      setSelectedCodeMatchId(null);
+      setActiveCodeMatchId(null);
+      setCodeNavigationTarget(null);
+      shouldAutoNavigateToCodeMatchRef.current = false;
+    }
+
+    if (!resolvedPath) {
+      return;
+    }
+
+    handleSelectFile(resolvedPath);
+
+    if (
+      searchContext.highlightStrategy !== "exact_query" &&
+      (searchContext.newStart != null || searchContext.oldStart != null)
+    ) {
+      setNavigationTarget({
+        filePath: resolvedPath,
+        newStart: searchContext.newStart ?? null,
+        oldStart: searchContext.oldStart ?? null,
+        token: Date.now(),
+      });
+    }
+  }, [handleSelectFile, resolveFilePath, searchContext]);
 
   const collapseAll = useCallback(() => {
     setExpanded((prev) => {
@@ -684,6 +1063,9 @@ export const DiffWorkspace = forwardRef<
 
       setFileQuery("");
       setCodeQuery("");
+      setCodeNavigationTarget(null);
+      setSelectedCodeMatchId(null);
+      setActiveCodeMatchId(null);
       setExpanded((prev) => ({
         ...prev,
         [resolvedPath]: true,
@@ -706,6 +1088,108 @@ export const DiffWorkspace = forwardRef<
       focusLocation,
     }),
     [collapseAll, focusLocation],
+  );
+  const selectedCodeMatch = selectedCodeMatchId
+    ? codeSearchMatchById.get(selectedCodeMatchId) ?? null
+    : null;
+  const selectedCodeMatchIndex = useMemo(() => {
+    if (!selectedCodeMatch) {
+      return -1;
+    }
+
+    return flattenedCodeMatches.findIndex(
+      (match) => match.id === selectedCodeMatch.id,
+    );
+  }, [flattenedCodeMatches, selectedCodeMatch]);
+
+  const moveSelectedCodeMatch = useCallback(
+    (direction: 1 | -1) => {
+      if (flattenedCodeMatches.length === 0) {
+        return;
+      }
+
+      const currentIndex =
+        selectedCodeMatchIndex >= 0
+          ? selectedCodeMatchIndex
+          : direction > 0
+            ? -1
+            : flattenedCodeMatches.length;
+      const nextIndex =
+        (currentIndex + direction + flattenedCodeMatches.length) %
+        flattenedCodeMatches.length;
+      const nextMatch = flattenedCodeMatches[nextIndex];
+      if (nextMatch) {
+        navigateToCodeMatch(nextMatch);
+      }
+    },
+    [flattenedCodeMatches, navigateToCodeMatch, selectedCodeMatchIndex],
+  );
+
+  const jumpToSelectedCodeMatch = useCallback(() => {
+    if (flattenedCodeMatches.length === 0) {
+      return;
+    }
+
+    const nextMatch =
+      selectedCodeMatch ??
+      flattenedCodeMatches[0] ??
+      null;
+    if (nextMatch) {
+      navigateToCodeMatch(nextMatch, { focusEditor: true });
+    }
+  }, [flattenedCodeMatches, navigateToCodeMatch, selectedCodeMatch]);
+
+  const clearCodeSearch = useCallback(
+    (input?: HTMLInputElement | null) => {
+      shouldAutoNavigateToCodeMatchRef.current = false;
+      setCodeQuery("");
+      setSelectedCodeMatchId(null);
+      setActiveCodeMatchId(null);
+      setCodeNavigationTarget(null);
+      input?.blur();
+    },
+    [],
+  );
+
+  const handleCodeSearchKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowUp") {
+        if (flattenedCodeMatches.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        moveSelectedCodeMatch(-1);
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        if (flattenedCodeMatches.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        moveSelectedCodeMatch(1);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        clearCodeSearch(event.currentTarget);
+        return;
+      }
+
+      if (event.key !== "Enter" || flattenedCodeMatches.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      jumpToSelectedCodeMatch();
+    },
+    [
+      clearCodeSearch,
+      flattenedCodeMatches.length,
+      jumpToSelectedCodeMatch,
+      moveSelectedCodeMatch,
+    ],
   );
 
   const isCompactChrome = chromeDensity === "compact";
@@ -786,9 +1270,45 @@ export const DiffWorkspace = forwardRef<
     <DiffSearchField
       inputId={codeSearchInputId}
       value={codeQuery}
-      onChange={setCodeQuery}
+      onChange={(nextValue) => {
+        shouldAutoNavigateToCodeMatchRef.current = false;
+        setSelectedCodeMatchId(null);
+        setActiveCodeMatchId(null);
+        setCodeNavigationTarget(null);
+        setCodeQuery(nextValue);
+      }}
+      onKeyDown={handleCodeSearchKeyDown}
       placeholder={codeSearchPlaceholder}
       density={chromeDensity}
+      trailingContent={
+        normalizedCodeQuery ? (
+          <>
+            <span className="min-w-[3.5rem] text-right font-mono text-[11px] text-text-tertiary">
+              {flattenedCodeMatches.length > 0 && selectedCodeMatchIndex >= 0
+                ? `${selectedCodeMatchIndex + 1}/${flattenedCodeMatches.length}`
+                : flattenedCodeMatches.length === 0
+                  ? "0"
+                  : `${flattenedCodeMatches.length}`}
+            </span>
+            <InputGroupButton
+              size="icon-sm"
+              aria-label="Previous code match"
+              disabled={flattenedCodeMatches.length === 0}
+              onClick={() => moveSelectedCodeMatch(-1)}
+            >
+              <ChevronUp className="size-4" />
+            </InputGroupButton>
+            <InputGroupButton
+              size="icon-sm"
+              aria-label="Next code match"
+              disabled={flattenedCodeMatches.length === 0}
+              onClick={() => moveSelectedCodeMatch(1)}
+            >
+              <ChevronDown className="size-4" />
+            </InputGroupButton>
+          </>
+        ) : null
+      }
     />
   );
 
@@ -844,6 +1364,7 @@ export const DiffWorkspace = forwardRef<
                 files={filteredFiles}
                 totalFileCount={files.length}
                 selectedFilePath={selectedFilePath}
+                codeSearchMatchCounts={codeMatchCountsByFile}
                 desktopWidth={
                   hasDesktopResize ? desktopPanelWidths.fileTree : undefined
                 }
@@ -952,6 +1473,34 @@ export const DiffWorkspace = forwardRef<
                               navigationTarget={
                                 navigationTarget?.filePath === labelPath
                                   ? navigationTarget
+                                  : null
+                              }
+                              codeSearchIndex={
+                                codeSearchIndexByPath.get(labelPath) ?? null
+                              }
+                              activeCodeMatch={
+                                activeCodeMatch?.filePath === labelPath
+                                  ? activeCodeMatch
+                                  : null
+                              }
+                              codeNavigationTarget={
+                                codeNavigationTarget?.filePath === labelPath
+                                  ? codeNavigationTarget
+                                  : null
+                              }
+                              onCodeNavigationTargetHandled={() =>
+                                setCodeNavigationTarget((current) =>
+                                  current?.filePath === labelPath
+                                    ? null
+                                    : current,
+                                )
+                              }
+                              searchMatchCount={
+                                codeMatchCountsByFile[labelPath] ?? 0
+                              }
+                              contextHighlight={
+                                contextHighlight?.filePath === labelPath
+                                  ? contextHighlight
                                   : null
                               }
                               onNavigationTargetHandled={() =>

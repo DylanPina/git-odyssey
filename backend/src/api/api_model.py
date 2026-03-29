@@ -21,8 +21,36 @@ class FilterRequest(BaseModel):
     max_results: int = 8
 
 
+FilterMatchType = Literal["commit", "file_change", "hunk"]
+FilterHighlightStrategy = Literal[
+    "exact_query",
+    "target_hunk",
+    "file_header",
+    "none",
+]
+FilterPreviewKind = Literal["text", "diff"]
+
+
+class FilterDisplayMatch(BaseModel):
+    match_type: FilterMatchType
+    file_path: str | None = None
+    hunk_id: int | None = None
+    new_start: int | None = None
+    old_start: int | None = None
+    preview: str | None = None
+    preview_kind: FilterPreviewKind = "text"
+    highlight_strategy: FilterHighlightStrategy = "none"
+
+
+class FilterSearchResult(BaseModel):
+    sha: str
+    similarity: float | None = None
+    display_match: FilterDisplayMatch | None = None
+
+
 class FilterResponse(BaseModel):
     commit_shas: List[str] = Field(default_factory=list)
+    results: List[FilterSearchResult] = Field(default_factory=list)
 
 
 class ChatbotRequest(BaseModel):

@@ -1,3 +1,5 @@
+import type { DiffSearchContext } from "@/lib/diff";
+
 export type MonacoSide = "original" | "modified";
 
 export function normalizeRepoPath(repoPath: string): string {
@@ -33,8 +35,50 @@ export function buildRepoRoute(repoPath: string): string {
   return `/repo?${params.toString()}`;
 }
 
-export function buildCommitRoute(repoPath: string, commitSha: string): string {
+function appendCommitSearchContext(
+  params: URLSearchParams,
+  searchContext?: DiffSearchContext | null,
+): void {
+  if (!searchContext) {
+    return;
+  }
+
+  params.set("match_type", searchContext.matchType);
+  params.set("highlight_strategy", searchContext.highlightStrategy);
+
+  if (searchContext.query?.trim()) {
+    params.set("search", searchContext.query.trim());
+  }
+
+  if (searchContext.filePath) {
+    params.set("match_file", searchContext.filePath);
+  }
+
+  if (searchContext.newStart != null) {
+    params.set("match_new_start", String(searchContext.newStart));
+  }
+
+  if (searchContext.oldStart != null) {
+    params.set("match_old_start", String(searchContext.oldStart));
+  }
+}
+
+function parseOptionalLineNumber(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function buildCommitRoute(
+  repoPath: string,
+  commitSha: string,
+  searchContext?: DiffSearchContext | null,
+): string {
   const params = new URLSearchParams({ path: normalizeRepoPath(repoPath) });
+  appendCommitSearchContext(params, searchContext);
   return `/repo/commit/${commitSha}?${params.toString()}`;
 }
 
@@ -79,6 +123,34 @@ export function readReviewRefsFromSearchParams(searchParams: URLSearchParams): {
   return {
     baseRef: searchParams.get("base"),
     headRef: searchParams.get("head"),
+  };
+}
+
+export function readCommitSearchContextFromSearchParams(
+  searchParams: URLSearchParams,
+): DiffSearchContext | null {
+  const matchType = searchParams.get("match_type");
+  const highlightStrategy = searchParams.get("highlight_strategy");
+
+  if (
+    (matchType !== "commit" &&
+      matchType !== "file_change" &&
+      matchType !== "hunk") ||
+    (highlightStrategy !== "exact_query" &&
+      highlightStrategy !== "target_hunk" &&
+      highlightStrategy !== "file_header" &&
+      highlightStrategy !== "none")
+  ) {
+    return null;
+  }
+
+  return {
+    query: searchParams.get("search"),
+    matchType,
+    filePath: searchParams.get("match_file"),
+    newStart: parseOptionalLineNumber(searchParams.get("match_new_start")),
+    oldStart: parseOptionalLineNumber(searchParams.get("match_old_start")),
+    highlightStrategy,
   };
 }
 

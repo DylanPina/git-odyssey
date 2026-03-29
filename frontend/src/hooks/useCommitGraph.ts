@@ -29,6 +29,7 @@ import {
   nodeDefaults,
   type LayoutDirection,
 } from "@/lib/graph/layout";
+import type { FilterSearchResult } from "@/lib/definitions/api";
 
 type UseCommitGraphArgs = {
   repoPath?: string | null;
@@ -45,6 +46,7 @@ type UseCommitGraph = {
   focusedCommitSha: string | null;
   searchQuery: string;
   lastSearchQuery: string;
+  searchResults: FilterSearchResult[];
   setSearchQuery: (query: string) => void;
   layoutDirection: LayoutDirection;
   toggleLayoutDirection: () => void;
@@ -54,7 +56,7 @@ type UseCommitGraph = {
   handleCommitClick: (commitSha: string) => void;
   handleCommitSummaryUpdate: (commitSha: string, summary: string) => void;
   handleFiltersChange: (filters: FilterFormData) => void;
-  handleSearchResults: (commitShas: string[], query?: string) => void;
+  handleSearchResults: (results: FilterSearchResult[], query?: string) => void;
   handleClearFilters: () => void;
   reactFlowInstanceRef: MutableRefObject<ReactFlowInstance | null>;
 };
@@ -130,6 +132,7 @@ export function useCommitGraph({
   const [focusedCommitSha, setFocusedCommitSha] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [lastSearchQuery, setLastSearchQuery] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<FilterSearchResult[]>([]);
   const [searchResultCommitShas, setSearchResultCommitShas] = useState<
     string[] | null
   >(null);
@@ -258,6 +261,7 @@ export function useCommitGraph({
     setFocusedCommitSha(null);
     setSearchQuery("");
     setLastSearchQuery("");
+    setSearchResults([]);
     setSearchResultCommitShas(null);
     setHasAnimated(false);
   }, [repoPath]);
@@ -367,6 +371,7 @@ export function useCommitGraph({
     setFocusedCommitSha(null);
     setSearchQuery("");
     setLastSearchQuery("");
+    setSearchResults([]);
     setSearchResultCommitShas(null);
     setNodes((current) => clearSelectedNodes(current));
 
@@ -396,15 +401,17 @@ export function useCommitGraph({
       setFocusedCommitSha(null);
       setSearchQuery("");
       setLastSearchQuery("");
+      setSearchResults([]);
       setSearchResultCommitShas(null);
     },
     []
   );
 
-  const handleSearchResults = useCallback((commitShas: string[], query?: string) => {
+  const handleSearchResults = useCallback((results: FilterSearchResult[], query?: string) => {
     const nextQuery = query ?? "";
 
-    setSearchResultCommitShas(commitShas);
+    setSearchResults(results);
+    setSearchResultCommitShas(results.map((result) => result.sha));
     setFocusedCommitSha(null);
     setSearchQuery(nextQuery);
     setLastSearchQuery(nextQuery);
@@ -468,6 +475,7 @@ export function useCommitGraph({
     focusedCommitSha,
     searchQuery,
     lastSearchQuery,
+    searchResults,
     setSearchQuery: handleSearchQueryChange,
     layoutDirection,
     toggleLayoutDirection,

@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import Chat from "@/components/ui/custom/Chat";
 import RepoSearch from "@/components/ui/custom/Search";
 import SearchResults from "@/components/ui/custom/SearchResults";
+import type { FilterSearchResult } from "@/lib/definitions/api";
 import { EMPTY_FILTERS, type FilterFormData } from "@/lib/filter-utils";
 import type { ChatMessage } from "@/lib/definitions/chat";
 import type { Commit } from "@/lib/definitions/repo";
@@ -45,11 +46,12 @@ interface RepoSidebarProps {
   repoPath?: string | null;
   allCommitsCount?: number;
   filteredCommits?: Commit[];
+  searchResults?: FilterSearchResult[];
   searchQuery?: string;
   searchFilters?: FilterFormData;
   lastSearchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
-  onSearchResults?: (commitShas: string[], query?: string) => void;
+  onSearchResults?: (results: FilterSearchResult[], query?: string) => void;
   searchInputId?: string;
   onCommitClick?: (commitSha: string) => void;
   chatMessages?: ChatMessage[];
@@ -62,6 +64,7 @@ export function RepoSidebar({
   repoPath,
   allCommitsCount = 0,
   filteredCommits = [],
+  searchResults = [],
   searchQuery = "",
   searchFilters = EMPTY_FILTERS,
   lastSearchQuery = "",
@@ -182,7 +185,9 @@ export function RepoSidebar({
 
                 <SearchResults
                   allCommitsCount={allCommitsCount}
+                  repoPath={repoPath}
                   filteredCommits={filteredCommits}
+                  searchResults={searchResults}
                   query={lastSearchQuery}
                   onCommitClick={onCommitClick ?? (() => {})}
                 />

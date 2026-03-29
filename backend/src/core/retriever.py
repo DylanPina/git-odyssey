@@ -1,6 +1,7 @@
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Literal, Optional
 
-from sqlalchemy import distinct, func, literal, or_, select, union_all
+from sqlalchemy import distinct, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from core.embedder import EmbeddingEngine
@@ -8,6 +9,171 @@ from data.adapter import DatabaseAdapter
 from data.data_model import Commit, DiffHunk, FileChange
 from data.schema import SQLCommit, SQLDiffHunk, SQLFileChange
 from utils.logger import logger
+
+
+MatchType = Literal["commit", "file_change", "hunk"]
+HighlightStrategy = Literal["exact_query", "target_hunk", "file_header", "none"]
+PreviewKind = Literal["text", "diff"]
+
+MATCH_TYPE_PRIORITY: dict[MatchType, int] = {
+    "hunk": 0,
+    "file_change": 1,
+    "commit": 2,
+}
+PREVIEW_CONTEXT_CHARS = 84
+PREVIEW_MAX_CHARS = 220
+DIFF_PREVIEW_MAX_LINES = 8
+DIFF_PREVIEW_CONTEXT_LINES = 3
+
+
+@dataclass(frozen=True)
+class FilterCandidate:
+    sha: str
+    match_type: MatchType
+    similarity: float | None
+    commit_time: int | None
+    preview_source: str | None = None
+    preview_kind: PreviewKind = "text"
+    file_change_id: int | None = None
+    hunk_id: int | None = None
+    file_path: str | None = None
+    old_start: int | None = None
+    new_start: int | None = None
+    preview_old_start: int | None = None
+    preview_old_lines: int | None = None
+    preview_new_start: int | None = None
+    preview_new_lines: int | None = None
+    exact_match: bool = False
+
+
+def _escape_like_query(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def _normalize_preview_text(value: str | None) -> str:
+    if not value:
+        return ""
+
+    return " ".join(value.replace("\r", " ").replace("\n", " ").split())
+
+
+def _build_preview_excerpt(
+    value: str | None,
+    query: str | None = None,
+    *,
+    context_chars: int = PREVIEW_CONTEXT_CHARS,
+    max_chars: int = PREVIEW_MAX_CHARS,
+) -> str | None:
+    normalized_value = _normalize_preview_text(value)
+    if not normalized_value:
+        return None
+
+    normalized_query = (query or "").strip().lower()
+    if normalized_query:
+        match_index = normalized_value.lower().find(normalized_query)
+        if match_index >= 0:
+            start = max(0, match_index - context_chars)
+            end = min(
+                len(normalized_value),
+                match_index + len(normalized_query) + context_chars,
+            )
+            excerpt = normalized_value[start:end]
+            if start > 0:
+                excerpt = "..." + excerpt.lstrip()
+            if end < len(normalized_value):
+                excerpt = excerpt.rstrip() + "..."
+            return excerpt
+
+    if len(normalized_value) <= max_chars:
+        return normalized_value
+
+    return normalized_value[: max_chars - 3].rstrip() + "..."
+
+
+def _format_diff_header(
+    old_start: int | None,
+    old_lines: int | None,
+    new_start: int | None,
+    new_lines: int | None,
+) -> str:
+    old_label = (
+        f"{old_start},{old_lines}"
+        if old_start is not None and old_lines is not None
+        else "0,0"
+    )
+    new_label = (
+        f"{new_start},{new_lines}"
+        if new_start is not None and new_lines is not None
+        else "0,0"
+    )
+    return f"@@ -{old_label} +{new_label} @@"
+
+
+def _build_diff_preview_excerpt(
+    value: str | None,
+    query: str | None = None,
+    *,
+    old_start: int | None = None,
+    old_lines: int | None = None,
+    new_start: int | None = None,
+    new_lines: int | None = None,
+    context_lines: int = DIFF_PREVIEW_CONTEXT_LINES,
+    max_lines: int = DIFF_PREVIEW_MAX_LINES,
+) -> str | None:
+    if not value:
+        return None
+
+    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and lines[-1] == "":
+        lines.pop()
+    if not lines:
+        return None
+
+    normalized_query = (query or "").strip().lower()
+    if normalized_query:
+        match_index = next(
+            (index for index, line in enumerate(lines) if normalized_query in line.lower()),
+            0,
+        )
+        start_index = max(0, match_index - context_lines)
+    else:
+        start_index = 0
+
+    end_index = min(len(lines), start_index + max_lines)
+    if end_index - start_index < max_lines and start_index > 0:
+        start_index = max(0, end_index - max_lines)
+
+    visible_lines = lines[start_index:end_index]
+    preview_lines = [_format_diff_header(old_start, old_lines, new_start, new_lines)]
+
+    if start_index > 0:
+        preview_lines.append("...")
+
+    preview_lines.extend(visible_lines)
+
+    if end_index < len(lines):
+        preview_lines.append("...")
+
+    return "\n".join(preview_lines)
+
+
+def _candidate_display_sort_key(candidate: FilterCandidate) -> tuple[Any, ...]:
+    return (
+        MATCH_TYPE_PRIORITY.get(candidate.match_type, 99),
+        candidate.similarity if candidate.similarity is not None else float("inf"),
+        candidate.file_path or "",
+        candidate.new_start if candidate.new_start is not None else float("inf"),
+        candidate.old_start if candidate.old_start is not None else float("inf"),
+        candidate.hunk_id if candidate.hunk_id is not None else float("inf"),
+        candidate.file_change_id
+        if candidate.file_change_id is not None
+        else float("inf"),
+        candidate.sha,
+    )
 
 
 class Retriever:
@@ -140,12 +306,460 @@ class Retriever:
             return self.db_adapter.parse_sql_hunk(result)
         return None
 
+    def _get_representative_hunks(
+        self, file_change_ids: list[int]
+    ) -> dict[int, dict[str, Any]]:
+        if not file_change_ids:
+            return {}
+
+        rows = self.session.execute(
+            select(
+                SQLDiffHunk.id.label("id"),
+                SQLDiffHunk.file_change_id.label("file_change_id"),
+                SQLDiffHunk.content.label("content"),
+                SQLDiffHunk.old_start.label("old_start"),
+                SQLDiffHunk.old_lines.label("old_lines"),
+                SQLDiffHunk.new_start.label("new_start"),
+                SQLDiffHunk.new_lines.label("new_lines"),
+            )
+            .where(SQLDiffHunk.file_change_id.in_(file_change_ids))
+            .order_by(
+                SQLDiffHunk.file_change_id,
+                SQLDiffHunk.new_start,
+                SQLDiffHunk.old_start,
+                SQLDiffHunk.id,
+            )
+        ).mappings().all()
+
+        representative_hunks: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            representative_hunks.setdefault(row["file_change_id"], dict(row))
+
+        return representative_hunks
+
+    def _attach_file_change_diff_previews(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        file_change_ids = [
+            int(row["file_change_id"])
+            for row in rows
+            if row.get("file_change_id") is not None
+        ]
+        representative_hunks = self._get_representative_hunks(file_change_ids)
+
+        enriched_rows: list[dict[str, Any]] = []
+        for row in rows:
+            next_row = dict(row)
+            representative_hunk = representative_hunks.get(
+                next_row.get("file_change_id")
+            )
+            if representative_hunk:
+                next_row["preview_source"] = representative_hunk["content"]
+                next_row["preview_kind"] = "diff"
+                next_row["preview_old_start"] = representative_hunk["old_start"]
+                next_row["preview_old_lines"] = representative_hunk["old_lines"]
+                next_row["preview_new_start"] = representative_hunk["new_start"]
+                next_row["preview_new_lines"] = representative_hunk["new_lines"]
+            else:
+                next_row["preview_kind"] = "text"
+                next_row["preview_old_start"] = None
+                next_row["preview_old_lines"] = None
+                next_row["preview_new_start"] = None
+                next_row["preview_new_lines"] = None
+            enriched_rows.append(next_row)
+
+        return enriched_rows
+
+    def _build_filter_result(
+        self, candidate: FilterCandidate, query: str | None = None
+    ) -> dict[str, Any]:
+        highlight_strategy: HighlightStrategy
+        if candidate.match_type == "hunk":
+            highlight_strategy = "exact_query" if candidate.exact_match else "target_hunk"
+        elif candidate.match_type == "file_change":
+            highlight_strategy = "file_header"
+        else:
+            highlight_strategy = "none"
+
+        preview_source = candidate.preview_source or candidate.file_path
+        preview_query = query if highlight_strategy == "exact_query" else None
+        preview = (
+            _build_diff_preview_excerpt(
+                preview_source,
+                preview_query,
+                old_start=candidate.preview_old_start,
+                old_lines=candidate.preview_old_lines,
+                new_start=candidate.preview_new_start,
+                new_lines=candidate.preview_new_lines,
+            )
+            if candidate.preview_kind == "diff"
+            else _build_preview_excerpt(preview_source, preview_query)
+        )
+
+        return {
+            "sha": candidate.sha,
+            "similarity": candidate.similarity,
+            "display_match": {
+                "match_type": candidate.match_type,
+                "file_path": candidate.file_path,
+                "hunk_id": candidate.hunk_id,
+                "new_start": candidate.new_start,
+                "old_start": candidate.old_start,
+                "preview": preview,
+                "preview_kind": candidate.preview_kind,
+                "highlight_strategy": highlight_strategy,
+            },
+        }
+
+    def _create_candidates(
+        self, rows: list[dict[str, Any]], *, exact_match: bool
+    ) -> list[FilterCandidate]:
+        candidates: list[FilterCandidate] = []
+
+        for row in rows:
+            match_type = str(row["match_type"])
+            if match_type not in MATCH_TYPE_PRIORITY:
+                continue
+
+            similarity = row.get("similarity")
+            candidates.append(
+                FilterCandidate(
+                    sha=row["sha"],
+                    match_type=match_type,  # type: ignore[arg-type]
+                    similarity=float(similarity) if similarity is not None else None,
+                    commit_time=row.get("commit_time"),
+                    preview_source=row.get("preview_source"),
+                    preview_kind=row.get("preview_kind", "text"),
+                    file_change_id=row.get("file_change_id"),
+                    hunk_id=row.get("hunk_id"),
+                    file_path=row.get("file_path"),
+                    old_start=row.get("old_start"),
+                    new_start=row.get("new_start"),
+                    preview_old_start=row.get("preview_old_start"),
+                    preview_old_lines=row.get("preview_old_lines"),
+                    preview_new_start=row.get("preview_new_start"),
+                    preview_new_lines=row.get("preview_new_lines"),
+                    exact_match=exact_match,
+                )
+            )
+
+        return candidates
+
+    def _compile_exact_results(
+        self,
+        candidates: list[FilterCandidate],
+        query: str,
+        max_results: int,
+        exclude_shas: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, list[FilterCandidate]] = {}
+
+        for candidate in candidates:
+            if exclude_shas and candidate.sha in exclude_shas:
+                continue
+            grouped.setdefault(candidate.sha, []).append(candidate)
+
+        ranked_candidates = [
+            min(group, key=_candidate_display_sort_key)
+            for group in grouped.values()
+            if group
+        ]
+        ranked_candidates.sort(
+            key=lambda candidate: (
+                MATCH_TYPE_PRIORITY.get(candidate.match_type, 99),
+                -(candidate.commit_time or 0),
+                candidate.sha,
+            )
+        )
+
+        return [
+            self._build_filter_result(candidate, query)
+            for candidate in ranked_candidates[:max_results]
+        ]
+
+    def _compile_semantic_results(
+        self,
+        candidates: list[FilterCandidate],
+        query: str,
+        max_results: int,
+        exclude_shas: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, list[FilterCandidate]] = {}
+
+        for candidate in candidates:
+            if exclude_shas and candidate.sha in exclude_shas:
+                continue
+            grouped.setdefault(candidate.sha, []).append(candidate)
+
+        ranked_candidates: list[tuple[FilterCandidate, FilterCandidate]] = []
+        for group in grouped.values():
+            if not group:
+                continue
+
+            ranking_candidate = min(
+                group,
+                key=lambda candidate: (
+                    candidate.similarity
+                    if candidate.similarity is not None
+                    else float("inf"),
+                    MATCH_TYPE_PRIORITY.get(candidate.match_type, 99),
+                    -(candidate.commit_time or 0),
+                    candidate.sha,
+                ),
+            )
+            display_candidate = min(group, key=_candidate_display_sort_key)
+            ranked_candidates.append((ranking_candidate, display_candidate))
+
+        ranked_candidates.sort(
+            key=lambda pair: (
+                pair[0].similarity if pair[0].similarity is not None else float("inf"),
+                MATCH_TYPE_PRIORITY.get(pair[1].match_type, 99),
+                -(pair[0].commit_time or 0),
+                pair[0].sha,
+            )
+        )
+
+        results: list[dict[str, Any]] = []
+        for ranking_candidate, display_candidate in ranked_candidates:
+            result = self._build_filter_result(display_candidate, query)
+            result["similarity"] = ranking_candidate.similarity
+            results.append(result)
+            if len(results) >= max_results:
+                break
+
+        return results
+
+    def _fetch_exact_candidates(
+        self, commit_shas: list[str], query: str
+    ) -> list[FilterCandidate]:
+        normalized_query = query.strip()
+        if not commit_shas or not normalized_query:
+            return []
+
+        pattern = f"%{_escape_like_query(normalized_query)}%"
+        file_path_expr = func.coalesce(SQLFileChange.new_path, SQLFileChange.old_path)
+
+        commit_rows = self.session.execute(
+            select(
+                SQLCommit.sha.label("sha"),
+                literal("commit").label("match_type"),
+                literal(None).label("similarity"),
+                SQLCommit.time.label("commit_time"),
+                func.coalesce(SQLCommit.summary, SQLCommit.message).label(
+                    "preview_source"
+                ),
+                literal("text").label("preview_kind"),
+                literal(None).label("file_change_id"),
+                literal(None).label("hunk_id"),
+                literal(None).label("file_path"),
+                literal(None).label("old_start"),
+                literal(None).label("new_start"),
+                literal(None).label("preview_old_start"),
+                literal(None).label("preview_old_lines"),
+                literal(None).label("preview_new_start"),
+                literal(None).label("preview_new_lines"),
+            ).where(
+                SQLCommit.sha.in_(commit_shas),
+                or_(
+                    SQLCommit.message.ilike(pattern, escape="\\"),
+                    SQLCommit.summary.ilike(pattern, escape="\\"),
+                ),
+            )
+        ).mappings().all()
+
+        file_rows = self.session.execute(
+            select(
+                SQLFileChange.commit_sha.label("sha"),
+                literal("file_change").label("match_type"),
+                literal(None).label("similarity"),
+                SQLCommit.time.label("commit_time"),
+                func.coalesce(SQLFileChange.summary, file_path_expr).label(
+                    "preview_source"
+                ),
+                literal("text").label("preview_kind"),
+                SQLFileChange.id.label("file_change_id"),
+                literal(None).label("hunk_id"),
+                file_path_expr.label("file_path"),
+                literal(None).label("old_start"),
+                literal(None).label("new_start"),
+                literal(None).label("preview_old_start"),
+                literal(None).label("preview_old_lines"),
+                literal(None).label("preview_new_start"),
+                literal(None).label("preview_new_lines"),
+            )
+            .join(SQLCommit, SQLCommit.sha == SQLFileChange.commit_sha)
+            .where(
+                SQLFileChange.commit_sha.in_(commit_shas),
+                or_(
+                    SQLFileChange.new_path.ilike(pattern, escape="\\"),
+                    SQLFileChange.old_path.ilike(pattern, escape="\\"),
+                    SQLFileChange.summary.ilike(pattern, escape="\\"),
+                ),
+            )
+        ).mappings().all()
+
+        hunk_rows = self.session.execute(
+            select(
+                SQLDiffHunk.commit_sha.label("sha"),
+                literal("hunk").label("match_type"),
+                literal(None).label("similarity"),
+                SQLCommit.time.label("commit_time"),
+                SQLDiffHunk.content.label("preview_source"),
+                literal("diff").label("preview_kind"),
+                SQLDiffHunk.file_change_id.label("file_change_id"),
+                SQLDiffHunk.id.label("hunk_id"),
+                file_path_expr.label("file_path"),
+                SQLDiffHunk.old_start.label("old_start"),
+                SQLDiffHunk.new_start.label("new_start"),
+                SQLDiffHunk.old_start.label("preview_old_start"),
+                SQLDiffHunk.old_lines.label("preview_old_lines"),
+                SQLDiffHunk.new_start.label("preview_new_start"),
+                SQLDiffHunk.new_lines.label("preview_new_lines"),
+            )
+            .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
+            .join(SQLCommit, SQLCommit.sha == SQLDiffHunk.commit_sha)
+            .where(
+                SQLDiffHunk.commit_sha.in_(commit_shas),
+                SQLDiffHunk.content.ilike(pattern, escape="\\"),
+            )
+        ).mappings().all()
+
+        file_rows = self._attach_file_change_diff_previews(
+            [dict(row) for row in file_rows]
+        )
+
+        return self._create_candidates(
+            [*hunk_rows, *file_rows, *commit_rows],
+            exact_match=True,
+        )
+
+    def _fetch_semantic_candidates(
+        self, commit_shas: list[str], query_embedding: list[float]
+    ) -> list[FilterCandidate]:
+        if not commit_shas:
+            return []
+
+        file_exclusion_filter = self._build_file_exclusion_filter()
+        file_path_expr = func.coalesce(SQLFileChange.new_path, SQLFileChange.old_path)
+
+        commit_similarity = SQLCommit.semantic_embedding.cosine_distance(query_embedding)
+        commit_rows = self.session.execute(
+            select(
+                SQLCommit.sha.label("sha"),
+                literal("commit").label("match_type"),
+                commit_similarity.label("similarity"),
+                SQLCommit.time.label("commit_time"),
+                func.coalesce(SQLCommit.summary, SQLCommit.message).label(
+                    "preview_source"
+                ),
+                literal("text").label("preview_kind"),
+                literal(None).label("file_change_id"),
+                literal(None).label("hunk_id"),
+                literal(None).label("file_path"),
+                literal(None).label("old_start"),
+                literal(None).label("new_start"),
+                literal(None).label("preview_old_start"),
+                literal(None).label("preview_old_lines"),
+                literal(None).label("preview_new_start"),
+                literal(None).label("preview_new_lines"),
+            ).where(
+                SQLCommit.sha.in_(commit_shas),
+                SQLCommit.semantic_embedding.isnot(None),
+                commit_similarity <= self.SIMILARITY_THRESHOLDS["commit"],
+            )
+        ).mappings().all()
+
+        fc_similarity = SQLFileChange.semantic_embedding.cosine_distance(query_embedding)
+        file_rows = self.session.execute(
+            select(
+                SQLFileChange.commit_sha.label("sha"),
+                literal("file_change").label("match_type"),
+                fc_similarity.label("similarity"),
+                SQLCommit.time.label("commit_time"),
+                func.coalesce(SQLFileChange.summary, file_path_expr).label(
+                    "preview_source"
+                ),
+                literal("text").label("preview_kind"),
+                SQLFileChange.id.label("file_change_id"),
+                literal(None).label("hunk_id"),
+                file_path_expr.label("file_path"),
+                literal(None).label("old_start"),
+                literal(None).label("new_start"),
+                literal(None).label("preview_old_start"),
+                literal(None).label("preview_old_lines"),
+                literal(None).label("preview_new_start"),
+                literal(None).label("preview_new_lines"),
+            )
+            .join(SQLCommit, SQLCommit.sha == SQLFileChange.commit_sha)
+            .where(
+                SQLFileChange.commit_sha.in_(commit_shas),
+                SQLFileChange.semantic_embedding.isnot(None),
+                file_exclusion_filter,
+                fc_similarity <= self.SIMILARITY_THRESHOLDS["file_change"],
+            )
+        ).mappings().all()
+
+        hunk_similarity = SQLDiffHunk.semantic_embedding.cosine_distance(query_embedding)
+        hunk_rows = self.session.execute(
+            select(
+                SQLDiffHunk.commit_sha.label("sha"),
+                literal("hunk").label("match_type"),
+                hunk_similarity.label("similarity"),
+                SQLCommit.time.label("commit_time"),
+                func.coalesce(SQLDiffHunk.summary, SQLDiffHunk.content).label(
+                    "preview_source"
+                ),
+                literal("diff").label("preview_kind"),
+                SQLDiffHunk.file_change_id.label("file_change_id"),
+                SQLDiffHunk.id.label("hunk_id"),
+                file_path_expr.label("file_path"),
+                SQLDiffHunk.old_start.label("old_start"),
+                SQLDiffHunk.new_start.label("new_start"),
+                SQLDiffHunk.old_start.label("preview_old_start"),
+                SQLDiffHunk.old_lines.label("preview_old_lines"),
+                SQLDiffHunk.new_start.label("preview_new_start"),
+                SQLDiffHunk.new_lines.label("preview_new_lines"),
+            )
+            .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
+            .join(SQLCommit, SQLCommit.sha == SQLDiffHunk.commit_sha)
+            .where(
+                SQLDiffHunk.commit_sha.in_(commit_shas),
+                SQLDiffHunk.semantic_embedding.isnot(None),
+                file_exclusion_filter,
+                hunk_similarity <= self.SIMILARITY_THRESHOLDS["hunk"],
+            )
+        ).mappings().all()
+
+        file_rows = self._attach_file_change_diff_previews(
+            [dict(row) for row in file_rows]
+        )
+
+        return self._create_candidates(
+            [*hunk_rows, *file_rows, *commit_rows],
+            exact_match=False,
+        )
+
+    def _fetch_ordered_commit_shas(
+        self, commit_shas: list[str], max_results: int
+    ) -> list[str]:
+        if not commit_shas:
+            return []
+
+        rows = self.session.execute(
+            select(SQLCommit.sha)
+            .where(SQLCommit.sha.in_(commit_shas))
+            .order_by(SQLCommit.time.desc(), SQLCommit.sha.desc())
+            .limit(max_results)
+        ).all()
+        return [row.sha for row in rows]
+
     def filter(
         self, query: str, filters: Dict[str, Any], repo_path: str, max_results: int
-    ) -> List[str]:
+    ) -> list[dict[str, Any]]:
         logger.info("Filtering for query '%s' with filters %s", query, filters)
 
-        query_embedding = self._get_query_embedding(query) if query else None
+        normalized_query = query.strip()
+        max_results = max(1, max_results)
 
         base_query = select(distinct(SQLCommit.sha).label("sha")).select_from(SQLCommit)
 
@@ -171,118 +785,55 @@ class Retriever:
             if key in self.filter_actions:
                 base_query = self.filter_actions[key](base_query, value)
 
-        if query and not query_embedding:
-            pattern = f"%{query}%"
-            base_query = base_query.filter(
-                or_(
-                    SQLCommit.message.ilike(pattern),
-                    SQLCommit.summary.ilike(pattern),
+        filtered_shas = self.session.execute(base_query).scalars().all()
+        if not filtered_shas:
+            logger.info("Found 0 relevant commits")
+            return []
+
+        if not normalized_query:
+            ordered_shas = self._fetch_ordered_commit_shas(filtered_shas, max_results)
+            return [
+                {
+                    "sha": sha,
+                    "similarity": None,
+                    "display_match": None,
+                }
+                for sha in ordered_shas
+            ]
+
+        results: list[dict[str, Any]] = []
+        exact_candidates = self._fetch_exact_candidates(filtered_shas, normalized_query)
+        if exact_candidates:
+            results.extend(
+                self._compile_exact_results(
+                    exact_candidates,
+                    normalized_query,
+                    max_results,
                 )
             )
 
-        filtered_query = base_query.subquery()
-
-        if query_embedding:
-            shas_cte = select(filtered_query.c.sha).cte()
-            file_exclusion_filter = self._build_file_exclusion_filter()
-
-            commit_similarity = SQLCommit.semantic_embedding.cosine_distance(
-                query_embedding
-            )
-            commits_semantic = (
-                select(
-                    SQLCommit.sha.label("sha"),
-                    commit_similarity.label("similarity"),
-                    literal("commit").label("match_type"),
-                    func.cast(literal(None), SQLDiffHunk.id.type).label("hunk_id"),
-                    func.cast(literal(None), SQLFileChange.new_path.type).label(
-                        "file_path"
-                    ),
-                )
-                .join(shas_cte, SQLCommit.sha == shas_cte.c.sha)
-                .filter(SQLCommit.semantic_embedding.isnot(None))
-                .filter(commit_similarity <= self.SIMILARITY_THRESHOLDS["commit"])
-            )
-
-            fc_similarity = SQLFileChange.semantic_embedding.cosine_distance(
-                query_embedding
-            )
-            fc_file_path = func.coalesce(SQLFileChange.new_path, SQLFileChange.old_path)
-            fc_semantic = (
-                select(
-                    SQLFileChange.commit_sha.label("sha"),
-                    fc_similarity.label("similarity"),
-                    literal("file_change").label("match_type"),
-                    func.cast(literal(None), SQLDiffHunk.id.type).label("hunk_id"),
-                    fc_file_path.label("file_path"),
-                )
-                .join(shas_cte, SQLFileChange.commit_sha == shas_cte.c.sha)
-                .filter(SQLFileChange.semantic_embedding.isnot(None))
-                .filter(file_exclusion_filter)
-                .filter(fc_similarity <= self.SIMILARITY_THRESHOLDS["file_change"])
-            )
-
-            hunk_similarity = SQLDiffHunk.semantic_embedding.cosine_distance(
-                query_embedding
-            )
-            hunk_file_path = func.coalesce(
-                SQLFileChange.new_path, SQLFileChange.old_path
-            )
-            hunk_semantic = (
-                select(
-                    SQLDiffHunk.commit_sha.label("sha"),
-                    hunk_similarity.label("similarity"),
-                    literal("hunk").label("match_type"),
-                    SQLDiffHunk.id.label("hunk_id"),
-                    hunk_file_path.label("file_path"),
-                )
-                .join(shas_cte, SQLDiffHunk.commit_sha == shas_cte.c.sha)
-                .join(SQLFileChange, SQLDiffHunk.file_change_id == SQLFileChange.id)
-                .filter(SQLDiffHunk.semantic_embedding.isnot(None))
-                .filter(file_exclusion_filter)
-                .filter(hunk_similarity <= self.SIMILARITY_THRESHOLDS["hunk"])
-            )
-
-            self._debug_print_top_matches(shas_cte, query_embedding)
-
-            final_query = union_all(
-                commits_semantic, fc_semantic, hunk_semantic
-            ).subquery()
-
-            ranked_query = select(
-                final_query.c.sha,
-                final_query.c.similarity,
-                final_query.c.match_type,
-                final_query.c.hunk_id,
-                final_query.c.file_path,
-                func.row_number()
-                .over(
-                    partition_by=final_query.c.sha,
-                    order_by=final_query.c.similarity,
-                )
-                .label("rank"),
-            ).subquery()
-
-            final_stmt = (
-                select(
-                    ranked_query.c.sha,
-                    ranked_query.c.similarity.label("best_similarity"),
-                    ranked_query.c.match_type,
-                    ranked_query.c.hunk_id,
-                    ranked_query.c.file_path,
-                )
-                .where(ranked_query.c.rank == 1)
-                .order_by(ranked_query.c.similarity)
-            )
-            results = self.session.execute(final_stmt.limit(max_results)).all()
-            commit_shas = [row.sha for row in results]
+        if len(results) < max_results:
+            query_embedding = self._get_query_embedding(normalized_query)
         else:
-            final_stmt = select(filtered_query.c.sha)
-            results = self.session.execute(final_stmt.limit(max_results)).all()
-            commit_shas = [row.sha for row in results]
+            query_embedding = None
 
-        logger.info("Found %s relevant commits", len(commit_shas))
-        return commit_shas
+        if query_embedding and len(results) < max_results:
+            semantic_candidates = self._fetch_semantic_candidates(
+                filtered_shas,
+                query_embedding,
+            )
+            if semantic_candidates:
+                results.extend(
+                    self._compile_semantic_results(
+                        semantic_candidates,
+                        normalized_query,
+                        max_results - len(results),
+                        exclude_shas={result["sha"] for result in results},
+                    )
+                )
+
+        logger.info("Found %s relevant commits", len(results))
+        return results
 
     def _build_fallback_context(
         self, repo_path: str, context_shas: list[str]

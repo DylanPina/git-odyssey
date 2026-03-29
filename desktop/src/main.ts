@@ -15,6 +15,7 @@ import { findGitProjectRoot } from "./git-projects";
 import { MacKeychainStore } from "./keychain";
 import { ReviewRuntimeManager } from "./review-runtime";
 import type { DesktopRepoSettings } from "./types";
+import { buildMainWindowOptions } from "./window-frame";
 
 const APP_NAME = "GitOdyssey";
 
@@ -114,20 +115,9 @@ function buildRepoQueryParams(
 }
 
 function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    minWidth: 1100,
-    minHeight: 760,
-    backgroundColor: "#020617",
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  });
+  mainWindow = new BrowserWindow(
+    buildMainWindowOptions(path.join(__dirname, "preload.js"))
+  );
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);

@@ -4,8 +4,6 @@ import rehypeHighlight from "rehype-highlight";
 
 import { cn } from "@/lib/utils";
 
-import "highlight.js/styles/github-dark.css";
-
 interface MarkdownRendererProps {
   content: string;
   className?: string;

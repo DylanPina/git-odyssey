@@ -8,6 +8,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { filterCommits } from "@/api/api";
+import type { FilterSearchResult } from "@/lib/definitions/api";
 import { EMPTY_FILTERS, type FilterFormData } from "@/lib/filter-utils";
 
 interface SearchProps {
@@ -15,7 +16,7 @@ interface SearchProps {
   filters?: FilterFormData;
   query?: string;
   onQueryChange?: (query: string) => void;
-  onSearchResults?: (commitShas: string[], query?: string) => void;
+  onSearchResults?: (results: FilterSearchResult[], query?: string) => void;
   inputId?: string;
 }
 
@@ -46,7 +47,7 @@ export default function Search({
     try {
       const response = await filterCommits(trimmedQuery, filters, repoPath);
 
-      onSearchResults?.(response.commit_shas, trimmedQuery);
+      onSearchResults?.(response.results, trimmedQuery);
     } catch (error) {
       console.error("Search error:", error);
       toast.error("Failed to perform search. Please try again.", {

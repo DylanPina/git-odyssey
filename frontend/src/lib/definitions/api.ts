@@ -27,8 +27,36 @@ export interface FilterRequest {
   max_results?: number;
 }
 
+export type FilterMatchType = "commit" | "file_change" | "hunk";
+
+export type FilterHighlightStrategy =
+  | "exact_query"
+  | "target_hunk"
+  | "file_header"
+  | "none";
+
+export type FilterPreviewKind = "text" | "diff";
+
+export interface FilterDisplayMatch {
+  match_type: FilterMatchType;
+  file_path?: string | null;
+  hunk_id?: number | null;
+  new_start?: number | null;
+  old_start?: number | null;
+  preview?: string | null;
+  preview_kind: FilterPreviewKind;
+  highlight_strategy: FilterHighlightStrategy;
+}
+
+export interface FilterSearchResult {
+  sha: string;
+  similarity?: number | null;
+  display_match?: FilterDisplayMatch | null;
+}
+
 export interface FilterResponse {
   commit_shas: string[];
+  results: FilterSearchResult[];
 }
 
 export interface ChatRequest {

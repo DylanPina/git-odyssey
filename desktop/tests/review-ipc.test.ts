@@ -139,12 +139,14 @@ test("main process review handlers forward requests to the backend", async () =>
   const handlers = new Map();
   let backendManagerInstance = null;
   let reviewRuntimeManagerInstance = null;
+  let createdWindowOptions = null;
   const mainPath = path.join(__dirname, "..", "src", "main.ts");
 
   delete require.cache[require.resolve(mainPath)];
 
   class MockBrowserWindow {
-    constructor() {
+    constructor(options) {
+      createdWindowOptions = options;
       this.webContents = {
         setWindowOpenHandler() {},
         openDevTools() {},
@@ -417,4 +419,18 @@ test("main process review handlers forward requests to the backend", async () =>
     approvalId: "approval_1",
     decision: "accept",
   });
+  assert.equal(createdWindowOptions.titleBarStyle, "hidden");
+  assert.equal(createdWindowOptions.backgroundColor, "#0d0f10");
+  if (process.platform === "darwin") {
+    assert.deepEqual(createdWindowOptions.trafficLightPosition, {
+      x: 18,
+      y: 18,
+    });
+  } else {
+    assert.deepEqual(createdWindowOptions.titleBarOverlay, {
+      color: "#111418",
+      symbolColor: "#d9e2f2",
+      height: 56,
+    });
+  }
 });

@@ -16,14 +16,18 @@ import { InlineBanner } from "@/components/ui/inline-banner";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
 	findClosestHunk,
+	getFileChangeDiffContents,
 	type DiffFileStatus,
+	type DiffCodeSearchFileIndex,
+	type DiffCodeSearchMatch,
 	type DiffNavigationTarget,
+	type DiffSearchHighlightStrategy,
+	type DiffViewerSide,
 	formatHunkLabel,
 	getDiffStatusLabel,
 	getDiffStatusTone,
 	getFileChangeLabelPath,
 	inferLanguage,
-	normalizeDiffFileStatus,
 } from "@/lib/diff";
 import type { FileChange, FileHunk } from "@/lib/definitions/repo";
 import { registerGitOdysseyMonacoTheme } from "@/lib/monacoTheme";
@@ -31,11 +35,19 @@ import { buildMonacoModelUri } from "@/lib/repoPaths";
 import { cn } from "@/lib/utils";
 
 type SummaryState = { loading: boolean; text?: string; error?: string };
-type DiffViewerSide = "original" | "modified";
 type PendingNavigationState = {
 	side: DiffViewerSide;
 	line: number;
 	highlight?: boolean;
+};
+type CodeNavigationTarget = DiffCodeSearchMatch & {
+	token: number;
+	focusEditor?: boolean;
+};
+type FileContextHighlight = {
+	side?: DiffViewerSide;
+	line?: number | null;
+	highlightStrategy: DiffSearchHighlightStrategy;
 };
 
 type CommitFilePanelProps = {
@@ -55,6 +67,12 @@ type CommitFilePanelProps = {
 	isSelected?: boolean;
 	navigationTarget?: DiffNavigationTarget | null;
 	onNavigationTargetHandled?: () => void;
+	codeSearchIndex?: DiffCodeSearchFileIndex | null;
+	activeCodeMatch?: DiffCodeSearchMatch | null;
+	codeNavigationTarget?: CodeNavigationTarget | null;
+	onCodeNavigationTargetHandled?: () => void;
+	searchMatchCount?: number;
+	contextHighlight?: FileContextHighlight | null;
 };
 
 function getHunkAnchorKey(hunk: FileHunk, index: number): string {
@@ -108,6 +126,12 @@ export function CommitFilePanel({
 	isSelected = false,
 	navigationTarget = null,
 	onNavigationTargetHandled,
+	codeSearchIndex = null,
+	activeCodeMatch = null,
+	codeNavigationTarget = null,
+	onCodeNavigationTargetHandled,
+	searchMatchCount = 0,
+	contextHighlight = null,
 }: CommitFilePanelProps) {
 	const diffEditorsRef = useRef<
 		Record<string, MonacoEditor.editor.IStandaloneDiffEditor | undefined>
@@ -120,8 +144,23 @@ export function CommitFilePanel({
 		original: [],
 		modified: [],
 	});
+	const searchDecorationIdsRef = useRef<Record<DiffViewerSide, string[]>>({
+		original: [],
+		modified: [],
+	});
+	const activeSearchDecorationIdsRef = useRef<Record<DiffViewerSide, string[]>>({
+		original: [],
+		modified: [],
+	});
+	const contextDecorationIdsRef = useRef<Record<DiffViewerSide, string[]>>({
+		original: [],
+		modified: [],
+	});
 	const lineHighlightTimerRef = useRef<number | null>(null);
 	const hunkRefs = useRef<Record<string, HTMLDivElement | null>>({});
+	const pendingCodeNavigationRef = useRef<
+		Record<string, CodeNavigationTarget | undefined>
+	>({});
 	const [isViewerExpanded, setIsViewerExpanded] = useState(false);
 
 	const diffOptions = useMemo(
@@ -151,19 +190,7 @@ export function CommitFilePanel({
 		[],
 	);
 
-	const status = normalizeDiffFileStatus(fileChange.status);
-	let original = "";
-	let modified = "";
-	if (status === "added") {
-		original = "";
-		modified = fileChange.snapshot?.content || "";
-	} else if (status === "deleted") {
-		original = fileChange.snapshot?.content || "";
-		modified = "";
-	} else {
-		original = fileChange.snapshot?.previous_snapshot?.content || "";
-		modified = fileChange.snapshot?.content || "";
-	}
+	const { status, original, modified } = getFileChangeDiffContents(fileChange);
 
 	const labelPath = getFileChangeLabelPath(fileChange);
 	const originalModelPath = buildMonacoModelUri(
@@ -180,7 +207,7 @@ export function CommitFilePanel({
 	);
 	const summaryLoading = Boolean(fileSummary?.loading);
 	const diffHeight = isViewerExpanded
-		? "max(440px, calc(100dvh - var(--header-height) - 12rem))"
+		? "max(440px, calc(var(--app-content-height) - var(--header-height) - 12rem))"
 		: 440;
 	const canShowFileSummaryControls = Boolean(
 		onToggleFileSummary ||
@@ -214,6 +241,173 @@ export function CommitFilePanel({
 			lineHighlightTimerRef.current = null;
 		}
 	}, [labelPath]);
+
+	const clearSearchDecorations = useCallback(() => {
+		const editor = diffEditorsRef.current[labelPath];
+		const originalEditor = editor?.getOriginalEditor();
+		const modifiedEditor = editor?.getModifiedEditor();
+
+		if (originalEditor) {
+			searchDecorationIdsRef.current.original = originalEditor.deltaDecorations(
+				searchDecorationIdsRef.current.original,
+				[],
+			);
+			activeSearchDecorationIdsRef.current.original =
+				originalEditor.deltaDecorations(
+					activeSearchDecorationIdsRef.current.original,
+					[],
+				);
+		}
+
+		if (modifiedEditor) {
+			searchDecorationIdsRef.current.modified = modifiedEditor.deltaDecorations(
+				searchDecorationIdsRef.current.modified,
+				[],
+			);
+			activeSearchDecorationIdsRef.current.modified =
+				modifiedEditor.deltaDecorations(
+					activeSearchDecorationIdsRef.current.modified,
+					[],
+				);
+		}
+	}, [labelPath]);
+
+	const clearContextDecorations = useCallback(() => {
+		const editor = diffEditorsRef.current[labelPath];
+		const originalEditor = editor?.getOriginalEditor();
+		const modifiedEditor = editor?.getModifiedEditor();
+
+		if (originalEditor) {
+			contextDecorationIdsRef.current.original = originalEditor.deltaDecorations(
+				contextDecorationIdsRef.current.original,
+				[],
+			);
+		}
+
+		if (modifiedEditor) {
+			contextDecorationIdsRef.current.modified = modifiedEditor.deltaDecorations(
+				contextDecorationIdsRef.current.modified,
+				[],
+			);
+		}
+	}, [labelPath]);
+
+	const applyCodeSearchDecorations = useCallback(() => {
+		const editor = diffEditorsRef.current[labelPath];
+		const monaco = monacoRef.current;
+		if (!editor || !monaco) {
+			return;
+		}
+
+		const originalEditor = editor.getOriginalEditor();
+		const modifiedEditor = editor.getModifiedEditor();
+
+		const buildDecorations = (matches: DiffCodeSearchMatch[]) =>
+			matches.map((match) => ({
+				range: new monaco.Range(
+					match.startLine,
+					match.startColumn,
+					match.endLine,
+					match.endColumn,
+				),
+				options: {
+					inlineClassName: "git-odyssey-search-match",
+				},
+			}));
+
+		searchDecorationIdsRef.current.original = originalEditor.deltaDecorations(
+			searchDecorationIdsRef.current.original,
+			buildDecorations(codeSearchIndex?.original ?? []),
+		);
+		searchDecorationIdsRef.current.modified = modifiedEditor.deltaDecorations(
+			searchDecorationIdsRef.current.modified,
+			buildDecorations(codeSearchIndex?.modified ?? []),
+		);
+
+		const activeOriginalMatch =
+			activeCodeMatch?.side === "original" ? activeCodeMatch : null;
+		const activeModifiedMatch =
+			activeCodeMatch?.side === "modified" ? activeCodeMatch : null;
+
+		activeSearchDecorationIdsRef.current.original =
+			originalEditor.deltaDecorations(
+				activeSearchDecorationIdsRef.current.original,
+				activeOriginalMatch
+					? [
+							{
+								range: new monaco.Range(
+									activeOriginalMatch.startLine,
+									activeOriginalMatch.startColumn,
+									activeOriginalMatch.endLine,
+									activeOriginalMatch.endColumn,
+								),
+								options: {
+									inlineClassName: "git-odyssey-search-match-active",
+								},
+							},
+						]
+					: [],
+			);
+		activeSearchDecorationIdsRef.current.modified =
+			modifiedEditor.deltaDecorations(
+				activeSearchDecorationIdsRef.current.modified,
+				activeModifiedMatch
+					? [
+							{
+								range: new monaco.Range(
+									activeModifiedMatch.startLine,
+									activeModifiedMatch.startColumn,
+									activeModifiedMatch.endLine,
+									activeModifiedMatch.endColumn,
+								),
+								options: {
+									inlineClassName: "git-odyssey-search-match-active",
+								},
+							},
+						]
+					: [],
+			);
+	}, [activeCodeMatch, codeSearchIndex, labelPath]);
+
+	const applyContextDecorations = useCallback(() => {
+		const editor = diffEditorsRef.current[labelPath];
+		const monaco = monacoRef.current;
+		if (!editor || !monaco) {
+			return;
+		}
+
+		const originalEditor = editor.getOriginalEditor();
+		const modifiedEditor = editor.getModifiedEditor();
+
+		const buildLineDecoration = (line: number) => [
+			{
+				range: new monaco.Range(line, 1, line, 1),
+				options: {
+					isWholeLine: true,
+					className: "git-odyssey-context-line-highlight",
+					linesDecorationsClassName: "git-odyssey-context-line-gutter",
+				},
+			},
+		];
+
+		const shouldHighlightLine =
+			contextHighlight?.highlightStrategy === "target_hunk" &&
+			contextHighlight.line != null &&
+			contextHighlight.side != null;
+
+		contextDecorationIdsRef.current.original = originalEditor.deltaDecorations(
+			contextDecorationIdsRef.current.original,
+			shouldHighlightLine && contextHighlight?.side === "original"
+				? buildLineDecoration(contextHighlight.line ?? 1)
+				: [],
+		);
+		contextDecorationIdsRef.current.modified = modifiedEditor.deltaDecorations(
+			contextDecorationIdsRef.current.modified,
+			shouldHighlightLine && contextHighlight?.side === "modified"
+				? buildLineDecoration(contextHighlight.line ?? 1)
+				: [],
+		);
+	}, [contextHighlight, labelPath]);
 
 	const focusMountedLine = useCallback(
 		(
@@ -289,6 +483,80 @@ export function CommitFilePanel({
 		},
 		[focusDiffLine, status],
 	);
+	const emphasizedHunkAnchorKey = useMemo(() => {
+		if (
+			!contextHighlight ||
+			contextHighlight.highlightStrategy === "file_header" ||
+			contextHighlight.line == null ||
+			contextHighlight.side == null
+		) {
+			return null;
+		}
+
+		const closestHunk = findClosestHunk(hunkList, {
+			newStart:
+				contextHighlight.side === "modified" ? contextHighlight.line : null,
+			oldStart:
+				contextHighlight.side === "original" ? contextHighlight.line : null,
+		});
+		if (!closestHunk) {
+			return null;
+		}
+
+		const hunkIndex = hunkList.findIndex((candidate) => candidate === closestHunk);
+		return getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
+	}, [contextHighlight, hunkList]);
+
+	const focusMountedCodeMatch = useCallback(
+		(
+			editor: MonacoEditor.editor.IStandaloneDiffEditor,
+			target: CodeNavigationTarget,
+		) => {
+			const targetEditor =
+				target.side === "original"
+					? editor.getOriginalEditor()
+					: editor.getModifiedEditor();
+			const model = targetEditor?.getModel();
+			if (!targetEditor || !model) {
+				return;
+			}
+
+			const lineCount = model.getLineCount();
+			const resolvedLine = Math.max(1, Math.min(target.startLine, lineCount));
+			const lineLength = model.getLineLength(resolvedLine);
+			const startColumn = Math.max(1, Math.min(target.startColumn, lineLength + 1));
+			const endColumn = Math.max(
+				startColumn + 1,
+				Math.min(target.endColumn, lineLength + 1),
+			);
+			const range = new monacoRef.current!.Range(
+				resolvedLine,
+				startColumn,
+				resolvedLine,
+				endColumn,
+			);
+
+			targetEditor.revealRangeInCenter(range);
+			targetEditor.setSelection(range);
+			if (target.focusEditor) {
+				targetEditor.focus();
+			}
+		},
+		[],
+	);
+
+	const focusCodeMatch = useCallback(
+		(target: CodeNavigationTarget) => {
+			const editor = diffEditorsRef.current[labelPath];
+			if (editor) {
+				focusMountedCodeMatch(editor, target);
+				return;
+			}
+
+			pendingCodeNavigationRef.current[labelPath] = target;
+		},
+		[focusMountedCodeMatch, labelPath],
+	);
 
 	useEffect(() => {
 		if (!navigationTarget || !isExpanded) {
@@ -330,20 +598,59 @@ export function CommitFilePanel({
 	]);
 
 	useEffect(() => {
+		if (!codeNavigationTarget || !isExpanded) {
+			return;
+		}
+
+		focusCodeMatch(codeNavigationTarget);
+		onCodeNavigationTargetHandled?.();
+	}, [
+		codeNavigationTarget,
+		focusCodeMatch,
+		isExpanded,
+		onCodeNavigationTargetHandled,
+	]);
+
+	useEffect(() => {
+		applyCodeSearchDecorations();
+	}, [activeCodeMatch, applyCodeSearchDecorations, codeSearchIndex, isExpanded]);
+
+	useEffect(() => {
+		applyContextDecorations();
+	}, [applyContextDecorations, contextHighlight, isExpanded]);
+
+	useEffect(() => {
 		return () => {
 			clearLineHighlights();
+			clearSearchDecorations();
+			clearContextDecorations();
 		};
-	}, [clearLineHighlights]);
+	}, [clearContextDecorations, clearLineHighlights, clearSearchDecorations]);
+	const searchContextLabel =
+		contextHighlight?.highlightStrategy === "exact_query"
+			? "Search hit"
+			: contextHighlight?.highlightStrategy === "target_hunk"
+				? "Best hunk"
+				: contextHighlight?.highlightStrategy === "file_header"
+					? "Matched file"
+					: null;
+	const isSearchContextTarget = Boolean(contextHighlight);
+	const panelSelectionClass = isSelected
+		? "border-[rgba(122,162,255,0.42)] shadow-[0_0_0_1px_rgba(122,162,255,0.18)]"
+		: isSearchContextTarget
+			? "border-[rgba(122,162,255,0.26)] shadow-[0_0_0_1px_rgba(122,162,255,0.08)]"
+			: undefined;
 
 	return (
-		<section
-			className={cn(
-				"workspace-panel overflow-hidden transition-[border-color,box-shadow] duration-150",
-				isSelected &&
-					"border-[rgba(122,162,255,0.42)] shadow-[0_0_0_1px_rgba(122,162,255,0.18)]",
-			)}
-		>
-			<div className="flex items-start justify-between gap-3 border-b border-border-subtle px-4 py-3">
+		<section className="relative">
+			<div className="sticky top-0 z-20">
+				<div
+					className={cn(
+						"workspace-panel flex items-start justify-between gap-3 border-b border-border-subtle bg-[rgba(12,15,19,0.94)] px-4 py-3 backdrop-blur-md transition-[border-color,box-shadow,background-color] duration-150",
+						"rounded-b-none",
+						panelSelectionClass,
+					)}
+				>
 				<button
 					type="button"
 					className="flex min-w-0 items-start gap-3 text-left"
@@ -367,6 +674,16 @@ export function CommitFilePanel({
 							<span className="truncate font-mono text-xs text-text-secondary">
 								{labelPath}
 							</span>
+							{searchContextLabel ? (
+								<span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-primary">
+									{searchContextLabel}
+								</span>
+							) : null}
+							{searchMatchCount > 0 ? (
+								<span className="rounded-full border border-border-subtle bg-control px-2 py-0.5 font-mono text-[10px] text-text-secondary">
+									{searchMatchCount} match{searchMatchCount === 1 ? "" : "es"}
+								</span>
+							) : null}
 						</div>
 					</div>
 				</button>
@@ -445,7 +762,15 @@ export function CommitFilePanel({
 						</Button>
 					) : null}
 				</div>
+				</div>
 			</div>
+
+			<div
+				className={cn(
+					"workspace-panel -mt-px overflow-hidden rounded-t-none transition-[border-color,box-shadow] duration-150",
+					panelSelectionClass,
+				)}
+			>
 
 			{canShowFileSummaryControls &&
 			isFileSummaryOpen &&
@@ -480,6 +805,8 @@ export function CommitFilePanel({
 						onMount={(editor) => {
 							diffEditorsRef.current[labelPath] =
 								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor;
+							applyCodeSearchDecorations();
+							applyContextDecorations();
 							const pending = pendingScrollRef.current[labelPath];
 							if (pending) {
 								focusMountedLine(
@@ -487,6 +814,15 @@ export function CommitFilePanel({
 									pending,
 								);
 								pendingScrollRef.current[labelPath] = undefined;
+							}
+							const pendingCodeTarget =
+								pendingCodeNavigationRef.current[labelPath];
+							if (pendingCodeTarget) {
+								focusMountedCodeMatch(
+									editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
+									pendingCodeTarget,
+								);
+								pendingCodeNavigationRef.current[labelPath] = undefined;
 							}
 						}}
 					/>
@@ -516,7 +852,11 @@ export function CommitFilePanel({
 								ref={(node) => {
 									hunkRefs.current[anchorKey] = node;
 								}}
-								className="rounded-[12px] border border-border-subtle bg-control/40"
+								className={cn(
+									"rounded-[12px] border border-border-subtle bg-control/40 transition-[border-color,box-shadow,background-color] duration-150",
+									anchorKey === emphasizedHunkAnchorKey &&
+										"border-[rgba(122,162,255,0.34)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]",
+								)}
 							>
 								<div className="flex items-center justify-between gap-3 px-3 py-2.5">
 									<button
@@ -586,6 +926,7 @@ export function CommitFilePanel({
 					})}
 				</div>
 			) : null}
+			</div>
 		</section>
 	);
 }

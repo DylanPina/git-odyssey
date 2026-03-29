@@ -31,7 +31,6 @@ import {
 	DiffWorkspace,
 	type DiffWorkspaceHandle,
 } from "@/components/ui/custom/DiffWorkspace";
-import { CommitToolbar } from "@/components/ui/custom/CommitToolbar";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -47,6 +46,7 @@ import {
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
 import { useRepoData } from "@/hooks/useRepoData";
+import { useDesktopTitleBarActions } from "@/lib/desktop-titlebar-actions";
 import { getFileChangeLabelPath } from "@/lib/diff";
 import type { Commit } from "@/lib/definitions/repo";
 import type {
@@ -61,7 +61,6 @@ import type {
 	ReviewSession,
 } from "@/lib/definitions/review";
 import {
-	buildRepoRoute,
 	buildReviewRoute,
 	getRepoStableKey,
 	readRepoPathFromSearchParams,
@@ -1204,6 +1203,7 @@ export function Review() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
+	const setDesktopTitleBarActions = useDesktopTitleBarActions();
 	const { baseRef: queryBaseRef, headRef: queryHeadRef } = useMemo(
 		() => readReviewRefsFromSearchParams(searchParams),
 		[searchParams],
@@ -2631,22 +2631,28 @@ export function Review() {
 				</span>
 			</button>
 		) : undefined;
+	const canCollapseAllFiles = Boolean(displayedSession?.file_changes?.length);
+
+	useEffect(() => {
+		setDesktopTitleBarActions([
+			{
+				id: "collapse-all-files",
+				label: "Collapse all files",
+				disabled: !canCollapseAllFiles,
+				onClick: () => {
+					diffWorkspaceRef.current?.collapseAll();
+				},
+			},
+		]);
+
+		return () => {
+			setDesktopTitleBarActions([]);
+		};
+	}, [canCollapseAllFiles, setDesktopTitleBarActions]);
 
 	return (
-		<div className="workspace-shell min-h-screen">
-			<div className="flex min-h-screen flex-col pb-4">
-				<div className="px-4 pt-4">
-					<CommitToolbar
-						repoPath={repoPath}
-						onExit={() => navigate(repoPath ? buildRepoRoute(repoPath) : "/")}
-						onCollapseAll={
-							displayedSession?.file_changes?.length
-								? () => diffWorkspaceRef.current?.collapseAll()
-								: undefined
-						}
-					/>
-				</div>
-
+		<div className="workspace-shell overflow-y-auto">
+			<div className="flex min-h-full flex-col pb-4">
 				<div className="px-4 pt-4">{pageTopContent}</div>
 				{previousReviewsSection ? (
 					<div className="px-4 pt-4">{previousReviewsSection}</div>
@@ -2655,7 +2661,7 @@ export function Review() {
 				{mobileReviewPanel ? <div className="px-4 pt-4">{mobileReviewPanel}</div> : null}
 
 				<div className="px-4 pb-4 pt-4">
-					<div className="sticky top-[calc(var(--header-height)+1rem)] z-10 h-[calc(100dvh-var(--header-height)-2rem)]">
+					<div className="sticky top-4 z-10 h-[calc(var(--app-content-height)-2rem)]">
 						<DiffWorkspace
 							ref={diffWorkspaceRef}
 							repoPath={repoPath}
