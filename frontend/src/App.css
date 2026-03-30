@@ -254,7 +254,7 @@
   .desktop-titlebar__side {
     display: flex;
     min-width: 0;
-    flex: 1 1 0;
+    flex: 0 1 auto;
     align-items: center;
   }
 
@@ -297,17 +297,18 @@
   .desktop-titlebar__center {
     display: flex;
     min-width: 0;
-    flex: 0 1 auto;
+    flex: 1 1 auto;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     padding: 0 16px;
+    overflow: hidden;
   }
 
   .desktop-titlebar__content {
     display: flex;
     min-width: 0;
-    max-width: min(56rem, 100%);
-    flex: 0 1 auto;
+    max-width: 100%;
+    flex: 1 1 auto;
     align-items: center;
     gap: 12px;
     overflow: hidden;

@@ -1,7 +1,5 @@
-import { ChevronDown, ChevronRight, GitCommitHorizontal, Loader2, Play, Square } from "lucide-react";
+import { ChevronDown, ChevronRight, GitCommitHorizontal } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Combobox } from "@/components/ui/custom/Combobox";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { Textarea } from "@/components/ui/textarea";
 import type {
@@ -31,8 +29,6 @@ type ReviewSetupSectionProps = {
 	branchOptions: string[];
 	baseRef: string;
 	headRef: string;
-	onBaseRefChange: (value: string) => void;
-	onHeadRefChange: (value: string) => void;
 	compareMetadata: ReviewMetaItem[];
 	isViewingHistory: boolean;
 	baseTipCommit: Commit | null;
@@ -40,13 +36,6 @@ type ReviewSetupSectionProps = {
 	isRepoLoading: boolean;
 	customInstructions: string;
 	onCustomInstructionsChange: (value: string) => void;
-	canStartReview: boolean;
-	canCancelReview: boolean;
-	hasCancelableRun: boolean;
-	isRunStarting: boolean;
-	isRunCancelling: boolean;
-	onStartReview: () => void;
-	onCancelReview: () => void;
 	isReviewSetupOpen: boolean;
 	onToggleReviewSetup: () => void;
 	repoError: string | null;
@@ -150,8 +139,6 @@ export function ReviewSetupSection({
 	branchOptions,
 	baseRef,
 	headRef,
-	onBaseRefChange,
-	onHeadRefChange,
 	compareMetadata,
 	isViewingHistory,
 	baseTipCommit,
@@ -159,13 +146,6 @@ export function ReviewSetupSection({
 	isRepoLoading,
 	customInstructions,
 	onCustomInstructionsChange,
-	canStartReview,
-	canCancelReview,
-	hasCancelableRun,
-	isRunStarting,
-	isRunCancelling,
-	onStartReview,
-	onCancelReview,
 	isReviewSetupOpen,
 	onToggleReviewSetup,
 	repoError,
@@ -182,97 +162,37 @@ export function ReviewSetupSection({
 		<div className="space-y-3">
 			<div className="rounded-[20px] border border-border-strong bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
 				<div className="flex flex-col gap-3">
-					<div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-						<div className="grid min-w-0 flex-1 gap-3 md:grid-cols-2 xl:min-w-[28rem]">
-							<label className="flex min-w-0 flex-col gap-1.5">
-								<span className="workspace-section-label">Base Branch</span>
-								<Combobox
-									options={branchOptions}
-									value={baseRef}
-									onSelect={onBaseRefChange}
-									disabled={branchOptions.length === 0 || isRepoLoading}
-									placeholder="Select base branch"
-								/>
-							</label>
-
-							<label className="flex min-w-0 flex-col gap-1.5">
-								<span className="workspace-section-label">Head Branch</span>
-								<Combobox
-									options={branchOptions}
-									value={headRef}
-									onSelect={onHeadRefChange}
-									disabled={branchOptions.length === 0 || isRepoLoading}
-									placeholder="Select head branch"
-								/>
-							</label>
+					<div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+						<div className="min-w-0 flex-1">
+							<div className="workspace-section-label">Review Setup</div>
+							<div className="mt-1 text-sm text-text-secondary">
+								Choose the compare target and run or manage the Codex review.
+							</div>
 						</div>
 
-						<div className="flex flex-wrap items-center gap-2 xl:justify-end">
-							<Button
-								variant="accent"
-								size="sm"
-								className="min-w-[11rem]"
-								onClick={onStartReview}
-								disabled={!canStartReview}
-							>
-								{isRunStarting ? (
-									<>
-										<Loader2 className="size-4 animate-spin" />
-										Starting review
-									</>
-								) : (
-									<>
-										<Play className="size-4" />
-										Start Review
-									</>
-								)}
-							</Button>
-
-							{hasCancelableRun ? (
-								<Button
-									variant="danger"
-									size="sm"
-									className="min-w-[8.5rem]"
-									onClick={onCancelReview}
-									disabled={!canCancelReview}
-								>
-									{isRunCancelling ? (
-										<>
-											<Loader2 className="size-4 animate-spin" />
-											Cancelling
-										</>
-									) : (
-										<>
-											<Square className="size-4" />
-											Cancel Run
-										</>
-									)}
-								</Button>
-							) : null}
-							<Button
-								variant="toolbar"
-								size="toolbar-icon"
-								onClick={onToggleReviewSetup}
-								aria-expanded={isReviewSetupOpen}
-								aria-controls="review-setup-panel"
-								aria-label={
-									isReviewSetupOpen
-										? "Collapse branch review setup"
-										: "Expand branch review setup"
-								}
-								title={
-									isReviewSetupOpen
-										? "Collapse branch review setup"
-										: "Expand branch review setup"
-								}
-							>
-								{isReviewSetupOpen ? (
-									<ChevronDown className="size-4" />
-								) : (
-									<ChevronRight className="size-4" />
-								)}
-							</Button>
-						</div>
+						<button
+							type="button"
+							className="inline-flex items-center justify-center self-start rounded-[var(--radius-control)] border border-border-subtle bg-transparent p-2 text-text-secondary transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-border-strong hover:bg-control hover:text-text-primary focus-visible:ring-2 focus-visible:ring-focus-ring xl:self-auto"
+							onClick={onToggleReviewSetup}
+							aria-expanded={isReviewSetupOpen}
+							aria-controls="review-setup-panel"
+							aria-label={
+								isReviewSetupOpen
+									? "Collapse branch review setup"
+									: "Expand branch review setup"
+							}
+							title={
+								isReviewSetupOpen
+									? "Collapse branch review setup"
+									: "Expand branch review setup"
+							}
+						>
+							{isReviewSetupOpen ? (
+								<ChevronDown className="size-4" />
+							) : (
+								<ChevronRight className="size-4" />
+							)}
+						</button>
 					</div>
 
 					{isReviewSetupOpen ? (

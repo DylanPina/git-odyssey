@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	GitCommitHorizontal,
 	MessageCircle,
@@ -16,7 +16,7 @@ import { DiffWorkspaceHeader } from "@/components/ui/custom/DiffWorkspaceHeader"
 import { DiffWorkspacePage } from "@/components/ui/custom/DiffWorkspacePage";
 import { ReviewAssistantPanel } from "@/pages/review/components/ReviewAssistantPanel";
 import { PreviousReviewsSection } from "@/pages/review/components/PreviousReviewsSection";
-import { ReviewSetupSection } from "@/pages/review/components/ReviewSetupSection";
+import { ReviewTitleBarTrailing } from "@/pages/review/components/ReviewTitleBarTrailing";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useRepoData } from "@/hooks/useRepoData";
 import { formatShortSha } from "@/lib/commitPresentation";
@@ -30,6 +30,7 @@ import type {
 	ReviewFinding,
 	ReviewHistoryEntry,
 } from "@/lib/definitions/review";
+import { useDesktopTitleBarChrome } from "@/lib/desktop-titlebar-actions";
 import {
 	readRepoPathFromSearchParams,
 	readReviewRefsFromSearchParams,
@@ -53,6 +54,7 @@ import { useReviewRunController } from "@/pages/review/useReviewRunController";
 
 export function Review() {
 	const navigate = useNavigate();
+	const setDesktopTitleBarChrome = useDesktopTitleBarChrome();
 	const [searchParams] = useSearchParams();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
 	const { baseRef: queryBaseRef, headRef: queryHeadRef } = useMemo(
@@ -60,22 +62,19 @@ export function Review() {
 		[searchParams],
 	);
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
-	const [customInstructions, setCustomInstructions] = useState("");
+	const [customInstructions] = useState("");
 	const [chatComposerFocusToken, setChatComposerFocusToken] = useState(0);
 
 	const {
 		commits,
 		branches,
 		isLoading: isRepoLoading,
-		error: repoError,
 	} = useRepoData({ repoPath });
 
 	const {
 		baseRef,
 		headRef,
 		branchOptions,
-		baseTipCommit,
-		headTipCommit,
 		handleBaseRefChange,
 		handleHeadRefChange,
 	} = useReviewRefSelection({
@@ -92,7 +91,6 @@ export function Review() {
 		reviewHistory,
 		sessionError,
 		historyError,
-		runError,
 		isSessionLoading,
 		isHistoryLoading,
 		isRunStarting,
@@ -100,13 +98,11 @@ export function Review() {
 		displayedSession,
 		activeRun,
 		reviewResult,
-		pendingApprovals,
 		reasoningTrace,
 		isViewingHistory,
 		selectedHistoryView,
 		historySelectionLoadingRunId,
 		historySelectionError,
-		approvalLoadingById,
 		canStartReview,
 		canCancelReview,
 		hasCancelableRun,
@@ -114,7 +110,6 @@ export function Review() {
 		selectHistoryReview,
 		startReview,
 		cancelCurrentRun,
-		respondToApproval,
 	} = useReviewRunController({
 		repoPath,
 		baseRef,
@@ -124,8 +119,6 @@ export function Review() {
 	const historyFilters = useReviewHistoryFilters(reviewHistory);
 	const assistantEnabled = Boolean(repoPath && baseRef && headRef);
 	const {
-		isReviewSetupOpen,
-		setIsReviewSetupOpen,
 		isPreviousReviewsOpen,
 		setIsPreviousReviewsOpen,
 		reviewPanelMode,
@@ -362,63 +355,57 @@ export function Review() {
 			? formatLabel(activeRun.status)
 			: "No review";
 
-	const compareMetadata = [
-		{
-			label: isViewingHistory ? "Reviewed Base" : "Base",
-			value: isViewingHistory
-				? displayedSession?.base_head_sha
-					? formatShortSha(displayedSession.base_head_sha)
-					: "Unavailable"
-				: baseRef
-					? baseTipCommit
-						? formatShortSha(baseTipCommit.sha)
-						: isRepoLoading
-							? "Loading"
-							: "Unavailable"
-					: "Not selected",
-		},
-		{
-			label: isViewingHistory ? "Reviewed Head" : "Head",
-			value: isViewingHistory
-				? displayedSession?.head_head_sha
-					? formatShortSha(displayedSession.head_head_sha)
-					: "Unavailable"
-				: headRef
-					? headTipCommit
-						? formatShortSha(headTipCommit.sha)
-						: isRepoLoading
-							? "Loading"
-							: "Unavailable"
-					: "Not selected",
-		},
-		{
-			label: "Merge",
-			value: displayedSession?.merge_base_sha
-				? formatShortSha(displayedSession.merge_base_sha)
-				: "Pending",
-		},
-		{
-			label: "Files",
-			value: displayedSession ? String(displayedSession.stats.files_changed) : "Pending",
-		},
-		{
-			label: "Run",
-			value: activeRun ? formatLabel(activeRun.status) : "Idle",
-			isMono: false,
-		},
-		{
-			label: "Approvals",
-			value: String(pendingApprovals.length),
-		},
-	];
+	const reviewTitleBarChrome = useMemo(
+		() => ({
+			trailing: (
+				<ReviewTitleBarTrailing
+					branchOptions={branchOptions}
+					baseRef={baseRef}
+					headRef={headRef}
+					onBaseRefChange={handleBaseRefChange}
+					onHeadRefChange={handleHeadRefChange}
+					isRepoLoading={isRepoLoading}
+					canStartReview={canStartReview}
+					canCancelReview={canCancelReview}
+					hasCancelableRun={hasCancelableRun}
+					isRunStarting={isRunStarting}
+					isRunCancelling={isRunCancelling}
+					onStartReview={() => {
+						void startReview(customInstructions);
+					}}
+					onCancelReview={() => {
+						void cancelCurrentRun();
+					}}
+				/>
+			),
+		}),
+		[
+			canCancelReview,
+			canStartReview,
+			branchOptions,
+			handleBaseRefChange,
+			handleHeadRefChange,
+			baseRef,
+			headRef,
+			cancelCurrentRun,
+			customInstructions,
+			hasCancelableRun,
+			isRepoLoading,
+			isRunCancelling,
+			isRunStarting,
+			startReview,
+		],
+	);
 
-	if (reviewResult) {
-		compareMetadata.push({
-			label: "Review",
-			value: findingsLabel,
-			isMono: false,
-		});
-	}
+	useEffect(() => {
+		setDesktopTitleBarChrome(reviewTitleBarChrome);
+
+		return () => {
+			setDesktopTitleBarChrome((currentChrome) =>
+				currentChrome === reviewTitleBarChrome ? null : currentChrome,
+			);
+		};
+	}, [reviewTitleBarChrome, setDesktopTitleBarChrome]);
 
 	const changedFilesLabel = displayedSession
 		? `${displayedSession.stats.files_changed} file${displayedSession.stats.files_changed === 1 ? "" : "s"} changed`
@@ -441,9 +428,6 @@ export function Review() {
 			}
 			subtitle={
 				<>
-					<span className="font-mono text-text-primary">{baseRef || "Base"}</span>
-					<span>vs</span>
-					<span className="font-mono text-text-primary">{headRef || "Head"}</span>
 					{displayedSession?.merge_base_sha ? (
 						<>
 							<span className="text-text-tertiary">merge</span>
@@ -460,48 +444,6 @@ export function Review() {
 					{reviewResult ? <span>{findingsLabel}</span> : null}
 				</>
 			}
-		/>
-	);
-
-	const setupSection = (
-		<ReviewSetupSection
-			repoPath={repoPath}
-			branchOptions={branchOptions}
-			baseRef={baseRef}
-			headRef={headRef}
-			onBaseRefChange={handleBaseRefChange}
-			onHeadRefChange={handleHeadRefChange}
-			compareMetadata={compareMetadata}
-			isViewingHistory={isViewingHistory}
-			baseTipCommit={baseTipCommit}
-			headTipCommit={headTipCommit}
-			isRepoLoading={isRepoLoading}
-			customInstructions={customInstructions}
-			onCustomInstructionsChange={setCustomInstructions}
-			canStartReview={canStartReview}
-			canCancelReview={canCancelReview}
-			hasCancelableRun={hasCancelableRun}
-			isRunStarting={isRunStarting}
-			isRunCancelling={isRunCancelling}
-			onStartReview={() => {
-				void startReview(customInstructions);
-			}}
-			onCancelReview={() => {
-				void cancelCurrentRun();
-			}}
-			isReviewSetupOpen={isReviewSetupOpen}
-			onToggleReviewSetup={() => setIsReviewSetupOpen((current) => !current)}
-			repoError={repoError}
-			sessionError={sessionError}
-			runError={runError}
-			historySelectionError={historySelectionError}
-			isHistorySelectionLoading={historySelectionLoadingRunId !== null}
-			pendingApprovals={pendingApprovals}
-			approvalLoadingById={approvalLoadingById}
-			onApprovalDecision={(approval, decision) => {
-				void respondToApproval(approval, decision);
-			}}
-			reviewGeneratedAt={reviewResult?.generated_at ?? null}
 		/>
 	);
 
@@ -654,7 +596,7 @@ export function Review() {
 
 	return (
 		<DiffWorkspacePage
-			topSections={[setupSection, previousReviewsSection]}
+			topSections={[previousReviewsSection]}
 			bottomSections={[mobileAssistantPanel]}
 			workspace={
 				<DiffWorkspace
