@@ -2,14 +2,17 @@ import type { ReactNode } from "react";
 
 type DiffWorkspacePageProps = {
 	topSections?: Array<ReactNode | null | undefined | false>;
+	bottomSections?: Array<ReactNode | null | undefined | false>;
 	workspace: ReactNode;
 };
 
 export function DiffWorkspacePage({
 	topSections = [],
+	bottomSections = [],
 	workspace,
 }: DiffWorkspacePageProps) {
 	const renderedTopSections = topSections.filter(Boolean);
+	const renderedBottomSections = bottomSections.filter(Boolean);
 
 	return (
 		<div className="workspace-shell overflow-y-auto">
@@ -25,6 +28,12 @@ export function DiffWorkspacePage({
 						{workspace}
 					</div>
 				</div>
+
+				{renderedBottomSections.map((section, index) => (
+					<div key={index} className="px-4 pb-4">
+						{section}
+					</div>
+				))}
 			</div>
 		</div>
 	);

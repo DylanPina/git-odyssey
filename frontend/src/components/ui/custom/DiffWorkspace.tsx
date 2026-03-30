@@ -32,6 +32,7 @@ import {
   type DiffCodeSearchFileIndex,
   type DiffCodeSearchMatch,
   type DiffNavigationTarget,
+  type DiffSelectionContext,
   type DiffSearchContext,
   type DiffViewerSide,
 } from "@/lib/diff";
@@ -93,6 +94,7 @@ type DiffWorkspaceProps = {
   isRightRailOpen?: boolean;
   isRightRailFullscreen?: boolean;
   rightRailCollapsedSummary?: ReactNode;
+  onInjectSelection?: (selection: DiffSelectionContext) => void;
   desktopResize?: DiffWorkspaceDesktopResize;
   searchContext?: DiffSearchContext | null;
 };
@@ -632,6 +634,7 @@ export const DiffWorkspace = forwardRef<
     isRightRailOpen = false,
     isRightRailFullscreen = false,
     rightRailCollapsedSummary,
+    onInjectSelection,
     desktopResize,
     searchContext = null,
   },
@@ -1552,6 +1555,7 @@ export const DiffWorkspace = forwardRef<
                                   ? contextHighlight
                                   : null
                               }
+                              onInjectSelection={onInjectSelection}
                               onNavigationTargetHandled={() =>
                                 setNavigationTarget((current) =>
                                   current?.filePath === labelPath

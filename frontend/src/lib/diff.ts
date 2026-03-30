@@ -35,6 +35,17 @@ export type DiffCodeSearchMatch = {
   endOffset: number;
 };
 
+export type DiffSelectionContext = {
+  filePath: string;
+  side: DiffViewerSide;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  selectedText: string;
+  language?: string;
+};
+
 export type DiffCodeSearchFileIndex = {
   original: DiffCodeSearchMatch[];
   modified: DiffCodeSearchMatch[];

@@ -7,6 +7,54 @@ export type ReviewApprovalDecision =
   | "decline"
   | "cancel";
 
+export type ReviewChatCodeContext = {
+  id: string;
+  filePath: string;
+  side: "original" | "modified";
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  selectedText: string;
+  language?: string;
+  isTruncated?: boolean;
+};
+
+export type ReviewChatFinding = {
+  id: string;
+  severity: "high" | "medium" | "low";
+  title: string;
+  body: string;
+  file_path: string;
+  new_start?: number | null;
+  old_start?: number | null;
+};
+
+export type ReviewChatContext = {
+  runStatus?: string | null;
+  summary?: string | null;
+  findings: ReviewChatFinding[];
+};
+
+export type ReviewChatTranscriptMessage = {
+  role: "user" | "assistant";
+  content: string;
+  codeContexts?: ReviewChatCodeContext[];
+};
+
+export type ReviewChatRequestInput = {
+  sessionId: string;
+  runId?: string | null;
+  message: string;
+  codeContexts: ReviewChatCodeContext[];
+  messages: ReviewChatTranscriptMessage[];
+  reviewContext?: ReviewChatContext | null;
+};
+
+export type ReviewChatResponse = {
+  response: string;
+};
+
 export interface GitProjectSummary {
   path: string;
   name: string;

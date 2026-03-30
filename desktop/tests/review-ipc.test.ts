@@ -73,6 +73,14 @@ test("preload exposes review IPC bridge methods", async () => {
     sessionId: "rev_sess_123",
     customInstructions: "Focus on bugs",
   });
+  await exposed.gitOdysseyDesktop.api.sendReviewChatMessage({
+    sessionId: "rev_sess_123",
+    runId: null,
+    message: "Explain the diff",
+    codeContexts: [],
+    messages: [],
+    reviewContext: null,
+  });
   await exposed.gitOdysseyDesktop.api.getReviewRun({
     sessionId: "rev_sess_123",
     runId: "rev_run_456",
@@ -110,20 +118,31 @@ test("preload exposes review IPC bridge methods", async () => {
     },
   ]);
   assert.deepEqual(invocations[6], [
+    "git-odyssey:api:send-review-chat-message",
+    {
+      sessionId: "rev_sess_123",
+      runId: null,
+      message: "Explain the diff",
+      codeContexts: [],
+      messages: [],
+      reviewContext: null,
+    },
+  ]);
+  assert.deepEqual(invocations[7], [
     "git-odyssey:api:get-review-run",
     {
       sessionId: "rev_sess_123",
       runId: "rev_run_456",
     },
   ]);
-  assert.deepEqual(invocations[7], [
+  assert.deepEqual(invocations[8], [
     "git-odyssey:api:cancel-review-run",
     {
       sessionId: "rev_sess_123",
       runId: "rev_run_456",
     },
   ]);
-  assert.deepEqual(invocations[8], [
+  assert.deepEqual(invocations[9], [
     "git-odyssey:api:respond-review-approval",
     {
       sessionId: "rev_sess_123",
@@ -239,6 +258,7 @@ test("main process review handlers forward requests to the backend", async () =>
   class MockReviewRuntimeManager {
     constructor() {
       this.startCalls = [];
+      this.reviewChatCalls = [];
       this.cancelCalls = [];
       this.approvalCalls = [];
       reviewRuntimeManagerInstance = this;
@@ -249,6 +269,11 @@ test("main process review handlers forward requests to the backend", async () =>
     async startRun(input) {
       this.startCalls.push(input);
       return { id: "rev_run_456" };
+    }
+
+    async sendReviewChatMessage(input) {
+      this.reviewChatCalls.push(input);
+      return { response: "Codex review chat reply" };
     }
 
     async cancelRun(input) {
@@ -315,6 +340,7 @@ test("main process review handlers forward requests to the backend", async () =>
   const getSessionHandler = handlers.get("git-odyssey:api:get-review-session");
   const getHistoryHandler = handlers.get("git-odyssey:api:get-review-history");
   const startRunHandler = handlers.get("git-odyssey:api:start-review-run");
+  const reviewChatHandler = handlers.get("git-odyssey:api:send-review-chat-message");
   const getRunHandler = handlers.get("git-odyssey:api:get-review-run");
   const cancelRunHandler = handlers.get("git-odyssey:api:cancel-review-run");
   const respondApprovalHandler = handlers.get("git-odyssey:api:respond-review-approval");
@@ -337,6 +363,18 @@ test("main process review handlers forward requests to the backend", async () =>
   await startRunHandler({}, {
     sessionId: "rev_sess_123",
     customInstructions: "Focus on auth flows",
+  });
+  await reviewChatHandler({}, {
+    sessionId: "rev_sess_123",
+    runId: null,
+    message: "Explain the review findings",
+    codeContexts: [],
+    messages: [],
+    reviewContext: {
+      runStatus: "completed",
+      summary: "Found one risky branch path.",
+      findings: [],
+    },
   });
   await getRunHandler({}, {
     sessionId: "rev_sess_123",
@@ -408,6 +446,18 @@ test("main process review handlers forward requests to the backend", async () =>
   assert.deepEqual(reviewRuntimeManagerInstance.startCalls[0], {
     sessionId: "rev_sess_123",
     customInstructions: "Focus on auth flows",
+  });
+  assert.deepEqual(reviewRuntimeManagerInstance.reviewChatCalls[0], {
+    sessionId: "rev_sess_123",
+    runId: null,
+    message: "Explain the review findings",
+    codeContexts: [],
+    messages: [],
+    reviewContext: {
+      runStatus: "completed",
+      summary: "Found one risky branch path.",
+      findings: [],
+    },
   });
   assert.deepEqual(reviewRuntimeManagerInstance.cancelCalls[0], {
     sessionId: "rev_sess_123",

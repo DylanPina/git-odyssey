@@ -1,5 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { GitCommitHorizontal, PanelRightOpen } from "lucide-react";
+import {
+	GitCommitHorizontal,
+	MessageCircle,
+	PanelRightOpen,
+	Sparkles,
+} from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -8,13 +13,14 @@ import {
 } from "@/components/ui/custom/DiffWorkspace";
 import { DiffWorkspaceHeader } from "@/components/ui/custom/DiffWorkspaceHeader";
 import { DiffWorkspacePage } from "@/components/ui/custom/DiffWorkspacePage";
-import { ReviewInsightsPanel } from "@/pages/review/components/ReviewInsightsPanel";
+import { ReviewAssistantPanel } from "@/pages/review/components/ReviewAssistantPanel";
 import { PreviousReviewsSection } from "@/pages/review/components/PreviousReviewsSection";
 import { ReviewSetupSection } from "@/pages/review/components/ReviewSetupSection";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useRepoData } from "@/hooks/useRepoData";
 import { formatShortSha } from "@/lib/commitPresentation";
-import { getFileChangeLabelPath } from "@/lib/diff";
+import { type DiffSelectionContext, getFileChangeLabelPath } from "@/lib/diff";
+import type { ChatCodeContext } from "@/lib/definitions/chat";
 import type {
 	ReviewFinding,
 	ReviewHistoryEntry,
@@ -35,6 +41,7 @@ import {
 	getRunStatusTone,
 } from "@/pages/review/review-formatters";
 import { useReviewHistoryFilters } from "@/pages/review/useReviewHistoryFilters";
+import { useReviewChatSession } from "@/pages/review/useReviewChatSession";
 import { useReviewLayoutState } from "@/pages/review/useReviewLayoutState";
 import { useReviewRefSelection } from "@/pages/review/useReviewRefSelection";
 import { useReviewRunController } from "@/pages/review/useReviewRunController";
@@ -49,6 +56,7 @@ export function Review() {
 	);
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
 	const [customInstructions, setCustomInstructions] = useState("");
+	const [chatComposerFocusToken, setChatComposerFocusToken] = useState(0);
 
 	const {
 		commits,
@@ -84,7 +92,6 @@ export function Review() {
 		isHistoryLoading,
 		isRunStarting,
 		isRunCancelling,
-		currentActiveRun,
 		displayedSession,
 		activeRun,
 		reviewResult,
@@ -110,6 +117,7 @@ export function Review() {
 	});
 
 	const historyFilters = useReviewHistoryFilters(reviewHistory);
+	const assistantEnabled = Boolean(repoPath && baseRef && headRef);
 	const {
 		isReviewSetupOpen,
 		setIsReviewSetupOpen,
@@ -117,6 +125,8 @@ export function Review() {
 		setIsPreviousReviewsOpen,
 		reviewPanelMode,
 		setReviewPanelMode,
+		assistantTab,
+		setAssistantTab,
 		selectedFindingId,
 		setSelectedFindingId,
 		fileTreePreferredWidth,
@@ -127,9 +137,37 @@ export function Review() {
 		isReviewRailOpen,
 		isReviewFullscreen,
 	} = useReviewLayoutState({
+		assistantEnabled,
 		activeRunId: activeRun?.id,
 		reviewResult,
 	});
+
+	const {
+		chatMessages,
+		draft: chatDraft,
+		setDraft: setChatDraft,
+		draftCodeContexts,
+		isChatLoading,
+		chatError,
+		isChatReady,
+		sendDraft,
+		injectSelection,
+		removeDraftCodeContext,
+		clearChatError,
+	} = useReviewChatSession({
+		sessionId: displayedSession?.id,
+		activeRun,
+		reviewResult,
+		isViewingHistory,
+	});
+
+	const chatComposerNote =
+		!assistantEnabled
+			? "Select both branches to prepare Codex review chat."
+			: !isChatReady || isSessionLoading
+				? "Preparing Codex review chat for this compare target."
+				: null;
+	const isChatComposerDisabled = !assistantEnabled || !isChatReady || isSessionLoading;
 
 	const availableFindingPaths = useMemo(() => {
 		const paths = new Set<string>();
@@ -154,8 +192,8 @@ export function Review() {
 
 	const handleReturnToLatestReview = useCallback(() => {
 		clearHistorySelection();
-		setReviewPanelMode(currentActiveRun ? "rail" : "collapsed");
-	}, [clearHistorySelection, currentActiveRun, setReviewPanelMode]);
+		setReviewPanelMode(assistantEnabled ? "rail" : "collapsed");
+	}, [assistantEnabled, clearHistorySelection, setReviewPanelMode]);
 
 	const handleSelectHistoryReview = useCallback(
 		async (entry: ReviewHistoryEntry) => {
@@ -199,6 +237,52 @@ export function Review() {
 			focusFinding();
 		},
 		[canNavigateToFinding, reviewPanelMode, setReviewPanelMode, setSelectedFindingId],
+	);
+
+	const handleChatDraftChange = useCallback(
+		(nextDraft: string) => {
+			if (chatError) {
+				clearChatError();
+			}
+
+			setChatDraft(nextDraft);
+		},
+		[chatError, clearChatError, setChatDraft],
+	);
+
+	const handleInjectSelection = useCallback(
+		(selection: DiffSelectionContext) => {
+			injectSelection(selection);
+			setAssistantTab("chat");
+			setReviewPanelMode("rail");
+			setChatComposerFocusToken((current) => current + 1);
+		},
+		[injectSelection, setAssistantTab, setReviewPanelMode],
+	);
+
+	const handleChatCodeContextClick = useCallback(
+		(context: ChatCodeContext) => {
+			const focusContext = () => {
+				diffWorkspaceRef.current?.focusLocation({
+					filePath: context.filePath,
+					newStart: context.side === "modified" ? context.startLine : null,
+					oldStart: context.side === "original" ? context.startLine : null,
+				});
+			};
+
+			if (reviewPanelMode === "fullscreen" && typeof window !== "undefined") {
+				setReviewPanelMode("rail");
+				window.requestAnimationFrame(() => {
+					window.requestAnimationFrame(() => {
+						focusContext();
+					});
+				});
+				return;
+			}
+
+			focusContext();
+		},
+		[reviewPanelMode, setReviewPanelMode],
 	);
 
 	const findingsLabel = reviewResult
@@ -372,10 +456,47 @@ export function Review() {
 			/>
 		) : null;
 
-	const mobileReviewPanel =
-		activeRun && isReviewVisible ? (
-			<div className="xl:hidden">
-				<ReviewInsightsPanel
+	const assistantPanel = assistantEnabled ? (
+		<ReviewAssistantPanel
+			activeTab={assistantTab}
+			onActiveTabChange={setAssistantTab}
+			activeRun={activeRun}
+			reviewResult={reviewResult}
+			findingsLabel={findingsLabel}
+			selectedFindingId={selectedFindingId}
+			onSelectFinding={handleFindingSelect}
+			canNavigateToFinding={canNavigateToFinding}
+			reasoningTrace={reasoningTrace}
+			chatMessages={chatMessages}
+			chatDraft={chatDraft}
+			draftCodeContexts={draftCodeContexts}
+			onChatDraftChange={handleChatDraftChange}
+			onSendChatMessage={() => {
+				void sendDraft();
+			}}
+			onChatCodeContextClick={handleChatCodeContextClick}
+			onRemoveDraftCodeContext={removeDraftCodeContext}
+			isChatLoading={isChatLoading}
+			chatError={chatError}
+			isChatComposerDisabled={isChatComposerDisabled}
+			chatComposerNote={chatComposerNote}
+			composerFocusToken={chatComposerFocusToken}
+			isFullscreen={isReviewFullscreen}
+			onToggleOpen={() => setReviewPanelMode("collapsed")}
+			onToggleFullscreen={() =>
+				setReviewPanelMode((current) =>
+					current === "fullscreen" ? "rail" : "fullscreen",
+				)
+			}
+		/>
+	) : undefined;
+
+	const mobileAssistantPanel = assistantEnabled ? (
+		<div className="xl:hidden">
+			{isReviewVisible ? (
+				<ReviewAssistantPanel
+					activeTab={assistantTab}
+					onActiveTabChange={setAssistantTab}
 					activeRun={activeRun}
 					reviewResult={reviewResult}
 					findingsLabel={findingsLabel}
@@ -383,35 +504,81 @@ export function Review() {
 					onSelectFinding={handleFindingSelect}
 					canNavigateToFinding={canNavigateToFinding}
 					reasoningTrace={reasoningTrace}
+					chatMessages={chatMessages}
+					chatDraft={chatDraft}
+					draftCodeContexts={draftCodeContexts}
+					onChatDraftChange={handleChatDraftChange}
+					onSendChatMessage={() => {
+						void sendDraft();
+					}}
+					onChatCodeContextClick={handleChatCodeContextClick}
+					onRemoveDraftCodeContext={removeDraftCodeContext}
+					isChatLoading={isChatLoading}
+					chatError={chatError}
+					isChatComposerDisabled={isChatComposerDisabled}
+					chatComposerNote={chatComposerNote}
+					composerFocusToken={chatComposerFocusToken}
 					isInline
 					onToggleOpen={() => setReviewPanelMode("collapsed")}
 					onToggleFullscreen={() => setReviewPanelMode("rail")}
 				/>
-			</div>
-		) : null;
+			) : (
+				<button
+					type="button"
+					className="workspace-panel flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-control/60"
+					onClick={() => setReviewPanelMode("rail")}
+				>
+					<div>
+						<div className="workspace-section-label">Assistant</div>
+						<div className="mt-1 text-sm font-semibold text-text-primary">
+							Show review chat and findings
+						</div>
+					</div>
+					<PanelRightOpen className="size-4 text-text-secondary" />
+				</button>
+			)}
+		</div>
+	) : null;
 
-	const desktopCollapsedReviewRail =
-		activeRun ? (
-			<button
-				type="button"
-				className="flex h-full w-full flex-col items-center justify-center gap-3 bg-transparent px-2 py-4 text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)]"
-				onClick={() => setReviewPanelMode("rail")}
-				aria-label="Show AI review"
-				title="Show AI review"
-			>
-				<PanelRightOpen className="size-4" />
+	const collapsedAssistantBadge =
+		assistantTab === "review"
+			? reviewResult
+				? String(reviewResult.findings.length)
+				: activeRun
+					? "…"
+					: null
+			: chatMessages.length > 0
+				? String(chatMessages.length)
+				: null;
+
+	const desktopCollapsedAssistantRail = assistantEnabled ? (
+		<button
+			type="button"
+			className="flex h-full w-full flex-col items-center justify-center gap-3 bg-transparent px-2 py-4 text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+			onClick={() => setReviewPanelMode("rail")}
+			aria-label="Show assistant"
+			title="Show assistant"
+		>
+			{assistantTab === "review" ? (
+				<Sparkles className="size-4" />
+			) : (
+				<MessageCircle className="size-4" />
+			)}
+			{collapsedAssistantBadge ? (
 				<span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 font-mono text-[10px] text-text-primary">
-					{reviewResult ? reviewResult.findings.length : "..."}
+					{collapsedAssistantBadge}
 				</span>
-				<span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-semibold tracking-[0.22em] text-text-tertiary uppercase">
-					Review
-				</span>
-			</button>
-		) : undefined;
+			) : null}
+			<span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-semibold tracking-[0.22em] text-text-tertiary uppercase">
+				Assistant
+			</span>
+		</button>
+	) : undefined;
 
 	return (
 		<DiffWorkspacePage
-			topSections={[setupSection, previousReviewsSection, mobileReviewPanel]}
+			topSections={[setupSection, previousReviewsSection]}
+			bottomSections={[mobileAssistantPanel]}
 			workspace={
 				<DiffWorkspace
 					ref={diffWorkspaceRef}
@@ -450,29 +617,11 @@ export function Review() {
 							onPreferredWidthChange: setReviewRailPreferredWidth,
 						},
 					}}
-					rightRail={
-						activeRun ? (
-							<ReviewInsightsPanel
-								activeRun={activeRun}
-								reviewResult={reviewResult}
-								findingsLabel={findingsLabel}
-								selectedFindingId={selectedFindingId}
-								onSelectFinding={handleFindingSelect}
-								canNavigateToFinding={canNavigateToFinding}
-								reasoningTrace={reasoningTrace}
-								isFullscreen={isReviewFullscreen}
-								onToggleOpen={() => setReviewPanelMode("collapsed")}
-								onToggleFullscreen={() =>
-									setReviewPanelMode((current) =>
-										current === "fullscreen" ? "rail" : "fullscreen",
-									)
-								}
-							/>
-						) : undefined
-					}
-					isRightRailOpen={Boolean(activeRun) && isReviewRailOpen}
-					isRightRailFullscreen={Boolean(activeRun) && isReviewFullscreen}
-					rightRailCollapsedSummary={desktopCollapsedReviewRail}
+					rightRail={assistantPanel}
+					isRightRailOpen={assistantEnabled && isReviewRailOpen}
+					isRightRailFullscreen={assistantEnabled && isReviewFullscreen}
+					rightRailCollapsedSummary={desktopCollapsedAssistantRail}
+					onInjectSelection={handleInjectSelection}
 				/>
 			}
 		/>

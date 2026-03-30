@@ -10,6 +10,8 @@ import type {
 import type {
   ReviewCompareResponse,
   ReviewApprovalDecision,
+  ReviewChatRequest,
+  ReviewChatResponse,
   ReviewHistoryResponse,
   ReviewReport,
   ReviewRun,
@@ -189,6 +191,7 @@ export interface GitOdysseyDesktopApi {
     repoPath: string;
     contextShas: string[];
   }): Promise<ChatResponse>;
+  sendReviewChatMessage(input: ReviewChatRequest): Promise<ReviewChatResponse>;
   initDatabase(): Promise<DatabaseResponse>;
   dropDatabase(): Promise<DatabaseResponse>;
   getCommit(

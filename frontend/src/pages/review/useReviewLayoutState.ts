@@ -13,22 +13,32 @@ import {
 	getStoredReviewPanelWidth,
 	persistStoredPanelWidth,
 } from "@/pages/review/review-storage";
-import type { ReviewPanelMode } from "@/pages/review/review-types";
+import type {
+	ReviewAssistantTab,
+	ReviewPanelMode,
+} from "@/pages/review/review-types";
 
 type UseReviewLayoutStateArgs = {
+	assistantEnabled: boolean;
 	activeRunId?: string | null;
 	reviewResult: ReviewResult | null;
 };
 
 export function useReviewLayoutState({
+	assistantEnabled,
 	activeRunId,
 	reviewResult,
 }: UseReviewLayoutStateArgs) {
 	const lastOpenedRunIdRef = useRef<string | null>(null);
+	const wasAssistantEnabledRef = useRef(false);
+	const hadReviewContentRef = useRef(Boolean(activeRunId));
 	const [isReviewSetupOpen, setIsReviewSetupOpen] = useState(true);
 	const [isPreviousReviewsOpen, setIsPreviousReviewsOpen] = useState(true);
 	const [reviewPanelMode, setReviewPanelMode] =
 		useState<ReviewPanelMode>("collapsed");
+	const [assistantTab, setAssistantTab] = useState<ReviewAssistantTab>(() =>
+		activeRunId ? "review" : "chat",
+	);
 	const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
 	const [fileTreePreferredWidth, setFileTreePreferredWidthState] = useState(() =>
 		getStoredReviewPanelWidth(
@@ -49,13 +59,41 @@ export function useReviewLayoutState({
 	useEffect(() => {
 		if (activeRunId && activeRunId !== lastOpenedRunIdRef.current) {
 			setReviewPanelMode("rail");
+			setAssistantTab("review");
 			lastOpenedRunIdRef.current = activeRunId;
 		}
 
 		if (!activeRunId) {
 			lastOpenedRunIdRef.current = null;
-			setReviewPanelMode("collapsed");
 		}
+	}, [activeRunId]);
+
+	useEffect(() => {
+		if (!assistantEnabled) {
+			setReviewPanelMode("collapsed");
+			wasAssistantEnabledRef.current = false;
+			return;
+		}
+
+		if (!wasAssistantEnabledRef.current) {
+			setReviewPanelMode((current) =>
+				current === "collapsed" ? "rail" : current,
+			);
+			if (!activeRunId) {
+				setAssistantTab("chat");
+			}
+		}
+
+		wasAssistantEnabledRef.current = true;
+	}, [activeRunId, assistantEnabled]);
+
+	useEffect(() => {
+		const hasReviewContent = Boolean(activeRunId);
+		if (!hasReviewContent && hadReviewContentRef.current) {
+			setAssistantTab((current) => (current === "review" ? "chat" : current));
+		}
+
+		hadReviewContentRef.current = hasReviewContent;
 	}, [activeRunId]);
 
 	useEffect(() => {
@@ -98,6 +136,8 @@ export function useReviewLayoutState({
 		setIsPreviousReviewsOpen,
 		reviewPanelMode,
 		setReviewPanelMode,
+		assistantTab,
+		setAssistantTab,
 		selectedFindingId,
 		setSelectedFindingId,
 		fileTreePreferredWidth,

@@ -4,6 +4,7 @@ import type {
   DesktopAiConfigInput,
   DesktopRepoSettings,
   DesktopRepoSettingsSaveInput,
+  ReviewChatRequestInput,
   ReviewApprovalDecision,
 } from "./types";
 
@@ -53,6 +54,8 @@ const bridge = {
       repoPath: string;
       contextShas: string[];
     }) => invoke("git-odyssey:api:send-chat-message", input),
+    sendReviewChatMessage: (input: ReviewChatRequestInput) =>
+      invoke("git-odyssey:api:send-review-chat-message", input),
     initDatabase: () => invoke("git-odyssey:api:init-database"),
     dropDatabase: () => invoke("git-odyssey:api:drop-database"),
     getCommit: (

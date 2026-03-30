@@ -9,6 +9,8 @@ import type {
 import type {
   ReviewHistoryResponse,
   ReviewCompareResponse,
+  ReviewChatRequest,
+  ReviewChatResponse,
   ReviewRun,
   ReviewReport,
   ReviewSession,
@@ -97,6 +99,12 @@ export const sendChatMessage = async (
   contextShas: string[]
 ): Promise<ChatResponse> => {
   return getDesktopBridge().api.sendChatMessage({ query, repoPath, contextShas });
+};
+
+export const sendReviewChatMessage = async (
+  input: ReviewChatRequest
+): Promise<ReviewChatResponse> => {
+  return getDesktopBridge().api.sendReviewChatMessage(input);
 };
 
 export const initDatabase = async (): Promise<DatabaseResponse> => {

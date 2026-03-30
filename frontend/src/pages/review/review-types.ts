@@ -15,6 +15,7 @@ export type ReasoningTraceEntry = {
 };
 
 export type ReviewPanelMode = "collapsed" | "rail" | "fullscreen";
+export type ReviewAssistantTab = "review" | "chat";
 
 export type PersistedReviewRefs = {
 	baseRef: string;

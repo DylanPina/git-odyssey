@@ -6,6 +6,7 @@ import {
 	ChevronRight,
 	Loader2,
 	Maximize2,
+	MessageSquarePlus,
 	Minimize2,
 	Sparkles,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import {
 	type DiffCodeSearchFileIndex,
 	type DiffCodeSearchMatch,
 	type DiffNavigationTarget,
+	type DiffSelectionContext,
 	type DiffSearchHighlightStrategy,
 	type DiffViewerSide,
 	formatHunkLabel,
@@ -73,6 +75,7 @@ type CommitFilePanelProps = {
 	onCodeNavigationTargetHandled?: () => void;
 	searchMatchCount?: number;
 	contextHighlight?: FileContextHighlight | null;
+	onInjectSelection?: (selection: DiffSelectionContext) => void;
 };
 
 function getHunkAnchorKey(hunk: FileHunk, index: number): string {
@@ -132,6 +135,7 @@ export function CommitFilePanel({
 	onCodeNavigationTargetHandled,
 	searchMatchCount = 0,
 	contextHighlight = null,
+	onInjectSelection,
 }: CommitFilePanelProps) {
 	const diffEditorsRef = useRef<
 		Record<string, MonacoEditor.editor.IStandaloneDiffEditor | undefined>
@@ -161,7 +165,14 @@ export function CommitFilePanel({
 	const pendingCodeNavigationRef = useRef<
 		Record<string, CodeNavigationTarget | undefined>
 	>({});
+	const selectionListenerDisposablesRef = useRef<
+		Record<string, MonacoEditor.IDisposable[]>
+	>({});
 	const [isViewerExpanded, setIsViewerExpanded] = useState(false);
+	const [activeSelection, setActiveSelection] =
+		useState<DiffSelectionContext | null>(null);
+	const { status, original, modified } = getFileChangeDiffContents(fileChange);
+	const labelPath = getFileChangeLabelPath(fileChange);
 
 	const diffOptions = useMemo(
 		() => ({
@@ -190,9 +201,67 @@ export function CommitFilePanel({
 		[],
 	);
 
-	const { status, original, modified } = getFileChangeDiffContents(fileChange);
+	const clearSelectionListeners = useCallback(() => {
+		const disposables = selectionListenerDisposablesRef.current[labelPath] ?? [];
+		disposables.forEach((disposable) => disposable.dispose());
+		selectionListenerDisposablesRef.current[labelPath] = [];
+	}, [labelPath]);
 
-	const labelPath = getFileChangeLabelPath(fileChange);
+	const readEditorSelection = useCallback(
+		(
+			editor: MonacoEditor.editor.IStandaloneCodeEditor,
+			side: DiffViewerSide,
+		): DiffSelectionContext | null => {
+			const model = editor.getModel();
+			const selection = editor.getSelection();
+			if (!model || !selection || selection.isEmpty()) {
+				return null;
+			}
+
+			const selectedText = model.getValueInRange(selection);
+			if (!selectedText.trim()) {
+				return null;
+			}
+
+			return {
+				filePath: labelPath,
+				side,
+				startLine: selection.startLineNumber,
+				startColumn: selection.startColumn,
+				endLine: selection.endLineNumber,
+				endColumn: selection.endColumn,
+				selectedText,
+				language: inferLanguage(labelPath),
+			};
+		},
+		[labelPath],
+	);
+
+	const bindSelectionListeners = useCallback(
+		(editor: MonacoEditor.editor.IStandaloneDiffEditor) => {
+			clearSelectionListeners();
+
+			const originalEditor = editor.getOriginalEditor();
+			const modifiedEditor = editor.getModifiedEditor();
+
+			const handleOriginalSelectionChange = () => {
+				setActiveSelection(readEditorSelection(originalEditor, "original"));
+			};
+			const handleModifiedSelectionChange = () => {
+				setActiveSelection(readEditorSelection(modifiedEditor, "modified"));
+			};
+
+			handleOriginalSelectionChange();
+			handleModifiedSelectionChange();
+
+			selectionListenerDisposablesRef.current[labelPath] = [
+				originalEditor.onDidChangeCursorSelection(handleOriginalSelectionChange),
+				modifiedEditor.onDidChangeCursorSelection(handleModifiedSelectionChange),
+			];
+		},
+		[clearSelectionListeners, labelPath, readEditorSelection],
+	);
+
 	const originalModelPath = buildMonacoModelUri(
 		repoPath ?? "",
 		viewerId,
@@ -620,12 +689,25 @@ export function CommitFilePanel({
 	}, [applyContextDecorations, contextHighlight, isExpanded]);
 
 	useEffect(() => {
+		if (!isExpanded) {
+			setActiveSelection(null);
+			clearSelectionListeners();
+		}
+	}, [clearSelectionListeners, isExpanded]);
+
+	useEffect(() => {
 		return () => {
 			clearLineHighlights();
 			clearSearchDecorations();
 			clearContextDecorations();
+			clearSelectionListeners();
 		};
-	}, [clearContextDecorations, clearLineHighlights, clearSearchDecorations]);
+	}, [
+		clearContextDecorations,
+		clearLineHighlights,
+		clearSearchDecorations,
+		clearSelectionListeners,
+	]);
 	const searchContextLabel =
 		contextHighlight?.highlightStrategy === "exact_query"
 			? "Search hit"
@@ -634,6 +716,9 @@ export function CommitFilePanel({
 				: contextHighlight?.highlightStrategy === "file_header"
 					? "Matched file"
 					: null;
+	const selectionLabel = activeSelection
+		? `${activeSelection.side === "modified" ? "modified" : "original"} ${activeSelection.startLine}:${activeSelection.startColumn}-${activeSelection.endLine}:${activeSelection.endColumn}`
+		: null;
 	const isSearchContextTarget = Boolean(contextHighlight);
 	const panelSelectionClass = isSelected
 		? "border-[rgba(122,162,255,0.42)] shadow-[0_0_0_1px_rgba(122,162,255,0.18)]"
@@ -689,6 +774,21 @@ export function CommitFilePanel({
 				</button>
 
 				<div className="flex items-center gap-2">
+					{activeSelection && onInjectSelection ? (
+						<Button
+							variant="toolbar"
+							size="sm"
+							onClick={(event) => {
+								event.stopPropagation();
+								onInjectSelection(activeSelection);
+							}}
+							title={`Add selected code to chat (${selectionLabel})`}
+						>
+							<MessageSquarePlus className="size-4" />
+							Add to Chat
+						</Button>
+					) : null}
+
 					<Button
 						variant="toolbar"
 						size="toolbar-icon"
@@ -805,6 +905,9 @@ export function CommitFilePanel({
 						onMount={(editor) => {
 							diffEditorsRef.current[labelPath] =
 								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor;
+							bindSelectionListeners(
+								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
+							);
 							applyCodeSearchDecorations();
 							applyContextDecorations();
 							const pending = pendingScrollRef.current[labelPath];

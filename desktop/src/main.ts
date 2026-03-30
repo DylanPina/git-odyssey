@@ -262,6 +262,13 @@ function registerIpcHandlers(): void {
     });
   });
 
+  ipcMain.handle(
+    "git-odyssey:api:send-review-chat-message",
+    async (_event, input) => {
+      return requireReviewRuntimeManager().sendReviewChatMessage(input);
+    }
+  );
+
   ipcMain.handle("git-odyssey:api:init-database", async () => {
     return requireBackendManager().request("/api/admin/init", {
       method: "POST",

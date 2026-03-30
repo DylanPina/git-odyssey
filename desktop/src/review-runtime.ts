@@ -18,7 +18,15 @@ import type {
 import { CodexAppServerClient } from "./codex-app-server-client";
 import type { DesktopConfigStore } from "./config-store";
 import type { MacKeychainStore } from "./keychain";
-import type { DesktopConfigState, ReviewApprovalDecision } from "./types";
+import type {
+  DesktopConfigState,
+  ReviewApprovalDecision,
+  ReviewChatCodeContext,
+  ReviewChatContext,
+  ReviewChatRequestInput,
+  ReviewChatResponse,
+  ReviewChatTranscriptMessage,
+} from "./types";
 import { getProfileById } from "./ai-config";
 import { normalizePath } from "./git-projects";
 
@@ -52,14 +60,38 @@ type ReviewRuntimeApprovalInput = ReviewRuntimeCancelInput & {
 };
 
 type ReviewSessionPayload = {
+  id: string;
   repo_path: string;
   base_ref: string;
   head_ref: string;
+  merge_base_sha: string;
   head_head_sha: string;
+  stats?: {
+    files_changed?: number;
+    additions?: number;
+    deletions?: number;
+  };
 };
 
 type ReviewRunPayload = {
   id: string;
+};
+
+type ReviewRunDetailPayload = {
+  id: string;
+  status?: string | null;
+  result?: {
+    summary?: string | null;
+    findings?: Array<{
+      id?: string;
+      severity?: string;
+      title?: string;
+      body?: string;
+      file_path?: string;
+      new_start?: number | null;
+      old_start?: number | null;
+    }>;
+  } | null;
 };
 
 type ThreadStartResponse = {
@@ -88,6 +120,10 @@ type CodexRuntime = {
 type Worktree = {
   path: string;
   branch: string;
+};
+
+type ChatWorktree = {
+  path: string;
 };
 
 type RunEvent = {
@@ -131,6 +167,31 @@ type RunState = {
   completed: boolean;
 };
 
+type ChatState = {
+  scopeKey: string;
+  sessionId: string;
+  runId: string | null;
+  repoPath: string;
+  baseRef: string;
+  headRef: string;
+  mergeBaseSha: string | null;
+  headHeadSha: string;
+  stats: {
+    filesChanged: number;
+    additions: number;
+    deletions: number;
+  } | null;
+  threadId: string | null;
+  currentTurnId: string | null;
+  worktreePath: string | null;
+  codexHomePath: string | null;
+  turnWaiters: Map<string, TurnWaiter>;
+  completedTurns: Map<string, CodexTurn>;
+  eventHistory: RunEvent[];
+  sendChain: Promise<void>;
+  initializationPromise: Promise<void> | null;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -141,6 +202,10 @@ function sanitizeErrorMessage(error: unknown, fallback: string): string {
   }
 
   return fallback;
+}
+
+function sanitizePathComponent(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "_");
 }
 
 async function execFileWithInput(
@@ -188,6 +253,8 @@ class ReviewRuntimeManager extends EventEmitter {
   keychain: MacKeychainStore;
   activeRuns: Map<string, RunState>;
   threadToRunId: Map<string, string>;
+  chatStates: Map<string, ChatState>;
+  threadToChatScopeKey: Map<string, string>;
   codexClient: CodexAppServerClient | null;
   codexClientHome: string | null;
 
@@ -209,6 +276,8 @@ class ReviewRuntimeManager extends EventEmitter {
     this.keychain = keychain;
     this.activeRuns = new Map();
     this.threadToRunId = new Map();
+    this.chatStates = new Map();
+    this.threadToChatScopeKey = new Map();
     this.codexClient = null;
     this.codexClientHome = null;
   }
@@ -268,6 +337,40 @@ class ReviewRuntimeManager extends EventEmitter {
     });
     this.#emitRuntimeChanged(state);
     return run;
+  }
+
+  async sendReviewChatMessage(
+    input: ReviewChatRequestInput
+  ): Promise<ReviewChatResponse> {
+    const sessionId = String(input.sessionId || "").trim();
+    if (!sessionId) {
+      throw new Error("A review session id is required for Codex review chat.");
+    }
+
+    const runId = String(input.runId || "").trim() || null;
+    const scopeKey = this.#buildReviewChatScopeKey(sessionId, runId);
+    const state = this.#getOrCreateChatState(scopeKey, sessionId, runId);
+    const runTurn = async () => {
+      try {
+        await this.#ensureReviewChatStateInitialized(state, input);
+        return await this.#runReviewChatTurn(state, input);
+      } catch (error) {
+        if (!this.#isMissingThreadError(error)) {
+          throw error;
+        }
+
+        await this.#recreateReviewChatState(state, input);
+        return this.#runReviewChatTurn(state, input);
+      }
+    };
+
+    const responsePromise = state.sendChain.then(runTurn, runTurn);
+    state.sendChain = responsePromise.then(
+      () => undefined,
+      () => undefined
+    );
+
+    return responsePromise;
   }
 
   async cancelRun(input: ReviewRuntimeCancelInput): Promise<unknown> {
@@ -349,11 +452,489 @@ class ReviewRuntimeManager extends EventEmitter {
   }
 
   async dispose(): Promise<void> {
+    for (const state of Array.from(this.chatStates.values())) {
+      await this.#cleanupChatState(state);
+    }
     if (this.codexClient) {
       await this.codexClient.stop();
       this.codexClient = null;
       this.codexClientHome = null;
     }
+  }
+
+  #buildReviewChatScopeKey(sessionId: string, runId: string | null): string {
+    return runId ? `run:${runId}` : `session:${sessionId}`;
+  }
+
+  #getOrCreateChatState(
+    scopeKey: string,
+    sessionId: string,
+    runId: string | null
+  ): ChatState {
+    const existing = this.chatStates.get(scopeKey);
+    if (existing) {
+      existing.sessionId = sessionId;
+      existing.runId = runId;
+      return existing;
+    }
+
+    const state: ChatState = {
+      scopeKey,
+      sessionId,
+      runId,
+      repoPath: "",
+      baseRef: "",
+      headRef: "",
+      mergeBaseSha: null,
+      headHeadSha: "",
+      stats: null,
+      threadId: null,
+      currentTurnId: null,
+      worktreePath: null,
+      codexHomePath: null,
+      turnWaiters: new Map(),
+      completedTurns: new Map(),
+      eventHistory: [],
+      sendChain: Promise.resolve(),
+      initializationPromise: null,
+    };
+    this.chatStates.set(scopeKey, state);
+    return state;
+  }
+
+  async #ensureReviewChatStateInitialized(
+    state: ChatState,
+    input: ReviewChatRequestInput
+  ): Promise<void> {
+    if (state.threadId && state.worktreePath) {
+      return;
+    }
+
+    if (state.initializationPromise) {
+      return state.initializationPromise;
+    }
+
+    state.initializationPromise = this.#initializeReviewChatState(state, input).finally(
+      () => {
+        state.initializationPromise = null;
+      }
+    );
+    return state.initializationPromise;
+  }
+
+  async #recreateReviewChatState(
+    state: ChatState,
+    input: ReviewChatRequestInput
+  ): Promise<void> {
+    await this.#cleanupChatState(state, { removeFromRegistry: false });
+    await this.#ensureReviewChatStateInitialized(state, input);
+  }
+
+  async #initializeReviewChatState(
+    state: ChatState,
+    input: ReviewChatRequestInput
+  ): Promise<void> {
+    const session = await this.backendManager.request<ReviewSessionPayload>(
+      `/api/review/sessions/${state.sessionId}`
+    );
+    state.repoPath = session.repo_path;
+    state.baseRef = session.base_ref;
+    state.headRef = session.head_ref;
+    state.mergeBaseSha = session.merge_base_sha || null;
+    state.headHeadSha = session.head_head_sha;
+    state.stats = session.stats
+      ? {
+          filesChanged: Number(session.stats.files_changed || 0),
+          additions: Number(session.stats.additions || 0),
+          deletions: Number(session.stats.deletions || 0),
+        }
+      : null;
+
+    const codexRuntime = await this.#ensureCodexRuntime();
+    state.codexHomePath = codexRuntime.codexHome;
+    const worktree = await this.#createChatWorktree(state);
+    state.worktreePath = worktree.path;
+
+    const client = await this.#ensureCodexClient(codexRuntime.codexHome);
+    const thread = await client.request<ThreadStartResponse>("thread/start", {
+      cwd: state.worktreePath,
+      sandbox: "read-only",
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      personality: "pragmatic",
+      ephemeral: true,
+      model: codexRuntime.model,
+      modelProvider: codexRuntime.modelProvider,
+      developerInstructions: this.#buildReviewChatDeveloperInstructions(state),
+    });
+
+    state.threadId = thread.thread.id;
+    this.threadToChatScopeKey.set(state.threadId, state.scopeKey);
+
+    await this.#primeReviewChatThread(
+      state,
+      client,
+      input.messages ?? [],
+      await this.#resolveReviewChatContext(state, input)
+    );
+  }
+
+  async #primeReviewChatThread(
+    state: ChatState,
+    client: CodexAppServerClient,
+    messages: ReviewChatTranscriptMessage[],
+    reviewContext: ReviewChatContext | null
+  ): Promise<void> {
+    if (!state.threadId) {
+      throw new Error("Codex review chat thread did not initialize correctly.");
+    }
+
+    const seedTurn = await client.request<TurnStartResponse>("turn/start", {
+      threadId: state.threadId,
+      input: [
+        {
+          type: "text",
+          text: this.#buildReviewChatBootstrapInput(state, messages, reviewContext),
+          text_elements: [],
+        },
+      ],
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      personality: "pragmatic",
+      effort: "low",
+      summary: "none",
+      sandboxPolicy: {
+        type: "readOnly",
+        networkAccess: false,
+      },
+    });
+
+    const seedTurnId = seedTurn.turn.id;
+    state.currentTurnId = seedTurnId;
+    const completedSeedTurn = await this.#waitForTurn(state, seedTurnId);
+    if (completedSeedTurn.status !== "completed") {
+      throw new Error(
+        this.#formatTurnFailure(
+          completedSeedTurn,
+          "Codex review chat bootstrap turn failed."
+        )
+      );
+    }
+  }
+
+  async #runReviewChatTurn(
+    state: ChatState,
+    input: ReviewChatRequestInput
+  ): Promise<ReviewChatResponse> {
+    if (!state.threadId) {
+      throw new Error("Codex review chat thread is not available.");
+    }
+
+    const client = await this.#ensureCodexClient(
+      state.codexHomePath || (await this.#ensureCodexRuntime()).codexHome
+    );
+    const reviewContext = await this.#resolveReviewChatContext(state, input);
+    const turn = await client.request<TurnStartResponse>("turn/start", {
+      threadId: state.threadId,
+      input: [
+        {
+          type: "text",
+          text: this.#buildReviewChatTurnInput(state, input, reviewContext),
+          text_elements: [],
+        },
+      ],
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      personality: "pragmatic",
+      sandboxPolicy: {
+        type: "readOnly",
+        networkAccess: false,
+      },
+    });
+
+    const turnId = turn.turn.id;
+    state.currentTurnId = turnId;
+    const completedTurn = await this.#waitForTurn(state, turnId);
+    if (completedTurn.status !== "completed") {
+      throw new Error(
+        this.#formatTurnFailure(completedTurn, "Codex review chat turn failed.")
+      );
+    }
+
+    const response = this.#collectAgentMessageFromEvents(state, turnId)?.trim();
+    if (!response) {
+      throw new Error("Codex review chat did not return an assistant response.");
+    }
+
+    return { response };
+  }
+
+  async #resolveReviewChatContext(
+    state: ChatState,
+    input: ReviewChatRequestInput
+  ): Promise<ReviewChatContext | null> {
+    if (input.reviewContext) {
+      return this.#normalizeReviewChatContext(input.reviewContext);
+    }
+
+    if (!state.runId) {
+      return null;
+    }
+
+    const run = await this.backendManager.request<ReviewRunDetailPayload>(
+      `/api/review/sessions/${state.sessionId}/runs/${state.runId}`
+    );
+    return this.#normalizeReviewChatContext({
+      runStatus: run.status ?? null,
+      summary: run.result?.summary ?? null,
+      findings: (run.result?.findings ?? []).map((finding, index) => ({
+        id: String(finding.id || `finding_${index + 1}`),
+        severity:
+          finding.severity === "high" ||
+          finding.severity === "medium" ||
+          finding.severity === "low"
+            ? finding.severity
+            : "low",
+        title: String(finding.title || ""),
+        body: String(finding.body || ""),
+        file_path: String(finding.file_path || ""),
+        new_start:
+          typeof finding.new_start === "number" ? finding.new_start : null,
+        old_start:
+          typeof finding.old_start === "number" ? finding.old_start : null,
+      })),
+    });
+  }
+
+  #normalizeReviewChatContext(
+    input: ReviewChatContext | null | undefined
+  ): ReviewChatContext | null {
+    if (!input) {
+      return null;
+    }
+
+    return {
+      runStatus: input.runStatus ?? null,
+      summary: input.summary ?? null,
+      findings: Array.isArray(input.findings) ? input.findings : [],
+    };
+  }
+
+  #buildReviewChatDeveloperInstructions(state: ChatState): string {
+    return [
+      "You are GitOdyssey's Codex review chat assistant.",
+      `Only answer questions about the current compare target: ${state.baseRef}...${state.headRef}.`,
+      "Ignore unrelated historical commits and repo-wide retrieval assumptions.",
+      "Use the current branch diff, any attached code context, and any provided persisted review findings.",
+      "Do not make edits and do not execute commands that change files.",
+    ].join("\n");
+  }
+
+  #buildReviewChatBootstrapInput(
+    state: ChatState,
+    messages: ReviewChatTranscriptMessage[],
+    reviewContext: ReviewChatContext | null
+  ): string {
+    return [
+      "Load the following compare-target context for future review chat turns.",
+      "Do not answer a user question yet. Reply exactly with READY.",
+      "",
+      "## Compare Target",
+      this.#formatReviewChatTargetSummary(state),
+      "",
+      "## Persisted Review Findings",
+      this.#formatReviewChatContext(reviewContext),
+      "",
+      "## Recent Transcript",
+      this.#formatReviewChatTranscript(messages),
+    ].join("\n");
+  }
+
+  #buildReviewChatTurnInput(
+    state: ChatState,
+    input: ReviewChatRequestInput,
+    reviewContext: ReviewChatContext | null
+  ): string {
+    return [
+      "Continue the GitOdyssey review chat for this compare target.",
+      "",
+      "## Compare Target",
+      this.#formatReviewChatTargetSummary(state),
+      "",
+      "## Persisted Review Findings",
+      this.#formatReviewChatContext(reviewContext),
+      "",
+      "## Attached Code Context",
+      this.#formatReviewChatCodeContexts(input.codeContexts || []),
+      "",
+      "## User Message",
+      String(input.message || "").trim() || "Focus on the attached code context.",
+    ].join("\n");
+  }
+
+  #formatReviewChatTargetSummary(state: ChatState): string {
+    const lines = [
+      `Repository path: ${state.repoPath}`,
+      `Base ref: ${state.baseRef}`,
+      `Head ref: ${state.headRef}`,
+      `Merge base: ${state.mergeBaseSha || "Unavailable"}`,
+    ];
+
+    if (state.stats) {
+      lines.push(
+        `Diff stats: ${state.stats.filesChanged} files, +${state.stats.additions}, -${state.stats.deletions}`
+      );
+    }
+
+    return lines.join("\n");
+  }
+
+  #formatReviewChatContext(reviewContext: ReviewChatContext | null): string {
+    if (!reviewContext) {
+      return "No persisted review result exists for this compare target yet.";
+    }
+
+    const lines = [
+      `Run status: ${reviewContext.runStatus || "unknown"}`,
+      `Summary: ${String(reviewContext.summary || "").trim() || "No persisted review summary yet."}`,
+    ];
+
+    if (!reviewContext.findings.length) {
+      lines.push("Findings: none");
+      return lines.join("\n");
+    }
+
+    lines.push("Findings:");
+    reviewContext.findings.forEach((finding, index) => {
+      const lineRef =
+        typeof finding.new_start === "number"
+          ? `:${finding.new_start}`
+          : typeof finding.old_start === "number"
+            ? `:${finding.old_start}`
+            : "";
+      lines.push(
+        `${index + 1}. [${finding.severity}] ${finding.title} (${finding.file_path}${lineRef})`
+      );
+      lines.push(finding.body);
+    });
+
+    return lines.join("\n");
+  }
+
+  #formatReviewChatCodeContexts(codeContexts: ReviewChatCodeContext[]): string {
+    if (!codeContexts.length) {
+      return "No code context attached.";
+    }
+
+    return codeContexts
+      .map((context, index) => {
+        const lines = [
+          `Context ${index + 1}: ${context.filePath} (${context.side} ${context.startLine}:${context.startColumn}-${context.endLine}:${context.endColumn})`,
+          `\`\`\`${context.language || "text"}`,
+          context.selectedText,
+          "\`\`\`",
+        ];
+        if (context.isTruncated) {
+          lines.push("[selection truncated]");
+        }
+        return lines.join("\n");
+      })
+      .join("\n\n");
+  }
+
+  #formatReviewChatTranscript(messages: ReviewChatTranscriptMessage[]): string {
+    if (!messages.length) {
+      return "No previous transcript.";
+    }
+
+    return messages
+      .map((message) => {
+        const parts = [
+          `${message.role === "assistant" ? "Assistant" : "User"}:`,
+          String(message.content || "").trim() || "(no text)",
+        ];
+        if (message.codeContexts?.length) {
+          parts.push(
+            `Attached code context:\n${this.#formatReviewChatCodeContexts(
+              message.codeContexts
+            )}`
+          );
+        }
+        return parts.join("\n");
+      })
+      .join("\n\n");
+  }
+
+  async #createChatWorktree(state: ChatState): Promise<ChatWorktree> {
+    const repoPath = normalizePath(state.repoPath);
+    if (!repoPath) {
+      throw new Error("Review chat could not resolve the repository path.");
+    }
+
+    const worktreeRoot = path.join(
+      this.configStore.getState().dataDir,
+      "review-chat-worktrees",
+      sanitizePathComponent(state.scopeKey)
+    );
+
+    fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
+    await execFileAsync("git", ["worktree", "prune"], { cwd: repoPath });
+    await execFileAsync("git", ["worktree", "remove", "--force", worktreeRoot], {
+      cwd: repoPath,
+    }).catch(() => {});
+    fs.rmSync(worktreeRoot, { recursive: true, force: true });
+    await execFileAsync(
+      "git",
+      ["worktree", "add", "--detach", worktreeRoot, state.headHeadSha],
+      { cwd: repoPath }
+    );
+
+    return {
+      path: worktreeRoot,
+    };
+  }
+
+  async #cleanupChatState(
+    state: ChatState,
+    options: { removeFromRegistry?: boolean } = {}
+  ): Promise<void> {
+    for (const waiter of state.turnWaiters.values()) {
+      waiter.reject(new Error("The review chat thread has already been reset."));
+    }
+    state.turnWaiters.clear();
+    state.completedTurns.clear();
+    state.eventHistory = [];
+
+    if (state.threadId) {
+      this.threadToChatScopeKey.delete(state.threadId);
+    }
+
+    await this.#cleanupChatWorktree(state);
+    state.threadId = null;
+    state.currentTurnId = null;
+    state.worktreePath = null;
+    state.codexHomePath = null;
+    state.initializationPromise = null;
+
+    if (options.removeFromRegistry !== false) {
+      this.chatStates.delete(state.scopeKey);
+    }
+  }
+
+  async #cleanupChatWorktree(state: ChatState): Promise<void> {
+    if (!state.worktreePath) {
+      return;
+    }
+
+    const repoPath = normalizePath(state.repoPath);
+    if (!repoPath) {
+      return;
+    }
+
+    await execFileAsync("git", ["worktree", "remove", "--force", state.worktreePath], {
+      cwd: repoPath,
+    }).catch(() => {});
+    fs.rmSync(state.worktreePath, { recursive: true, force: true });
   }
 
   async #runReview(state: RunState): Promise<void> {
@@ -635,6 +1216,8 @@ class ReviewRuntimeManager extends EventEmitter {
   }
 
   async #handleCodexExit(): Promise<void> {
+    this.codexClient = null;
+    this.codexClientHome = null;
     const errorMessage = "Codex app-server exited unexpectedly during the review run.";
     const runs = Array.from(this.activeRuns.values());
     for (const state of runs) {
@@ -647,62 +1230,118 @@ class ReviewRuntimeManager extends EventEmitter {
       state.turnWaiters.clear();
       await this.#failRun(state, errorMessage);
     }
+
+    const chatErrorMessage =
+      "Codex app-server exited unexpectedly during review chat.";
+    for (const state of this.chatStates.values()) {
+      for (const waiter of state.turnWaiters.values()) {
+        waiter.reject(new Error(chatErrorMessage));
+      }
+      state.turnWaiters.clear();
+      state.completedTurns.clear();
+      if (state.threadId) {
+        this.threadToChatScopeKey.delete(state.threadId);
+      }
+      state.threadId = null;
+      state.currentTurnId = null;
+      state.initializationPromise = null;
+      state.eventHistory = [];
+    }
   }
 
   async #handleCodexNotification(
     message: CodexNotificationMessage<Record<string, any>>
   ): Promise<void> {
     const threadId = message.params?.threadId;
-    const state = threadId ? this.#findStateByThreadId(threadId) : null;
-    if (!state) {
+    const runState = threadId ? this.#findStateByThreadId(threadId) : null;
+    if (runState) {
+      this.#queueRunEvent(runState, "codex_notification", {
+        method: message.method,
+        params: message.params,
+      });
+
+      if (message.method === "turn/completed") {
+        const params = message.params ?? {};
+        const turnId = params.turn?.id;
+        const waiter = turnId ? runState.turnWaiters.get(turnId) : null;
+        if (waiter) {
+          runState.turnWaiters.delete(turnId);
+          waiter.resolve(params.turn);
+        } else if (turnId) {
+          runState.completedTurns.set(turnId, params.turn);
+        }
+      }
+
+      this.#scheduleFlush(runState);
       return;
     }
 
-    this.#queueRunEvent(state, "codex_notification", {
-      method: message.method,
-      params: message.params,
-    });
-
-    if (message.method === "turn/completed") {
-      const params = message.params ?? {};
-      const turnId = params.turn?.id;
-      const waiter = turnId ? state.turnWaiters.get(turnId) : null;
-      if (waiter) {
-        state.turnWaiters.delete(turnId);
-        waiter.resolve(params.turn);
-      } else if (turnId) {
-        state.completedTurns.set(turnId, params.turn);
-      }
+    const chatState = threadId ? this.#findChatStateByThreadId(threadId) : null;
+    if (!chatState) {
+      return;
     }
 
-    this.#scheduleFlush(state);
+    chatState.eventHistory.push({
+      event_type: "codex_notification",
+      payload: {
+        method: message.method,
+        params: message.params ?? {},
+      },
+      created_at: nowIso(),
+    });
+
+    if (message.method !== "turn/completed") {
+      return;
+    }
+
+    const params = message.params ?? {};
+    const turnId = params.turn?.id;
+    const waiter = turnId ? chatState.turnWaiters.get(turnId) : null;
+    if (waiter) {
+      chatState.turnWaiters.delete(turnId);
+      waiter.resolve(params.turn);
+    } else if (turnId) {
+      chatState.completedTurns.set(turnId, params.turn);
+    }
   }
 
   async #handleCodexRequest(
     message: CodexRequestMessage<Record<string, any>>
   ): Promise<void> {
     const threadId = message.params?.threadId;
-    const state = threadId ? this.#findStateByThreadId(threadId) : null;
-    if (!state) {
+    const runState = threadId ? this.#findStateByThreadId(threadId) : null;
+    if (!runState) {
+      const chatState = threadId ? this.#findChatStateByThreadId(threadId) : null;
+      if (chatState) {
+        chatState.eventHistory.push({
+          event_type: "codex_request",
+          payload: {
+            request_id: String(message.id),
+            method: message.method,
+            params: message.params ?? {},
+          },
+          created_at: nowIso(),
+        });
+      }
       await this.#resolveUnknownRequest(message);
       return;
     }
 
-    const approvalId = `review_approval_${state.runId}_${String(message.id)}`;
+    const approvalId = `review_approval_${runState.runId}_${String(message.id)}`;
     const summary = this.#summarizeApprovalRequest(message);
-    state.pendingApprovals.set(approvalId, {
+    runState.pendingApprovals.set(approvalId, {
       request: message,
       summary,
     });
 
-    this.#queueRunEvent(state, "codex_request", {
+    this.#queueRunEvent(runState, "codex_request", {
       request_id: String(message.id),
       method: message.method,
       params: message.params,
       approval_id: approvalId,
     });
     await this.backendManager.request(
-      `/api/review/sessions/${state.sessionId}/runs/${state.runId}/approvals`,
+      `/api/review/sessions/${runState.sessionId}/runs/${runState.runId}/approvals`,
       {
         method: "POST",
         body: {
@@ -718,7 +1357,7 @@ class ReviewRuntimeManager extends EventEmitter {
         },
       }
     );
-    this.#emitRuntimeChanged(state);
+    this.#emitRuntimeChanged(runState);
   }
 
   async #resolveUnknownRequest(
@@ -746,7 +1385,7 @@ class ReviewRuntimeManager extends EventEmitter {
     }
   }
 
-  #waitForTurn(state: RunState, turnId: string): Promise<CodexTurn> {
+  #waitForTurn(state: RunState | ChatState, turnId: string): Promise<CodexTurn> {
     const completedTurn = state.completedTurns.get(turnId);
     if (completedTurn) {
       state.completedTurns.delete(turnId);
@@ -1097,7 +1736,10 @@ class ReviewRuntimeManager extends EventEmitter {
     }
   }
 
-  #collectAgentMessageFromEvents(state: RunState, turnId: string): string | null {
+  #collectAgentMessageFromEvents(
+    state: Pick<RunState, "eventHistory"> | Pick<ChatState, "eventHistory">,
+    turnId: string
+  ): string | null {
     const byItemId = new Map<string, string>();
 
     for (const event of state.eventHistory) {
@@ -1239,6 +1881,15 @@ class ReviewRuntimeManager extends EventEmitter {
     return message.includes("no rollout found for thread id");
   }
 
+  #isMissingThreadError(error: unknown): boolean {
+    const message = sanitizeErrorMessage(error, "").toLowerCase();
+    return (
+      (message.includes("thread") && message.includes("not found")) ||
+      message.includes("unknown thread") ||
+      message.includes("no thread found")
+    );
+  }
+
   #findStateByThreadId(threadId: string): RunState | null {
     const runId = this.threadToRunId.get(threadId);
     if (!runId) {
@@ -1246,6 +1897,15 @@ class ReviewRuntimeManager extends EventEmitter {
     }
 
     return this.activeRuns.get(runId) || null;
+  }
+
+  #findChatStateByThreadId(threadId: string): ChatState | null {
+    const scopeKey = this.threadToChatScopeKey.get(threadId);
+    if (!scopeKey) {
+      return null;
+    }
+
+    return this.chatStates.get(scopeKey) || null;
   }
 
   #emitRuntimeChanged(state: RunState): void {

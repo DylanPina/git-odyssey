@@ -1,6 +1,9 @@
-import { getRepoStableKey } from "@/lib/repoPaths";
 import type { PersistedReviewRefs } from "@/pages/review/review-types";
-import { REVIEW_SELECTED_REFS_STORAGE_KEY_PREFIX } from "@/pages/review/review-constants";
+import {
+	REVIEW_CHAT_STORAGE_KEY_PREFIX,
+	REVIEW_SELECTED_REFS_STORAGE_KEY_PREFIX,
+} from "@/pages/review/review-constants";
+import { getRepoStableKey } from "@/lib/repoPaths";
 
 export function clampPanelWidth(width: number, minWidth: number) {
 	return Math.max(minWidth, width);
@@ -9,6 +12,23 @@ export function clampPanelWidth(width: number, minWidth: number) {
 export function getReviewRefsStorageKey(repoPath?: string | null) {
 	return repoPath
 		? `${REVIEW_SELECTED_REFS_STORAGE_KEY_PREFIX}:${getRepoStableKey(repoPath)}`
+		: null;
+}
+
+export function getReviewChatStorageKey(
+	input: {
+		sessionId?: string | null;
+		runId?: string | null;
+	} = {},
+) {
+	const runId = String(input.runId || "").trim();
+	if (runId) {
+		return `${REVIEW_CHAT_STORAGE_KEY_PREFIX}:run:${encodeURIComponent(runId)}`;
+	}
+
+	const sessionId = String(input.sessionId || "").trim();
+	return sessionId
+		? `${REVIEW_CHAT_STORAGE_KEY_PREFIX}:session:${encodeURIComponent(sessionId)}`
 		: null;
 }
 

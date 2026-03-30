@@ -293,6 +293,7 @@ type ReviewInsightsPanelProps = {
 	reasoningTrace: ReasoningTraceEntry[];
 	isFullscreen?: boolean;
 	isInline?: boolean;
+	showHeader?: boolean;
 	onToggleOpen: () => void;
 	onToggleFullscreen: () => void;
 };
@@ -307,6 +308,7 @@ export function ReviewInsightsPanel({
 	reasoningTrace,
 	isFullscreen = false,
 	isInline = false,
+	showHeader = true,
 	onToggleOpen,
 	onToggleFullscreen,
 }: ReviewInsightsPanelProps) {
@@ -332,50 +334,54 @@ export function ReviewInsightsPanel({
 					: undefined,
 			)}
 		>
-			<div className={cn("border-b border-border-subtle", sectionPadding)}>
-				<div className="flex items-start justify-between gap-3">
-					<div className="min-w-0">
-						<div className="workspace-section-label">AI Review</div>
-						<div className="mt-1 text-sm font-semibold text-text-primary">
-							Summary and findings
+			{showHeader ? (
+				<div className={cn("border-b border-border-subtle", sectionPadding)}>
+					<div className="flex items-start justify-between gap-3">
+						<div className="min-w-0">
+							<div className="workspace-section-label">AI Review</div>
+							<div className="mt-1 text-sm font-semibold text-text-primary">
+								Summary and findings
+							</div>
+							<div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+								<span>{findingsLabel}</span>
+								{reviewResult ? (
+									<span>{formatGeneratedAt(reviewResult.generated_at)}</span>
+								) : null}
+							</div>
 						</div>
-						<div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-							<span>{findingsLabel}</span>
-							{reviewResult ? (
-								<span>{formatGeneratedAt(reviewResult.generated_at)}</span>
-							) : null}
+						<div className="flex items-center gap-2">
+							<Button
+								type="button"
+								variant="toolbar"
+								size="toolbar-icon"
+								className="hidden xl:flex"
+								onClick={onToggleFullscreen}
+								aria-pressed={isFullscreen}
+								aria-label={isFullscreen ? "Restore split view" : "Expand review"}
+								title={isFullscreen ? "Restore split view" : "Expand review"}
+							>
+								{isFullscreen ? (
+									<Minimize2 className="size-4" />
+								) : (
+									<Maximize2 className="size-4" />
+								)}
+							</Button>
+							<Button
+								type="button"
+								variant="toolbar"
+								size="toolbar-icon"
+								onClick={onToggleOpen}
+								aria-label={
+									isInline ? "Hide review section" : "Collapse review rail"
+								}
+								title={isInline ? "Hide review section" : "Collapse review rail"}
+							>
+								<PanelRightOpen className="size-4 rotate-180" />
+							</Button>
 						</div>
-					</div>
-					<div className="flex items-center gap-2">
-						<Button
-							type="button"
-							variant="toolbar"
-							size="toolbar-icon"
-							className="hidden xl:flex"
-							onClick={onToggleFullscreen}
-							aria-pressed={isFullscreen}
-							aria-label={isFullscreen ? "Restore split view" : "Expand review"}
-							title={isFullscreen ? "Restore split view" : "Expand review"}
-						>
-							{isFullscreen ? (
-								<Minimize2 className="size-4" />
-							) : (
-								<Maximize2 className="size-4" />
-							)}
-						</Button>
-						<Button
-							type="button"
-							variant="toolbar"
-							size="toolbar-icon"
-							onClick={onToggleOpen}
-							aria-label={isInline ? "Hide review section" : "Collapse review rail"}
-							title={isInline ? "Hide review section" : "Collapse review rail"}
-						>
-							<PanelRightOpen className="size-4 rotate-180" />
-						</Button>
 					</div>
 				</div>
-			</div>
+			) : null}
 
 			<div
 				className={cn(

@@ -1,3 +1,4 @@
+import type { ChatCodeContext } from "./chat";
 import type { FileChange } from "./repo";
 
 export interface ReviewCompareRequest {
@@ -181,4 +182,29 @@ export interface ReviewRuntimeEvent {
 	level?: string;
 	source?: string;
 	message?: string;
+}
+
+export interface ReviewChatContext {
+	runStatus?: ReviewRunStatus | null;
+	summary?: string | null;
+	findings: ReviewFinding[];
+}
+
+export interface ReviewChatTranscriptMessage {
+	role: "user" | "assistant";
+	content: string;
+	codeContexts?: ChatCodeContext[];
+}
+
+export interface ReviewChatRequest {
+	sessionId: string;
+	runId?: string | null;
+	message: string;
+	codeContexts: ChatCodeContext[];
+	messages: ReviewChatTranscriptMessage[];
+	reviewContext?: ReviewChatContext | null;
+}
+
+export interface ReviewChatResponse {
+	response: string;
 }
