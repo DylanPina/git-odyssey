@@ -849,9 +849,13 @@
 .monaco-diff-editor,
 .monaco-editor,
 .monaco-editor-background,
+.monaco-editor .margin,
+.monaco-diff-editor .margin,
+.monaco-editor .overflow-guard,
+.monaco-diff-editor .overflow-guard,
 .monaco-diff-editor .editor.original,
 .monaco-diff-editor .editor.modified {
-  background-color: transparent !important;
+  background-color: var(--surface) !important;
 }
 
 .git-odyssey-target-line-highlight {

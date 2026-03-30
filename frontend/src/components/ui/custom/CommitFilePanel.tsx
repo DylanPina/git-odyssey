@@ -773,7 +773,7 @@ export function CommitFilePanel({
 			: undefined;
 
 	return (
-		<section className="relative">
+		<section className="relative overflow-hidden rounded-[18px] bg-surface">
 			<div className="sticky top-0 z-20">
 				<div
 					className={cn(
@@ -933,7 +933,7 @@ export function CommitFilePanel({
 
 			{isExpanded ? (
 				<div
-					className="border-b border-border-subtle bg-[rgba(13,15,16,0.36)]"
+					className="border-b border-border-subtle bg-surface"
 					style={{ height: diffHeight }}
 				>
 					<DiffEditor
