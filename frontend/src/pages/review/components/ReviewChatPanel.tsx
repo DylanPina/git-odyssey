@@ -5,7 +5,10 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { Textarea } from "@/components/ui/textarea";
-import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
+import {
+	MarkdownRenderer,
+	type ReviewChatReferenceTarget,
+} from "@/components/ui/custom/MarkdownRenderer";
 import type { ChatCodeContext, ChatMessage } from "@/lib/definitions/chat";
 import { formatReviewChatCodeContextLabel } from "@/pages/review/useReviewChatSession";
 
@@ -16,12 +19,15 @@ type ReviewChatPanelProps = {
 	onDraftChange: (value: string) => void;
 	onSendMessage: () => void;
 	onCodeContextClick?: (context: ChatCodeContext) => void;
+	onAssistantReferenceClick?: (target: ReviewChatReferenceTarget) => void;
 	onRemoveDraftCodeContext?: (contextId: string) => void;
 	isLoading?: boolean;
 	error?: string | null;
 	isComposerDisabled?: boolean;
 	composerNote?: string | null;
 	composerFocusToken?: number;
+	reviewReferencePaths?: readonly string[];
+	reviewReferenceRepoPath?: string | null;
 };
 
 function ReviewChatCodeContextButton({
@@ -87,12 +93,15 @@ export function ReviewChatPanel({
 	onDraftChange,
 	onSendMessage,
 	onCodeContextClick,
+	onAssistantReferenceClick,
 	onRemoveDraftCodeContext,
 	isLoading = false,
 	error = null,
 	isComposerDisabled = false,
 	composerNote = null,
 	composerFocusToken = 0,
+	reviewReferencePaths,
+	reviewReferenceRepoPath,
 }: ReviewChatPanelProps) {
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -169,7 +178,12 @@ export function ReviewChatPanel({
 										) : null}
 										{message.role === "assistant" ? (
 											<>
-												<MarkdownRenderer content={message.content} />
+												<MarkdownRenderer
+													content={message.content}
+													reviewReferencePaths={reviewReferencePaths}
+													onReviewReferenceClick={onAssistantReferenceClick}
+													reviewReferenceRepoPath={reviewReferenceRepoPath}
+												/>
 											</>
 										) : hasTextContent ? (
 											<p className="whitespace-pre-wrap text-sm leading-6 text-text-primary">

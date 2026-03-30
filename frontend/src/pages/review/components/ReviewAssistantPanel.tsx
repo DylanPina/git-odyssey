@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownRenderer";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ReviewChatPanel } from "@/pages/review/components/ReviewChatPanel";
 import { ReviewInsightsPanel } from "@/pages/review/components/ReviewInsightsPanel";
@@ -38,7 +39,10 @@ type ReviewAssistantPanelProps = {
 	onChatDraftChange: (value: string) => void;
 	onSendChatMessage: () => void;
 	onChatCodeContextClick?: (context: ChatCodeContext) => void;
+	onAssistantReferenceClick?: (target: ReviewChatReferenceTarget) => void;
 	onRemoveDraftCodeContext?: (contextId: string) => void;
+	reviewReferencePaths?: readonly string[];
+	reviewReferenceRepoPath?: string | null;
 	isChatLoading?: boolean;
 	chatError?: string | null;
 	isChatComposerDisabled?: boolean;
@@ -78,7 +82,10 @@ export function ReviewAssistantPanel({
 	onChatDraftChange,
 	onSendChatMessage,
 	onChatCodeContextClick,
+	onAssistantReferenceClick,
 	onRemoveDraftCodeContext,
+	reviewReferencePaths,
+	reviewReferenceRepoPath,
 	isChatLoading = false,
 	chatError = null,
 	isChatComposerDisabled = false,
@@ -215,12 +222,15 @@ export function ReviewAssistantPanel({
 						onDraftChange={onChatDraftChange}
 						onSendMessage={onSendChatMessage}
 						onCodeContextClick={onChatCodeContextClick}
+						onAssistantReferenceClick={onAssistantReferenceClick}
 						onRemoveDraftCodeContext={onRemoveDraftCodeContext}
 						isLoading={isChatLoading}
 						error={chatError}
 						isComposerDisabled={isChatComposerDisabled}
 						composerNote={chatComposerNote}
 						composerFocusToken={composerFocusToken}
+						reviewReferencePaths={reviewReferencePaths}
+						reviewReferenceRepoPath={reviewReferenceRepoPath}
 					/>
 				)}
 			</div>

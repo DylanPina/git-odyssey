@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ReviewChatPanel } from "@/pages/review/components/ReviewChatPanel";
 import type { ChatCodeContext, ChatMessage } from "@/lib/definitions/chat";
+import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownRenderer";
 
 function buildCodeContext(
 	overrides: Partial<ChatCodeContext> = {},
@@ -31,6 +32,11 @@ function buildMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 		...overrides,
 	};
 }
+
+const reviewReferencePaths = [
+	"frontend/src/pages/Review.tsx",
+	"frontend/src/pages/review/components/ReviewChatPanel.tsx",
+];
 
 describe("ReviewChatPanel", () => {
 	it("renders attached code context buttons in the draft area and lets users remove them", async () => {
@@ -119,5 +125,123 @@ describe("ReviewChatPanel", () => {
 		).toBeInTheDocument();
 		expect(screen.queryByText(/cited commits/i)).not.toBeInTheDocument();
 		expect(screen.queryByText(/unrelated historical commit/i)).not.toBeInTheDocument();
+	});
+
+	it("links assistant file references to the diff file", async () => {
+		const user = userEvent.setup();
+		const onAssistantReferenceClick = vi.fn<
+			(target: ReviewChatReferenceTarget) => void
+		>();
+
+		render(
+			<ReviewChatPanel
+				messages={[
+					buildMessage({
+						role: "assistant",
+						content: "Start with frontend/src/pages/Review.tsx before checking anything else.",
+					}),
+				]}
+				draft=""
+				draftCodeContexts={[]}
+				onDraftChange={() => {}}
+				onSendMessage={() => {}}
+				onAssistantReferenceClick={onAssistantReferenceClick}
+				reviewReferencePaths={reviewReferencePaths}
+			/>,
+		);
+
+		await user.click(
+			screen.getByRole("button", {
+				name: "frontend/src/pages/Review.tsx",
+			}),
+		);
+
+		expect(onAssistantReferenceClick).toHaveBeenCalledWith({
+			filePath: "frontend/src/pages/Review.tsx",
+			line: null,
+		});
+	});
+
+	it("links assistant line references and uses the first line of a range", async () => {
+		const user = userEvent.setup();
+		const onAssistantReferenceClick = vi.fn<
+			(target: ReviewChatReferenceTarget) => void
+		>();
+
+		render(
+			<ReviewChatPanel
+				messages={[
+					buildMessage({
+						role: "assistant",
+						content: [
+							"See frontend/src/pages/Review.tsx:42-48 for the rail behavior.",
+							"Then compare frontend/src/pages/review/components/ReviewChatPanel.tsx#L18-L26.",
+						].join("\n\n"),
+					}),
+				]}
+				draft=""
+				draftCodeContexts={[]}
+				onDraftChange={() => {}}
+				onSendMessage={() => {}}
+				onAssistantReferenceClick={onAssistantReferenceClick}
+				reviewReferencePaths={reviewReferencePaths}
+			/>,
+		);
+
+		await user.click(
+			screen.getByRole("button", {
+				name: "frontend/src/pages/Review.tsx:42-48",
+			}),
+		);
+		await user.click(
+			screen.getByRole("button", {
+				name: "frontend/src/pages/review/components/ReviewChatPanel.tsx#L18-L26",
+			}),
+		);
+
+		expect(onAssistantReferenceClick).toHaveBeenNthCalledWith(1, {
+			filePath: "frontend/src/pages/Review.tsx",
+			line: 42,
+		});
+		expect(onAssistantReferenceClick).toHaveBeenNthCalledWith(2, {
+			filePath: "frontend/src/pages/review/components/ReviewChatPanel.tsx",
+			line: 18,
+		});
+	});
+
+	it("does not auto-link user messages or non-diff assistant paths", () => {
+		render(
+			<ReviewChatPanel
+				messages={[
+					buildMessage({
+						role: "user",
+						content: "Please inspect frontend/src/pages/Review.tsx:42 next.",
+					}),
+					buildMessage({
+						id: "message-2",
+						role: "assistant",
+						content: "The unrelated src/not-in-diff.ts:99 path should stay plain text.",
+					}),
+				]}
+				draft=""
+				draftCodeContexts={[]}
+				onDraftChange={() => {}}
+				onSendMessage={() => {}}
+				onAssistantReferenceClick={() => {}}
+				reviewReferencePaths={reviewReferencePaths}
+			/>,
+		);
+
+		expect(
+			screen.queryByRole("button", {
+				name: "frontend/src/pages/Review.tsx:42",
+			}),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", {
+				name: "src/not-in-diff.ts:99",
+			}),
+		).not.toBeInTheDocument();
+		expect(screen.getByText(/src\/not-in-diff\.ts:99/i)).toBeInTheDocument();
 	});
 });

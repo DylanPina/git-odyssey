@@ -11,6 +11,7 @@ import {
 	DiffWorkspace,
 	type DiffWorkspaceHandle,
 } from "@/components/ui/custom/DiffWorkspace";
+import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownRenderer";
 import { DiffWorkspaceHeader } from "@/components/ui/custom/DiffWorkspaceHeader";
 import { DiffWorkspacePage } from "@/components/ui/custom/DiffWorkspacePage";
 import { ReviewAssistantPanel } from "@/pages/review/components/ReviewAssistantPanel";
@@ -19,7 +20,11 @@ import { ReviewSetupSection } from "@/pages/review/components/ReviewSetupSection
 import { StatusPill } from "@/components/ui/status-pill";
 import { useRepoData } from "@/hooks/useRepoData";
 import { formatShortSha } from "@/lib/commitPresentation";
-import { type DiffSelectionContext, getFileChangeLabelPath } from "@/lib/diff";
+import {
+	type DiffSelectionContext,
+	getFileChangeLabelPath,
+	normalizeDiffFileStatus,
+} from "@/lib/diff";
 import type { ChatCodeContext } from "@/lib/definitions/chat";
 import type {
 	ReviewFinding,
@@ -185,6 +190,23 @@ export function Review() {
 		return paths;
 	}, [displayedSession?.file_changes]);
 
+	const reviewReferencePaths = useMemo(() => {
+		const paths = new Set<string>();
+
+		for (const fileChange of displayedSession?.file_changes ?? []) {
+			const labelPath = getFileChangeLabelPath(fileChange);
+			paths.add(labelPath);
+			if (fileChange.new_path) {
+				paths.add(fileChange.new_path);
+			}
+			if (fileChange.old_path) {
+				paths.add(fileChange.old_path);
+			}
+		}
+
+		return Array.from(paths);
+	}, [displayedSession?.file_changes]);
+
 	const canNavigateToFinding = useCallback(
 		(finding: ReviewFinding) => availableFindingPaths.has(finding.file_path),
 		[availableFindingPaths],
@@ -283,6 +305,55 @@ export function Review() {
 			focusContext();
 		},
 		[reviewPanelMode, setReviewPanelMode],
+	);
+
+	const handleAssistantReferenceClick = useCallback(
+		(target: ReviewChatReferenceTarget) => {
+			const matchingFileChange =
+				displayedSession?.file_changes.find((fileChange) => {
+					const knownPaths = new Set([
+						getFileChangeLabelPath(fileChange),
+						fileChange.new_path,
+						fileChange.old_path,
+					]);
+					return knownPaths.has(target.filePath);
+				}) ?? null;
+
+			const focusReference = () => {
+				if (!target.line) {
+					diffWorkspaceRef.current?.focusLocation({
+						filePath: target.filePath,
+					});
+					return;
+				}
+
+				const status = normalizeDiffFileStatus(matchingFileChange?.status);
+				const isOriginalSideReference =
+					(matchingFileChange?.old_path != null &&
+						matchingFileChange.old_path === target.filePath &&
+						matchingFileChange.new_path !== target.filePath) ||
+					status === "deleted";
+
+				diffWorkspaceRef.current?.focusLocation({
+					filePath: target.filePath,
+					newStart: isOriginalSideReference ? null : target.line,
+					oldStart: isOriginalSideReference ? target.line : null,
+				});
+			};
+
+			if (reviewPanelMode === "fullscreen" && typeof window !== "undefined") {
+				setReviewPanelMode("rail");
+				window.requestAnimationFrame(() => {
+					window.requestAnimationFrame(() => {
+						focusReference();
+					});
+				});
+				return;
+			}
+
+			focusReference();
+		},
+		[displayedSession?.file_changes, reviewPanelMode, setReviewPanelMode],
 	);
 
 	const findingsLabel = reviewResult
@@ -475,7 +546,10 @@ export function Review() {
 				void sendDraft();
 			}}
 			onChatCodeContextClick={handleChatCodeContextClick}
+			onAssistantReferenceClick={handleAssistantReferenceClick}
 			onRemoveDraftCodeContext={removeDraftCodeContext}
+			reviewReferencePaths={reviewReferencePaths}
+			reviewReferenceRepoPath={repoPath}
 			isChatLoading={isChatLoading}
 			chatError={chatError}
 			isChatComposerDisabled={isChatComposerDisabled}
@@ -512,7 +586,10 @@ export function Review() {
 						void sendDraft();
 					}}
 					onChatCodeContextClick={handleChatCodeContextClick}
+					onAssistantReferenceClick={handleAssistantReferenceClick}
 					onRemoveDraftCodeContext={removeDraftCodeContext}
+					reviewReferencePaths={reviewReferencePaths}
+					reviewReferenceRepoPath={repoPath}
 					isChatLoading={isChatLoading}
 					chatError={chatError}
 					isChatComposerDisabled={isChatComposerDisabled}
