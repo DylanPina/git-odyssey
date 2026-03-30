@@ -168,6 +168,9 @@ export function CommitFilePanel({
 	const selectionListenerDisposablesRef = useRef<
 		Record<string, MonacoEditor.IDisposable[]>
 	>({});
+	const contextMenuActionDisposablesRef = useRef<
+		Record<string, MonacoEditor.IDisposable[]>
+	>({});
 	const [isViewerExpanded, setIsViewerExpanded] = useState(false);
 	const [activeSelection, setActiveSelection] =
 		useState<DiffSelectionContext | null>(null);
@@ -207,9 +210,15 @@ export function CommitFilePanel({
 		selectionListenerDisposablesRef.current[labelPath] = [];
 	}, [labelPath]);
 
-	const readEditorSelection = useCallback(
+	const clearContextMenuActions = useCallback(() => {
+		const disposables = contextMenuActionDisposablesRef.current[labelPath] ?? [];
+		disposables.forEach((disposable) => disposable.dispose());
+		contextMenuActionDisposablesRef.current[labelPath] = [];
+	}, [labelPath]);
+
+	const buildSelectionFromEditor = useCallback(
 		(
-			editor: MonacoEditor.editor.IStandaloneCodeEditor,
+			editor: MonacoEditor.editor.ICodeEditor,
 			side: DiffViewerSide,
 		): DiffSelectionContext | null => {
 			const model = editor.getModel();
@@ -245,10 +254,10 @@ export function CommitFilePanel({
 			const modifiedEditor = editor.getModifiedEditor();
 
 			const handleOriginalSelectionChange = () => {
-				setActiveSelection(readEditorSelection(originalEditor, "original"));
+				setActiveSelection(buildSelectionFromEditor(originalEditor, "original"));
 			};
 			const handleModifiedSelectionChange = () => {
-				setActiveSelection(readEditorSelection(modifiedEditor, "modified"));
+				setActiveSelection(buildSelectionFromEditor(modifiedEditor, "modified"));
 			};
 
 			handleOriginalSelectionChange();
@@ -259,7 +268,42 @@ export function CommitFilePanel({
 				modifiedEditor.onDidChangeCursorSelection(handleModifiedSelectionChange),
 			];
 		},
-		[clearSelectionListeners, labelPath, readEditorSelection],
+		[buildSelectionFromEditor, clearSelectionListeners, labelPath],
+	);
+
+	const registerContextMenuActions = useCallback(
+		(editor: MonacoEditor.editor.IStandaloneDiffEditor) => {
+			clearContextMenuActions();
+
+			if (!onInjectSelection) {
+				return;
+			}
+
+			const registerEditorAction = (
+				codeEditor: MonacoEditor.editor.IStandaloneCodeEditor,
+				side: DiffViewerSide,
+			) =>
+				codeEditor.addAction({
+					id: `git-odyssey.add-selection-to-chat.${side}`,
+					label: "Add Selection to Chat",
+					contextMenuGroupId: "navigation",
+					contextMenuOrder: 3,
+					run: (invokedEditor) => {
+						const selection = buildSelectionFromEditor(invokedEditor, side);
+						if (!selection) {
+							return;
+						}
+
+						onInjectSelection(selection);
+					},
+				});
+
+			contextMenuActionDisposablesRef.current[labelPath] = [
+				registerEditorAction(editor.getOriginalEditor(), "original"),
+				registerEditorAction(editor.getModifiedEditor(), "modified"),
+			];
+		},
+		[buildSelectionFromEditor, clearContextMenuActions, labelPath, onInjectSelection],
 	);
 
 	const originalModelPath = buildMonacoModelUri(
@@ -701,8 +745,10 @@ export function CommitFilePanel({
 			clearSearchDecorations();
 			clearContextDecorations();
 			clearSelectionListeners();
+			clearContextMenuActions();
 		};
 	}, [
+		clearContextMenuActions,
 		clearContextDecorations,
 		clearLineHighlights,
 		clearSearchDecorations,
@@ -906,6 +952,9 @@ export function CommitFilePanel({
 							diffEditorsRef.current[labelPath] =
 								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor;
 							bindSelectionListeners(
+								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
+							);
+							registerContextMenuActions(
 								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
 							);
 							applyCodeSearchDecorations();
