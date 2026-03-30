@@ -102,13 +102,26 @@ export function ReviewChatPanel({
 	reviewReferencePaths,
 	reviewReferenceRepoPath,
 }: ReviewChatPanelProps) {
-	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const messagesContainerRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const canSendMessage =
 		!isComposerDisabled && (Boolean(draft.trim()) || draftCodeContexts.length > 0);
 
 	useEffect(() => {
-		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+		const container = messagesContainerRef.current;
+		if (!container) {
+			return;
+		}
+
+		if (typeof container.scrollTo === "function") {
+			container.scrollTo({
+				top: container.scrollHeight,
+				behavior: "smooth",
+			});
+			return;
+		}
+
+		container.scrollTop = container.scrollHeight;
 	}, [isLoading, messages]);
 
 	useEffect(() => {
@@ -133,7 +146,10 @@ export function ReviewChatPanel({
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<div className="workspace-scrollbar min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto px-3 py-3">
+			<div
+				ref={messagesContainerRef}
+				className="workspace-scrollbar min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto px-3 py-3"
+			>
 				{messages.length === 0 && !isLoading ? (
 					<EmptyState
 						title="Ask about this diff"
@@ -208,8 +224,6 @@ export function ReviewChatPanel({
 						</div>
 					</div>
 				) : null}
-
-				<div ref={messagesEndRef} />
 			</div>
 
 			<div className="border-t border-border-subtle px-3 py-3">

@@ -144,6 +144,13 @@ export function useReviewRefSelection({
 			return;
 		}
 
+		// The repo hook starts with empty arrays before hydration kicks in. Avoid
+		// clearing restored refs during that transient state, especially when
+		// revisiting the page via browser history.
+		if (branches.length === 0 && commits.length === 0) {
+			return;
+		}
+
 		const nextBaseRef = baseRef && branchOptionSet.has(baseRef) ? baseRef : "";
 		const nextHeadRef = headRef && branchOptionSet.has(headRef) ? headRef : "";
 
@@ -164,7 +171,9 @@ export function useReviewRefSelection({
 		}
 	}, [
 		baseRef,
+		branches.length,
 		branchOptionSet,
+		commits.length,
 		headRef,
 		isRepoLoading,
 		queryBaseRef,

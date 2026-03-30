@@ -596,6 +596,7 @@ export function Review() {
 
 	return (
 		<DiffWorkspacePage
+			spacing="compact"
 			topSections={[previousReviewsSection]}
 			bottomSections={[mobileAssistantPanel]}
 			workspace={

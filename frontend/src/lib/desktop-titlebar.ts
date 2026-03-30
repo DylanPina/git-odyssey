@@ -5,6 +5,10 @@ import {
   readRepoPathFromSearchParams,
   readReviewRefsFromSearchParams,
 } from "@/lib/repoPaths";
+import {
+  getReviewRefsStorageKey,
+  getStoredReviewRefs,
+} from "@/pages/review/review-storage";
 
 const APP_NAME = "GitOdyssey";
 
@@ -59,7 +63,11 @@ export function resolveDesktopTitleBarMeta(
   }
 
   if (pathname === "/repo/review") {
-    const { baseRef, headRef } = readReviewRefsFromSearchParams(searchParams);
+    const { baseRef: queryBaseRef, headRef: queryHeadRef } =
+      readReviewRefsFromSearchParams(searchParams);
+    const storedReviewRefs = getStoredReviewRefs(getReviewRefsStorageKey(repoPath));
+    const baseRef = queryBaseRef ?? storedReviewRefs?.baseRef ?? null;
+    const headRef = queryHeadRef ?? storedReviewRefs?.headRef ?? null;
     const reviewRefLabel = baseRef && headRef ? `${baseRef} -> ${headRef}` : null;
 
     return {

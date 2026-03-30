@@ -108,4 +108,60 @@ describe("useReviewRefSelection", () => {
 			JSON.stringify({ baseRef: "", headRef: "feature" }),
 		);
 	});
+
+	it("preserves stored refs during initial empty repo hydration", async () => {
+		const navigate = vi.fn();
+		window.localStorage.setItem(
+			storageKey,
+			JSON.stringify({ baseRef: "main", headRef: "feature" }),
+		);
+
+		const { result, rerender } = renderHook(
+			({
+				branches,
+				commits,
+				isRepoLoading,
+			}: {
+				branches: Branch[];
+				commits: Commit[];
+				isRepoLoading: boolean;
+			}) =>
+				useReviewRefSelection({
+					repoPath,
+					queryBaseRef: null,
+					queryHeadRef: null,
+					branches,
+					commits,
+					isRepoLoading,
+					navigate,
+				}),
+			{
+				initialProps: {
+					branches: [],
+					commits: [],
+					isRepoLoading: false,
+				},
+			},
+		);
+
+		expect(result.current.baseRef).toBe("main");
+		expect(result.current.headRef).toBe("feature");
+		expect(window.localStorage.getItem(storageKey)).toBe(
+			JSON.stringify({ baseRef: "main", headRef: "feature" }),
+		);
+
+		rerender({
+			branches: [
+				buildBranch("main", ["aaaaaaaa"]),
+				buildBranch("feature", ["bbbbbbbb"]),
+			],
+			commits: [buildCommit("aaaaaaaa"), buildCommit("bbbbbbbb")],
+			isRepoLoading: false,
+		});
+
+		await waitFor(() => {
+			expect(result.current.baseTipCommit?.sha).toBe("aaaaaaaa");
+			expect(result.current.headTipCommit?.sha).toBe("bbbbbbbb");
+		});
+	});
 });
