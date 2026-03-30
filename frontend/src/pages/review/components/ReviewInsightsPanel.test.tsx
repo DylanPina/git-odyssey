@@ -80,7 +80,8 @@ describe("ReviewInsightsPanel", () => {
 		expect(screen.getByText("Reference unavailable in the current diff.")).toBeInTheDocument();
 	});
 
-	it("shows in-progress reasoning when the run is active", () => {
+	it("shows in-progress reasoning when the run is active", async () => {
+		const user = userEvent.setup();
 		const reasoningTrace: ReasoningTraceEntry[] = [
 			{
 				id: "trace-1",
@@ -108,6 +109,41 @@ describe("ReviewInsightsPanel", () => {
 		);
 
 		expect(screen.getByText(/review in progress/i)).toBeInTheDocument();
+		expect(screen.queryByText("Inspecting the diff")).not.toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: /thinking/i }));
 		expect(screen.getByText("Inspecting the diff")).toBeInTheDocument();
+	});
+
+	it("keeps completed reasoning collapsed until expanded", async () => {
+		const user = userEvent.setup();
+		const reasoningTrace: ReasoningTraceEntry[] = [
+			{
+				id: "trace-1",
+				method: "agentMessageDelta",
+				text: "Finished tracing the diff.",
+				stableText: "Finished tracing the diff.",
+				latestDeltaText: null,
+				sequence: 2,
+				createdAt: "2026-03-20T10:01:00.000Z",
+			},
+		];
+
+		render(
+			<ReviewInsightsPanel
+				activeRun={buildRun({ status: "completed" })}
+				reviewResult={buildResult([])}
+				findingsLabel="0 findings"
+				selectedFindingId={null}
+				onSelectFinding={() => {}}
+				canNavigateToFinding={() => false}
+				reasoningTrace={reasoningTrace}
+				onToggleOpen={() => {}}
+				onToggleFullscreen={() => {}}
+			/>,
+		);
+
+		expect(screen.queryByText(/finished tracing the diff/i)).not.toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: /thought/i }));
+		expect(screen.getByText(/finished tracing the diff/i)).toBeInTheDocument();
 	});
 });

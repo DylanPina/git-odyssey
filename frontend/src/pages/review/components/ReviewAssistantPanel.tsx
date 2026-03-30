@@ -56,11 +56,10 @@ type ReviewAssistantPanelProps = {
 
 function ReviewPlaceholder() {
 	return (
-		<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4">
-			<div className="rounded-[16px] border border-dashed border-border-subtle bg-[rgba(255,255,255,0.02)] px-4 py-5 text-sm leading-6 text-text-secondary">
-				Start a review run to see the AI summary, findings, and reasoning trace
-				for this compare target. Chat is still available for follow-up questions
-				about the current diff.
+		<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
+			<div className="rounded-[14px] border border-dashed border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-3.5 text-sm leading-5 text-text-secondary">
+				Start a review to see the summary, findings, and review progress for
+				this diff. Chat is still available while you wait.
 			</div>
 		</div>
 	);
@@ -96,7 +95,7 @@ export function ReviewAssistantPanel({
 	onToggleOpen,
 	onToggleFullscreen,
 }: ReviewAssistantPanelProps) {
-	const sectionPadding = isFullscreen ? "px-6 py-5 xl:px-8" : "px-4 py-4";
+	const sectionPadding = isFullscreen ? "px-5 py-4 xl:px-6" : "px-3 py-3";
 	const reviewCountLabel = reviewResult
 		? String(reviewResult.findings.length)
 		: activeRun
@@ -115,21 +114,40 @@ export function ReviewAssistantPanel({
 			)}
 		>
 			<div className={cn("border-b border-border-subtle", sectionPadding)}>
-				<div className="flex items-start justify-between gap-3">
-					<div className="min-w-0">
-						<div className="workspace-section-label">Assistant</div>
-						<div className="mt-1 text-sm font-semibold text-text-primary">
-							{activeTab === "review"
-								? "AI review summary and findings"
-								: "Codex review chat"}
-						</div>
-						<div className="mt-1 text-xs text-text-secondary">
-							{activeTab === "review"
-								? "Navigate findings and inspect the current review output."
-								: "Ask Codex about the current compare target and attached code context."}
-						</div>
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+						<ToggleGroup
+							type="single"
+							value={activeTab}
+							onValueChange={(value) => {
+								if (value === "review" || value === "chat") {
+									onActiveTabChange(value);
+								}
+							}}
+							className="min-w-0 justify-start gap-1"
+						>
+							<ToggleGroupItem
+								value="review"
+								aria-label="Review tab"
+								className="h-8 min-w-[6.5rem] gap-1.5 rounded-[10px] px-3 text-xs"
+							>
+								<Sparkles className="size-3.5" />
+								<span>Review</span>
+								<span className="rounded-full border border-border-subtle px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
+									{reviewCountLabel}
+								</span>
+							</ToggleGroupItem>
+							<ToggleGroupItem
+								value="chat"
+								aria-label="Chat tab"
+								className="h-8 min-w-[6.5rem] gap-1.5 rounded-[10px] px-3 text-xs"
+							>
+								<MessageCircle className="size-3.5" />
+								<span>Chat</span>
+							</ToggleGroupItem>
+						</ToggleGroup>
 					</div>
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-1">
 						<Button
 							type="button"
 							variant="toolbar"
@@ -160,33 +178,6 @@ export function ReviewAssistantPanel({
 						</Button>
 					</div>
 				</div>
-
-				<ToggleGroup
-					type="single"
-					value={activeTab}
-					onValueChange={(value) => {
-						if (value === "review" || value === "chat") {
-							onActiveTabChange(value);
-						}
-					}}
-					className="mt-4 w-full"
-				>
-					<ToggleGroupItem
-						value="review"
-						aria-label="Review tab"
-						className="gap-2"
-					>
-						<Sparkles className="size-4" />
-						<span>Review</span>
-						<span className="rounded-full border border-border-subtle px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
-							{reviewCountLabel}
-						</span>
-					</ToggleGroupItem>
-					<ToggleGroupItem value="chat" aria-label="Chat tab" className="gap-2">
-						<MessageCircle className="size-4" />
-						<span>Chat</span>
-					</ToggleGroupItem>
-				</ToggleGroup>
 			</div>
 
 			<div

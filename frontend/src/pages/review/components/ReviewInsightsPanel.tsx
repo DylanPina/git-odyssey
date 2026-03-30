@@ -53,30 +53,34 @@ function ReviewInProgressState({
 }: {
 	reasoningTrace: ReasoningTraceEntry[];
 }) {
-	const [isTraceOpen, setIsTraceOpen] = useState(true);
+	const [isTraceOpen, setIsTraceOpen] = useState(false);
 	const visibleTrace = reasoningTrace.slice(0, 5);
 
 	return (
-		<div className="review-runtime-pulse relative overflow-hidden rounded-[18px] border border-[rgba(122,162,255,0.18)] bg-[linear-gradient(180deg,rgba(122,162,255,0.08),rgba(122,162,255,0.02))] px-4 py-5">
+		<div className="review-runtime-pulse relative overflow-hidden rounded-[16px] border border-[rgba(122,162,255,0.18)] bg-[linear-gradient(180deg,rgba(122,162,255,0.07),rgba(122,162,255,0.02))] px-3 py-3.5">
 			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,162,255,0.16),transparent_55%)] opacity-70" />
-			<div className="relative flex flex-col items-center text-center">
-				<div className="relative flex size-28 items-center justify-center">
-					<div className="review-runtime-ring absolute inset-0 rounded-full border border-[rgba(122,162,255,0.24)]" />
-					<div className="review-runtime-ring-delayed absolute inset-[10px] rounded-full border border-[rgba(199,220,255,0.16)]" />
-					<div className="review-runtime-core absolute inset-[26px] rounded-full bg-[radial-gradient(circle,rgba(185,210,255,0.96),rgba(122,162,255,0.32)_45%,rgba(122,162,255,0.06)_80%,transparent)] blur-[1px]" />
-					<span className="review-runtime-orbit review-runtime-orbit-a" />
-					<span className="review-runtime-orbit review-runtime-orbit-b" />
-					<span className="review-runtime-orbit review-runtime-orbit-c" />
+			<div className="relative">
+				<div className="flex items-start justify-between gap-3">
+					<div className="min-w-0">
+						<div className="text-sm font-semibold text-text-primary">
+							Review in progress
+						</div>
+						<div className="mt-1 text-xs leading-5 text-text-secondary">
+							Codex is still reviewing this diff. Findings and summary will
+							appear here as soon as the run completes.
+						</div>
+					</div>
+					<div className="relative mt-0.5 flex size-12 shrink-0 items-center justify-center">
+						<div className="review-runtime-ring absolute inset-0 rounded-full border border-[rgba(122,162,255,0.24)]" />
+						<div className="review-runtime-ring-delayed absolute inset-[6px] rounded-full border border-[rgba(199,220,255,0.16)]" />
+						<div className="review-runtime-core absolute inset-[14px] rounded-full bg-[radial-gradient(circle,rgba(185,210,255,0.96),rgba(122,162,255,0.32)_45%,rgba(122,162,255,0.06)_80%,transparent)] blur-[1px]" />
+					</div>
 				</div>
 
-				<div className="mt-4 text-sm font-semibold text-text-primary">
-					review in progress...
-				</div>
-
-				<div className="mt-4 w-full text-left">
+				<div className="mt-3 w-full text-left">
 					<button
 						type="button"
-						className="flex items-center gap-2 px-0 py-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-tertiary transition-colors duration-150 hover:text-text-primary"
+						className="flex items-center gap-2 px-0 py-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-tertiary transition-colors duration-150 hover:text-text-primary"
 						onClick={() => setIsTraceOpen((current) => !current)}
 						aria-expanded={isTraceOpen}
 					>
@@ -89,7 +93,7 @@ function ReviewInProgressState({
 					</button>
 
 					{isTraceOpen ? (
-						<div className="mt-4 space-y-3">
+						<div className="mt-3 space-y-2.5">
 							{visibleTrace.length > 0 ? (
 								visibleTrace.map((entry, index) => (
 									<div
@@ -99,7 +103,7 @@ function ReviewInProgressState({
 									>
 										<span className="review-trace-rail" aria-hidden="true" />
 										<span className="review-trace-node" aria-hidden="true" />
-										<div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-tertiary">
+										<div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-tertiary">
 											<span className="font-mono">#{entry.sequence}</span>
 											{entry.method ? (
 												<span className="font-mono">{entry.method}</span>
@@ -112,14 +116,14 @@ function ReviewInProgressState({
 									</div>
 								))
 							) : (
-								<div className="space-y-3">
+								<div className="space-y-2.5">
 									<div className="review-trace-placeholder">
-										<div className="review-runtime-shimmer h-4 w-[72%] rounded-full bg-[rgba(255,255,255,0.06)]" />
-										<div className="review-runtime-shimmer mt-2 h-4 w-[88%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:180ms]" />
+										<div className="review-runtime-shimmer h-3.5 w-[72%] rounded-full bg-[rgba(255,255,255,0.06)]" />
+										<div className="review-runtime-shimmer mt-2 h-3.5 w-[88%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:180ms]" />
 									</div>
 									<div className="review-trace-placeholder [animation-delay:160ms]">
-										<div className="review-runtime-shimmer h-4 w-[64%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:240ms]" />
-										<div className="review-runtime-shimmer mt-2 h-4 w-[82%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:420ms]" />
+										<div className="review-runtime-shimmer h-3.5 w-[64%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:240ms]" />
+										<div className="review-runtime-shimmer mt-2 h-3.5 w-[82%] rounded-full bg-[rgba(255,255,255,0.06)] [animation-delay:420ms]" />
 									</div>
 								</div>
 							)}
@@ -141,10 +145,10 @@ function CompletedReasoningSection({
 	const [isOpen, setIsOpen] = useState(false);
 
 	return (
-		<section className="mt-4 border-t border-border-subtle pt-4">
+		<section className="mt-3 border-t border-border-subtle pt-3">
 			<button
 				type="button"
-				className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-border-subtle bg-[rgba(255,255,255,0.025)] px-3 py-2.5 text-left transition-[background-color,border-color,color] duration-150 hover:border-[rgba(122,162,255,0.24)] hover:bg-[rgba(122,162,255,0.06)]"
+				className="flex w-full items-center justify-between gap-3 rounded-[12px] border border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-2 text-left transition-[background-color,border-color,color] duration-150 hover:border-[rgba(122,162,255,0.24)] hover:bg-[rgba(122,162,255,0.06)]"
 				onClick={() => setIsOpen((current) => !current)}
 				aria-expanded={isOpen}
 			>
@@ -159,7 +163,7 @@ function CompletedReasoningSection({
 			</button>
 
 			{isOpen ? (
-				<div className="mt-4 space-y-3">
+				<div className="mt-3 space-y-2.5">
 					{reasoningTrace.map((entry, index) => (
 						<div
 							key={entry.id}
@@ -168,7 +172,7 @@ function CompletedReasoningSection({
 						>
 							<span className="review-trace-rail" aria-hidden="true" />
 							<span className="review-trace-node" aria-hidden="true" />
-							<div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-tertiary">
+							<div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-tertiary">
 								<span className="font-mono">#{entry.sequence}</span>
 								{entry.method ? (
 									<span className="font-mono">{entry.method}</span>
@@ -209,7 +213,7 @@ function ReviewFindingsList({
 	}
 
 	return (
-		<div className="space-y-2.5">
+		<div className="space-y-2">
 			{findings.map((finding) => {
 				const { label, sideLabel } = formatFindingReference(finding);
 				const isSelected = selectedFindingId === finding.id;
@@ -222,7 +226,7 @@ function ReviewFindingsList({
 							</StatusPill>
 							<span
 								className={cn(
-									"shrink-0 rounded-full border px-2.5 py-1 font-mono text-[11px]",
+									"shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px]",
 									canNavigate
 										? "border-[rgba(122,162,255,0.28)] bg-[rgba(122,162,255,0.1)] text-text-primary"
 										: "border-border-subtle bg-[rgba(255,255,255,0.03)] text-text-tertiary",
@@ -231,16 +235,16 @@ function ReviewFindingsList({
 								{label}
 							</span>
 						</div>
-						<div className="mt-3 text-sm font-semibold leading-6 text-text-primary">
+						<div className="mt-2 text-sm font-semibold leading-5 text-text-primary">
 							{finding.title}
 						</div>
-						<div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
+						<div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
 							{sideLabel ? <span>{sideLabel} side</span> : null}
 							{!canNavigate ? (
 								<span>Reference unavailable in the current diff.</span>
 							) : null}
 						</div>
-						<div className="mt-2 text-sm leading-6 text-text-secondary">
+						<div className="mt-1.5 text-sm leading-5 text-text-secondary">
 							<p className="whitespace-pre-wrap">{finding.body}</p>
 						</div>
 					</>
@@ -251,7 +255,7 @@ function ReviewFindingsList({
 						<div
 							key={finding.id}
 							className={cn(
-								"rounded-[16px] border px-3 py-3",
+								"rounded-[14px] border px-3 py-2.5",
 								isSelected
 									? "border-[rgba(122,162,255,0.35)] bg-[rgba(122,162,255,0.08)]"
 									: "border-border-subtle bg-[rgba(255,255,255,0.025)]",
@@ -268,7 +272,7 @@ function ReviewFindingsList({
 						type="button"
 						aria-pressed={isSelected}
 						className={cn(
-							"w-full rounded-[16px] border px-3 py-3 text-left transition-[background-color,border-color,box-shadow] duration-150",
+							"w-full rounded-[14px] border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] duration-150",
 							isSelected
 								? "border-[rgba(122,162,255,0.45)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]"
 								: "border-border-subtle bg-[rgba(255,255,255,0.025)] hover:border-border-strong hover:bg-[rgba(255,255,255,0.045)]",
@@ -313,7 +317,8 @@ export function ReviewInsightsPanel({
 	onToggleFullscreen,
 }: ReviewInsightsPanelProps) {
 	const summaryText = reviewResult?.summary?.trim() || null;
-	const sectionPadding = isFullscreen ? "px-6 py-5 xl:px-8" : "px-4 py-4";
+	const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
+	const sectionPadding = isFullscreen ? "px-5 py-4 xl:px-6" : "px-3 py-3";
 	const completedThoughtDuration = formatThoughtDuration(activeRun, reviewResult);
 	const completedThoughtTitle = completedThoughtDuration
 		? `Thought for ${completedThoughtDuration}`
@@ -322,6 +327,7 @@ export function ReviewInsightsPanel({
 		activeRun.status === "completed" &&
 		reviewResult != null &&
 		reasoningTrace.length > 0;
+	const shouldClampSummary = Boolean(summaryText && summaryText.length > 320);
 
 	return (
 		<div
@@ -336,12 +342,9 @@ export function ReviewInsightsPanel({
 		>
 			{showHeader ? (
 				<div className={cn("border-b border-border-subtle", sectionPadding)}>
-					<div className="flex items-start justify-between gap-3">
+					<div className="flex items-center justify-between gap-3">
 						<div className="min-w-0">
 							<div className="workspace-section-label">AI Review</div>
-							<div className="mt-1 text-sm font-semibold text-text-primary">
-								Summary and findings
-							</div>
 							<div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
 								<span>{findingsLabel}</span>
 								{reviewResult ? (
@@ -390,14 +393,42 @@ export function ReviewInsightsPanel({
 				)}
 			>
 				<section className={cn("border-b border-border-subtle", sectionPadding)}>
-					<div className="workspace-section-label">Summary</div>
-					<div className="mt-3">
+					<div className="flex items-center justify-between gap-3">
+						<div className="workspace-section-label">Summary</div>
+						{summaryText && shouldClampSummary ? (
+							<button
+								type="button"
+								className="text-[11px] font-medium text-text-secondary transition-colors hover:text-text-primary"
+								onClick={() => setIsSummaryExpanded((current) => !current)}
+							>
+								{isSummaryExpanded ? "Show less" : "Show more"}
+							</button>
+						) : null}
+					</div>
+					<div className="mt-2.5">
 						{summaryText ? (
-							<MarkdownRenderer content={summaryText} className="text-[13px]" />
+							<div className="relative">
+								<div
+									className={cn(
+										"overflow-hidden",
+										shouldClampSummary && !isSummaryExpanded
+											? "max-h-[8.5rem]"
+											: undefined,
+									)}
+								>
+									<MarkdownRenderer
+										content={summaryText}
+										className="text-[13px] leading-5 [&_p]:my-0 [&_p+*]:mt-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5"
+									/>
+								</div>
+								{shouldClampSummary && !isSummaryExpanded ? (
+									<div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[rgba(8,10,14,0.96)] to-transparent" />
+								) : null}
+							</div>
 						) : ACTIVE_RUN_STATUSES.has(activeRun.status) ? (
 							<ReviewInProgressState reasoningTrace={reasoningTrace} />
 						) : (
-							<p className="text-sm leading-6 text-text-secondary">
+							<p className="text-sm leading-5 text-text-secondary">
 								Structured review output is not available for this run.
 							</p>
 						)}
@@ -418,7 +449,7 @@ export function ReviewInsightsPanel({
 							{findingsLabel}
 						</div>
 					</div>
-					<div className="mt-3">
+					<div className="mt-2.5">
 						{reviewResult ? (
 							<ReviewFindingsList
 								findings={reviewResult.findings}

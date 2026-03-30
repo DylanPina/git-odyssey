@@ -39,6 +39,35 @@ const reviewReferencePaths = [
 ];
 
 describe("ReviewChatPanel", () => {
+	it("sends on Enter and keeps attached draft context visible", async () => {
+		const user = userEvent.setup();
+		const onSendMessage = vi.fn();
+
+		render(
+			<ReviewChatPanel
+				messages={[]}
+				draft="Please summarize the diff"
+				draftCodeContexts={[buildCodeContext()]}
+				onDraftChange={() => {}}
+				onSendMessage={onSendMessage}
+				onCodeContextClick={() => {}}
+				onRemoveDraftCodeContext={() => {}}
+			/>,
+		);
+
+		await user.type(
+			screen.getByPlaceholderText(/ask codex about this diff/i),
+			"{enter}",
+		);
+
+		expect(onSendMessage).toHaveBeenCalledTimes(1);
+		expect(
+			screen.getByRole("button", {
+				name: /jump to frontend\/src\/pages\/review\.tsx/i,
+			}),
+		).toBeInTheDocument();
+	});
+
 	it("renders attached code context buttons in the draft area and lets users remove them", async () => {
 		const user = userEvent.setup();
 		const onCodeContextClick = vi.fn();

@@ -78,10 +78,11 @@ describe("ReviewAssistantPanel", () => {
 	it("defaults to the chat tab when requested", () => {
 		render(<ControlledAssistantPanel initialTab="chat" />);
 
-		expect(screen.getByText(/codex review chat/i)).toBeInTheDocument();
+		expect(screen.getByText(/assistant/i)).toBeInTheDocument();
 		expect(
-			screen.getByText(/ask codex about the current compare target/i),
-		).toBeInTheDocument();
+			screen.getByRole("radio", { name: /chat tab/i }),
+		).toHaveAttribute("data-state", "on");
+		expect(screen.getByText(/ask about this diff/i)).toBeInTheDocument();
 	});
 
 	it("switches between chat and review tabs", async () => {
@@ -107,11 +108,13 @@ describe("ReviewAssistantPanel", () => {
 
 		await user.click(screen.getByRole("radio", { name: /review tab/i }));
 
-		expect(screen.getByText(/AI review summary and findings/i)).toBeInTheDocument();
+		expect(
+			screen.getByRole("radio", { name: /review tab/i }),
+		).toHaveAttribute("data-state", "on");
 		expect(screen.getByText(/fix the auth regression/i)).toBeInTheDocument();
 
 		await user.click(screen.getByRole("radio", { name: /chat tab/i }));
 
-		expect(screen.getByText(/codex review chat/i)).toBeInTheDocument();
+		expect(screen.getByText(/ask about this diff/i)).toBeInTheDocument();
 	});
 });
