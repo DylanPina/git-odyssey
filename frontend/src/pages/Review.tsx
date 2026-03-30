@@ -448,7 +448,7 @@ export function Review() {
 	);
 
 	const previousReviewsSection =
-		repoPath && baseRef && headRef ? (
+		repoPath && baseRef && headRef && reviewHistory.length > 0 ? (
 			<PreviousReviewsSection
 				reviewHistory={reviewHistory}
 				filteredReviewHistory={historyFilters.filteredReviewHistory}

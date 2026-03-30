@@ -58,45 +58,54 @@ export function PreviousReviewsSection({
 	isHistoryLoading,
 	onSelectHistoryReview,
 }: PreviousReviewsSectionProps) {
+	const reviewCountLabel = `${reviewHistory.length} review${reviewHistory.length === 1 ? "" : "s"}`;
+	const filteredCountLabel = `Showing ${filteredReviewHistory.length} of ${reviewHistory.length}`;
+
 	return (
-		<section className="rounded-[20px] border border-border-strong bg-[linear-gradient(180deg,rgba(255,255,255,0.038),rgba(255,255,255,0.018))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-			<div className="flex flex-col gap-3">
-				<div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+		<section className="rounded-[18px] border border-border-subtle bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+			<div className="flex flex-col gap-2.5">
+				<div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
 					<div className="min-w-0">
-						<div className="text-sm font-semibold text-text-primary">
-							Previous Reviews
-						</div>
-						<div className="mt-1 text-sm text-text-secondary">
-							{reviewHistory.length === 0
-								? "Completed successful reviews for this branch pair will appear here."
-								: `Showing ${filteredReviewHistory.length} of ${reviewHistory.length} previous review${reviewHistory.length === 1 ? "" : "s"}.`}
+						<div className="flex flex-wrap items-center gap-2">
+							<div className="text-sm font-semibold text-text-primary">
+								Previous Reviews
+							</div>
+							<span className="rounded-full border border-border-subtle bg-[rgba(255,255,255,0.03)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-text-tertiary">
+								{reviewCountLabel}
+							</span>
+							{isPreviousReviewsOpen && filters.hasActiveHistoryFilters ? (
+								<span className="rounded-full border border-[rgba(122,162,255,0.2)] bg-[rgba(122,162,255,0.08)] px-2 py-0.5 text-[11px] text-text-secondary">
+									{filteredCountLabel}
+								</span>
+							) : null}
 						</div>
 					</div>
 
-					<div className="flex flex-wrap items-center gap-2">
+					<div className="flex flex-wrap items-center gap-1.5">
 						{isViewingHistory ? (
 							<Button
 								variant="toolbar"
 								size="sm"
-								className="self-start"
+								className="h-8 px-3 text-[11px]"
 								onClick={onReturnToLatestReview}
 							>
-								Return to Latest Review
+								Return to Latest
 							</Button>
 						) : null}
 						{filters.hasActiveHistoryFilters ? (
 							<Button
 								variant="toolbar"
 								size="sm"
-								className="self-start"
+								className="h-8 px-3 text-[11px]"
 								onClick={filters.resetHistoryFilters}
 							>
-								Clear filters
+								Clear Filters
 							</Button>
 						) : null}
 						<Button
 							variant="toolbar"
 							size="toolbar-icon"
+							className="size-8"
 							onClick={onTogglePreviousReviews}
 							aria-expanded={isPreviousReviewsOpen}
 							aria-controls="previous-reviews-panel"
@@ -124,23 +133,22 @@ export function PreviousReviewsSection({
 					<>
 						<div
 							id="previous-reviews-panel"
-							className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,0.8fr))]"
+							className="grid gap-2 xl:grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,0.72fr))]"
 						>
-							<label className="flex min-w-0 flex-col gap-1.5">
-								<Label className="text-sm text-text-secondary">
-									Search metadata
-								</Label>
+							<label className="flex min-w-0 flex-col gap-1">
+								<Label className="text-xs text-text-secondary">Search</Label>
 								<Input
 									value={filters.historySearchQuery}
 									onChange={(event) =>
 										filters.setHistorySearchQuery(event.target.value)
 									}
-									placeholder="Search ids, refs, SHAs, timestamps, or review metadata"
+									placeholder="Search ids, refs, SHAs, timestamps, or metadata"
+									className="h-9"
 								/>
 							</label>
 
-							<label className="flex min-w-0 flex-col gap-1.5">
-								<Label className="text-sm text-text-secondary">Outcome</Label>
+							<label className="flex min-w-0 flex-col gap-1">
+								<Label className="text-xs text-text-secondary">Outcome</Label>
 								<Select
 									value={filters.historyOutcomeFilter}
 									onValueChange={(value) =>
@@ -149,7 +157,7 @@ export function PreviousReviewsSection({
 										)
 									}
 								>
-									<SelectTrigger>
+									<SelectTrigger className="h-9">
 										<SelectValue placeholder="All reviews" />
 									</SelectTrigger>
 									<SelectContent>
@@ -162,8 +170,8 @@ export function PreviousReviewsSection({
 								</Select>
 							</label>
 
-							<label className="flex min-w-0 flex-col gap-1.5">
-								<Label className="text-sm text-text-secondary">Severity</Label>
+							<label className="flex min-w-0 flex-col gap-1">
+								<Label className="text-xs text-text-secondary">Severity</Label>
 								<Select
 									value={filters.historySeverityFilter}
 									onValueChange={(value) =>
@@ -172,7 +180,7 @@ export function PreviousReviewsSection({
 										)
 									}
 								>
-									<SelectTrigger>
+									<SelectTrigger className="h-9">
 										<SelectValue placeholder="Any severity" />
 									</SelectTrigger>
 									<SelectContent>
@@ -206,7 +214,7 @@ export function PreviousReviewsSection({
 							<InlineBanner tone="danger" title={historyError} />
 						) : null}
 
-						<div className="space-y-3">
+						<div className="space-y-2">
 							{filteredReviewHistory.length > 0 ? (
 								filteredReviewHistory.map((entry) => {
 									const severityEntries = getSeverityCountEntries(entry);
@@ -219,19 +227,19 @@ export function PreviousReviewsSection({
 											type="button"
 											key={entry.run_id}
 											className={cn(
-												"w-full cursor-pointer rounded-[18px] border p-3 text-left transition-[border-color,background-color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-wait disabled:opacity-100",
+												"w-full cursor-pointer rounded-[16px] border px-3 py-2.5 text-left transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-wait disabled:opacity-100",
 												isSelected
-													? "border-[rgba(122,162,255,0.38)] bg-[rgba(122,162,255,0.08)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(122,162,255,0.12)] hover:border-[rgba(122,162,255,0.48)] hover:bg-[rgba(122,162,255,0.11)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_0_1px_rgba(122,162,255,0.18),0_14px_30px_rgba(8,15,28,0.18)]"
-													: "border-border-subtle bg-[rgba(255,255,255,0.028)] shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] hover:-translate-y-px hover:border-border-strong hover:bg-[rgba(255,255,255,0.04)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_14px_30px_rgba(8,15,28,0.18)]",
+													? "border-[rgba(122,162,255,0.34)] bg-[rgba(122,162,255,0.08)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(122,162,255,0.1)] hover:border-[rgba(122,162,255,0.44)] hover:bg-[rgba(122,162,255,0.1)]"
+													: "border-border-subtle bg-[rgba(255,255,255,0.022)] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] hover:border-border-strong hover:bg-[rgba(255,255,255,0.036)]",
 											)}
 											disabled={isLoading}
 											onClick={() => onSelectHistoryReview(entry)}
 											aria-pressed={isSelected}
 											aria-label={`Load previous review ${entry.run_id}`}
 										>
-											<div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+											<div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
 												<div className="min-w-0 flex-1">
-													<div className="flex flex-wrap items-center gap-2">
+													<div className="flex flex-wrap items-center gap-1.5">
 														<div className="text-sm font-medium text-text-primary">
 															{formatGeneratedAt(entry.generated_at)}
 														</div>
@@ -248,7 +256,7 @@ export function PreviousReviewsSection({
 														))}
 													</div>
 
-													<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
+													<div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-text-secondary">
 														<span className="font-mono">
 															base {formatShortSha(entry.base_head_sha)}
 														</span>
@@ -261,9 +269,9 @@ export function PreviousReviewsSection({
 													</div>
 												</div>
 
-												<div className="flex shrink-0 items-center gap-2 text-xs text-text-secondary">
+												<div className="flex shrink-0 items-center gap-2 text-[11px] text-text-secondary">
 													{isLoading ? (
-														<Loader2 className="size-4 animate-spin" />
+														<Loader2 className="size-3.5 animate-spin" />
 													) : null}
 													<span>
 														Completed {formatGeneratedAt(entry.completed_at)}
@@ -271,7 +279,7 @@ export function PreviousReviewsSection({
 												</div>
 											</div>
 
-											<p className="mt-3 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-text-secondary">
+											<p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-5 text-text-secondary">
 												{entry.summary}
 											</p>
 										</button>
@@ -291,7 +299,7 @@ export function PreviousReviewsSection({
 											? "Try broadening the metadata search or clearing one or more filters."
 											: "Completed reviews for this base/head branch pair will appear here once they finish successfully."
 									}
-									className="items-center text-center"
+									className="items-center py-4 text-center"
 								/>
 							)}
 						</div>
