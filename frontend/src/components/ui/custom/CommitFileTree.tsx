@@ -257,7 +257,7 @@ export function CommitFileTree({
 		} as CSSProperties);
 
 	const collapsedDesktopContent = (
-		<div className="h-full min-h-0 flex-col items-center justify-start px-2 py-3">
+		<div className="flex h-full min-h-0 flex-col items-center justify-start px-2 py-3">
 			{collapseButton}
 
 			<div className="flex flex-1 flex-col items-center justify-center gap-3">
@@ -270,7 +270,7 @@ export function CommitFileTree({
 	);
 
 	const expandedDesktopContent = (
-		<div className="h-full min-h-0 flex-col">
+		<div className="flex h-full min-h-0 flex-col">
 			{topContent ? (
 				<div className="border-b border-border-subtle px-2.5 py-2.5">
 					{topContent}

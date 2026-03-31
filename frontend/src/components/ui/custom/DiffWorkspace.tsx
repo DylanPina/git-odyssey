@@ -507,8 +507,16 @@ function DiffWorkspaceResizeHandle({
   const dragStateRef = useRef<{
     startX: number;
     startWidth: number;
+    latestWidth: number;
+    latestClientX: number;
+    previewLeft: number;
+    previewTop: number;
+    previewHeight: number;
+    previewRight: number;
   } | null>(null);
   const cleanupDragRef = useRef<(() => void) | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const outlineElementRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(
     () => () => {
@@ -536,15 +544,53 @@ function DiffWorkspaceResizeHandle({
 
         const ownerWindow = event.currentTarget.ownerDocument.defaultView ?? window;
         const ownerDocument = event.currentTarget.ownerDocument;
-
+        const previewTarget =
+          side === "left" && event.currentTarget.previousElementSibling instanceof HTMLElement
+            ? event.currentTarget.previousElementSibling
+            : event.currentTarget.parentElement instanceof HTMLElement
+              ? event.currentTarget.parentElement
+              : null;
+        const previewRect = previewTarget?.getBoundingClientRect();
         dragStateRef.current = {
           startX: event.clientX,
           startWidth: currentWidth,
+          latestWidth: currentWidth,
+          latestClientX: event.clientX,
+          previewLeft: previewRect?.left ?? event.clientX,
+          previewTop: previewRect?.top ?? 0,
+          previewHeight: previewRect?.height ?? ownerWindow.innerHeight,
+          previewRight: previewRect?.right ?? event.clientX,
         };
         ownerDocument.body.style.cursor = "col-resize";
         ownerDocument.body.style.userSelect = "none";
 
+        const outlineElement = ownerDocument.createElement("div");
+        outlineElement.style.position = "fixed";
+        outlineElement.style.top = `${dragStateRef.current.previewTop}px`;
+        outlineElement.style.left = `${dragStateRef.current.previewLeft}px`;
+        outlineElement.style.width = `${currentWidth}px`;
+        outlineElement.style.height = `${dragStateRef.current.previewHeight}px`;
+        outlineElement.style.pointerEvents = "none";
+        outlineElement.style.border = "1px solid rgba(122,162,255,0.72)";
+        outlineElement.style.borderRadius = previewTarget
+          ? ownerWindow.getComputedStyle(previewTarget).borderRadius
+          : "0px";
+        outlineElement.style.boxShadow =
+          "0 0 0 1px rgba(122,162,255,0.14), 0 0 18px rgba(122,162,255,0.14)";
+        outlineElement.style.background = "rgba(122,162,255,0.04)";
+        outlineElement.style.zIndex = "60";
+        ownerDocument.body.appendChild(outlineElement);
+        outlineElementRef.current = outlineElement;
+
         const cleanup = () => {
+          if (animationFrameRef.current !== null) {
+            ownerWindow.cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+          }
+
+          outlineElementRef.current?.remove();
+          outlineElementRef.current = null;
+          const finalWidth = dragStateRef.current?.latestWidth ?? currentWidth;
           dragStateRef.current = null;
           ownerDocument.body.style.cursor = "";
           ownerDocument.body.style.userSelect = "";
@@ -552,6 +598,7 @@ function DiffWorkspaceResizeHandle({
           ownerWindow.removeEventListener("pointerup", cleanup);
           ownerWindow.removeEventListener("pointercancel", cleanup);
           cleanupDragRef.current = null;
+          onWidthChange(finalWidth);
         };
 
         const handlePointerMove = (moveEvent: PointerEvent) => {
@@ -566,7 +613,29 @@ function DiffWorkspaceResizeHandle({
               ? currentDrag.startWidth - delta
               : currentDrag.startWidth + delta;
 
-          onWidthChange(clampPanelWidth(nextWidth, minWidth, maxWidth));
+          currentDrag.latestWidth = clampPanelWidth(nextWidth, minWidth, maxWidth);
+          currentDrag.latestClientX = moveEvent.clientX;
+
+          if (animationFrameRef.current !== null) {
+            return;
+          }
+
+          animationFrameRef.current = ownerWindow.requestAnimationFrame(() => {
+            animationFrameRef.current = null;
+            const latestDrag = dragStateRef.current;
+            if (!latestDrag) {
+              return;
+            }
+
+            const outlineElement = outlineElementRef.current;
+            if (outlineElement) {
+              outlineElement.style.width = `${latestDrag.latestWidth}px`;
+              outlineElement.style.left =
+                side === "right"
+                  ? `${latestDrag.previewRight - latestDrag.latestWidth}px`
+                  : `${latestDrag.previewLeft}px`;
+            }
+          });
         };
 
         cleanupDragRef.current = cleanup;
