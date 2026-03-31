@@ -5,6 +5,7 @@ import {
 	ChevronsUpDownIcon,
 	Loader2,
 	Play,
+	ScrollText,
 	Square,
 } from "lucide-react";
 
@@ -23,6 +24,9 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { PreviousReviewsSection } from "@/pages/review/components/PreviousReviewsSection";
+import type { ReviewHistoryEntry } from "@/lib/definitions/review";
+import type { UseReviewHistoryFiltersResult } from "@/pages/review/useReviewHistoryFilters";
 
 function ReviewTitleBarBranchPicker({
 	options,
@@ -112,6 +116,16 @@ type ReviewTitleBarTrailingProps = {
 	hasCancelableRun: boolean;
 	isRunStarting?: boolean;
 	isRunCancelling?: boolean;
+	reviewHistory: ReviewHistoryEntry[];
+	filteredReviewHistory: ReviewHistoryEntry[];
+	filters: UseReviewHistoryFiltersResult;
+	isViewingHistory: boolean;
+	selectedHistoryRunId?: string | null;
+	historySelectionLoadingRunId: string | null;
+	historyError: string | null;
+	isHistoryLoading: boolean;
+	onReturnToLatestReview: () => void;
+	onSelectHistoryReview: (entry: ReviewHistoryEntry) => void;
 	onStartReview: () => void;
 	onCancelReview: () => void;
 };
@@ -128,14 +142,70 @@ export function ReviewTitleBarTrailing({
 	hasCancelableRun,
 	isRunStarting = false,
 	isRunCancelling = false,
+	reviewHistory,
+	filteredReviewHistory,
+	filters,
+	isViewingHistory,
+	selectedHistoryRunId,
+	historySelectionLoadingRunId,
+	historyError,
+	isHistoryLoading,
+	onReturnToLatestReview,
+	onSelectHistoryReview,
 	onStartReview,
 	onCancelReview,
 }: ReviewTitleBarTrailingProps) {
+	const [isPreviousReviewsOpen, setIsPreviousReviewsOpen] = React.useState(false);
 	const shouldShowStartReview = !hasCancelableRun && !isRunStarting;
 	const branchSelectionDisabled = branchOptions.length === 0 || isRepoLoading;
 
 	return (
 		<div className="flex min-w-0 items-center gap-2">
+			{reviewHistory.length > 0 ? (
+				<Popover
+					open={isPreviousReviewsOpen}
+					onOpenChange={setIsPreviousReviewsOpen}
+				>
+					<PopoverTrigger asChild>
+						<Button
+							variant="toolbar"
+							size="sm"
+							className="h-8 gap-2 rounded-[14px] border-border-subtle bg-[rgba(255,255,255,0.03)] px-3 text-[11px] font-semibold text-text-secondary hover:bg-control"
+						>
+							<ScrollText className="size-3.5" />
+							<span>Reviews</span>
+							<span className="rounded-full border border-border-subtle px-1.5 py-0.5 font-mono text-[10px] text-text-tertiary">
+								{reviewHistory.length}
+							</span>
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent
+						align="end"
+						sideOffset={10}
+						className="max-h-[min(70vh,32rem)] w-[52rem] max-w-[min(52rem,calc(100vw-2rem))] overflow-hidden p-0"
+					>
+						<PreviousReviewsSection
+							reviewHistory={reviewHistory}
+							filteredReviewHistory={filteredReviewHistory}
+							filters={filters}
+							isViewingHistory={isViewingHistory}
+							onReturnToLatestReview={() => {
+								onReturnToLatestReview();
+								setIsPreviousReviewsOpen(false);
+							}}
+							selectedHistoryRunId={selectedHistoryRunId}
+							historySelectionLoadingRunId={historySelectionLoadingRunId}
+							historyError={historyError}
+							isHistoryLoading={isHistoryLoading}
+							onSelectHistoryReview={(entry) => {
+								onSelectHistoryReview(entry);
+								setIsPreviousReviewsOpen(false);
+							}}
+						/>
+					</PopoverContent>
+				</Popover>
+			) : null}
+
 			<div className="flex min-w-0 items-center gap-2">
 				<ReviewTitleBarBranchPicker
 					options={branchOptions}

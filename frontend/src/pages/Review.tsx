@@ -15,7 +15,6 @@ import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownR
 import { DiffWorkspaceHeader } from "@/components/ui/custom/DiffWorkspaceHeader";
 import { DiffWorkspacePage } from "@/components/ui/custom/DiffWorkspacePage";
 import { ReviewAssistantPanel } from "@/pages/review/components/ReviewAssistantPanel";
-import { PreviousReviewsSection } from "@/pages/review/components/PreviousReviewsSection";
 import { ReviewTitleBarTrailing } from "@/pages/review/components/ReviewTitleBarTrailing";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useRepoData } from "@/hooks/useRepoData";
@@ -119,8 +118,6 @@ export function Review() {
 	const historyFilters = useReviewHistoryFilters(reviewHistory);
 	const assistantEnabled = Boolean(repoPath && baseRef && headRef);
 	const {
-		isPreviousReviewsOpen,
-		setIsPreviousReviewsOpen,
 		reviewPanelMode,
 		setReviewPanelMode,
 		assistantTab,
@@ -370,6 +367,18 @@ export function Review() {
 					hasCancelableRun={hasCancelableRun}
 					isRunStarting={isRunStarting}
 					isRunCancelling={isRunCancelling}
+					reviewHistory={reviewHistory}
+					filteredReviewHistory={historyFilters.filteredReviewHistory}
+					filters={historyFilters}
+					isViewingHistory={isViewingHistory}
+					selectedHistoryRunId={selectedHistoryView?.entry.run_id}
+					historySelectionLoadingRunId={historySelectionLoadingRunId}
+					historyError={historyError}
+					isHistoryLoading={isHistoryLoading}
+					onReturnToLatestReview={handleReturnToLatestReview}
+					onSelectHistoryReview={(entry) => {
+						void handleSelectHistoryReview(entry);
+					}}
 					onStartReview={() => {
 						void startReview(customInstructions);
 					}}
@@ -385,14 +394,23 @@ export function Review() {
 			branchOptions,
 			handleBaseRefChange,
 			handleHeadRefChange,
+			handleReturnToLatestReview,
+			handleSelectHistoryReview,
 			baseRef,
 			headRef,
 			cancelCurrentRun,
 			customInstructions,
 			hasCancelableRun,
+			historyError,
+			historyFilters,
+			historySelectionLoadingRunId,
+			isHistoryLoading,
+			isViewingHistory,
 			isRepoLoading,
 			isRunCancelling,
 			isRunStarting,
+			reviewHistory,
+			selectedHistoryView?.entry.run_id,
 			startReview,
 		],
 	);
@@ -446,28 +464,6 @@ export function Review() {
 			}
 		/>
 	);
-
-	const previousReviewsSection =
-		repoPath && baseRef && headRef && reviewHistory.length > 0 ? (
-			<PreviousReviewsSection
-				reviewHistory={reviewHistory}
-				filteredReviewHistory={historyFilters.filteredReviewHistory}
-				filters={historyFilters}
-				isViewingHistory={isViewingHistory}
-				isPreviousReviewsOpen={isPreviousReviewsOpen}
-				onTogglePreviousReviews={() =>
-					setIsPreviousReviewsOpen((current) => !current)
-				}
-				onReturnToLatestReview={handleReturnToLatestReview}
-				selectedHistoryRunId={selectedHistoryView?.entry.run_id}
-				historySelectionLoadingRunId={historySelectionLoadingRunId}
-				historyError={historyError}
-				isHistoryLoading={isHistoryLoading}
-				onSelectHistoryReview={(entry) => {
-					void handleSelectHistoryReview(entry);
-				}}
-			/>
-		) : null;
 
 	const assistantPanel = assistantEnabled ? (
 		<ReviewAssistantPanel
@@ -598,7 +594,6 @@ export function Review() {
 		<DiffWorkspacePage
 			spacing="compact"
 			layout="fixed"
-			topSections={[previousReviewsSection]}
 			bottomSections={[mobileAssistantPanel]}
 			workspace={
 				<DiffWorkspace

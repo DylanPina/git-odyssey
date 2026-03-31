@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/custom/DatePicker";
@@ -34,8 +34,6 @@ type PreviousReviewsSectionProps = {
 	filteredReviewHistory: ReviewHistoryEntry[];
 	filters: UseReviewHistoryFiltersResult;
 	isViewingHistory: boolean;
-	isPreviousReviewsOpen: boolean;
-	onTogglePreviousReviews: () => void;
 	onReturnToLatestReview: () => void;
 	selectedHistoryRunId?: string | null;
 	historySelectionLoadingRunId: string | null;
@@ -49,8 +47,6 @@ export function PreviousReviewsSection({
 	filteredReviewHistory,
 	filters,
 	isViewingHistory,
-	isPreviousReviewsOpen,
-	onTogglePreviousReviews,
 	onReturnToLatestReview,
 	selectedHistoryRunId,
 	historySelectionLoadingRunId,
@@ -62,158 +58,131 @@ export function PreviousReviewsSection({
 	const filteredCountLabel = `Showing ${filteredReviewHistory.length} of ${reviewHistory.length}`;
 
 	return (
-		<section className="rounded-[18px] border border-border-subtle bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
-			<div className="flex flex-col gap-2.5">
-				<div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-					<div className="min-w-0">
-						<div className="flex flex-wrap items-center gap-2">
-							<div className="text-sm font-semibold text-text-primary">
-								Previous Reviews
-							</div>
-							<span className="rounded-full border border-border-subtle bg-[rgba(255,255,255,0.03)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-text-tertiary">
-								{reviewCountLabel}
-							</span>
-							{isPreviousReviewsOpen && filters.hasActiveHistoryFilters ? (
-								<span className="rounded-full border border-[rgba(122,162,255,0.2)] bg-[rgba(122,162,255,0.08)] px-2 py-0.5 text-[11px] text-text-secondary">
-									{filteredCountLabel}
-								</span>
-							) : null}
+		<div className="flex max-h-[inherit] min-h-0 flex-col">
+			<div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-border-subtle px-4 py-3">
+				<div className="min-w-0">
+					<div className="flex flex-wrap items-center gap-2">
+						<div className="text-sm font-semibold text-text-primary">
+							Reviews
 						</div>
-					</div>
-
-					<div className="flex flex-wrap items-center gap-1.5">
-						{isViewingHistory ? (
-							<Button
-								variant="toolbar"
-								size="sm"
-								className="h-8 px-3 text-[11px]"
-								onClick={onReturnToLatestReview}
-							>
-								Return to Latest
-							</Button>
-						) : null}
+						<span className="rounded-full border border-border-subtle bg-[rgba(255,255,255,0.03)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-text-tertiary">
+							{reviewCountLabel}
+						</span>
 						{filters.hasActiveHistoryFilters ? (
-							<Button
-								variant="toolbar"
-								size="sm"
-								className="h-8 px-3 text-[11px]"
-								onClick={filters.resetHistoryFilters}
-							>
-								Clear Filters
-							</Button>
+							<span className="rounded-full border border-[rgba(122,162,255,0.2)] bg-[rgba(122,162,255,0.08)] px-2 py-0.5 text-[11px] text-text-secondary">
+								{filteredCountLabel}
+							</span>
 						) : null}
-						<Button
-							variant="toolbar"
-							size="toolbar-icon"
-							className="size-8"
-							onClick={onTogglePreviousReviews}
-							aria-expanded={isPreviousReviewsOpen}
-							aria-controls="previous-reviews-panel"
-							aria-label={
-								isPreviousReviewsOpen
-									? "Collapse previous reviews"
-									: "Expand previous reviews"
-							}
-							title={
-								isPreviousReviewsOpen
-									? "Collapse previous reviews"
-									: "Expand previous reviews"
-							}
-						>
-							{isPreviousReviewsOpen ? (
-								<ChevronDown className="size-4" />
-							) : (
-								<ChevronRight className="size-4" />
-							)}
-						</Button>
 					</div>
 				</div>
 
-				{isPreviousReviewsOpen ? (
-					<>
-						<div
-							id="previous-reviews-panel"
-							className="grid gap-2 xl:grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,0.72fr))]"
+				<div className="flex flex-wrap items-center gap-1.5">
+					{isViewingHistory ? (
+						<Button
+							variant="toolbar"
+							size="sm"
+							className="h-8 px-3 text-[11px]"
+							onClick={onReturnToLatestReview}
 						>
-							<label className="flex min-w-0 flex-col gap-1">
-								<Label className="text-xs text-text-secondary">Search</Label>
-								<Input
-									value={filters.historySearchQuery}
-									onChange={(event) =>
-										filters.setHistorySearchQuery(event.target.value)
-									}
-									placeholder="Search ids, refs, SHAs, timestamps, or metadata"
-									className="h-9"
-								/>
-							</label>
+							Return to Latest
+						</Button>
+					) : null}
+					{filters.hasActiveHistoryFilters ? (
+						<Button
+							variant="toolbar"
+							size="sm"
+							className="h-8 px-3 text-[11px]"
+							onClick={filters.resetHistoryFilters}
+						>
+							Clear Filters
+						</Button>
+					) : null}
+				</div>
+			</div>
 
-							<label className="flex min-w-0 flex-col gap-1">
-								<Label className="text-xs text-text-secondary">Outcome</Label>
-								<Select
-									value={filters.historyOutcomeFilter}
-									onValueChange={(value) =>
-										filters.setHistoryOutcomeFilter(
-											value as typeof filters.historyOutcomeFilter,
-										)
-									}
-								>
-									<SelectTrigger className="h-9">
-										<SelectValue placeholder="All reviews" />
-									</SelectTrigger>
-									<SelectContent>
-										{REVIEW_HISTORY_OUTCOME_OPTIONS.map((option) => (
-											<SelectItem key={option.value} value={option.value}>
-												{option.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</label>
-
-							<label className="flex min-w-0 flex-col gap-1">
-								<Label className="text-xs text-text-secondary">Severity</Label>
-								<Select
-									value={filters.historySeverityFilter}
-									onValueChange={(value) =>
-										filters.setHistorySeverityFilter(
-											value as typeof filters.historySeverityFilter,
-										)
-									}
-								>
-									<SelectTrigger className="h-9">
-										<SelectValue placeholder="Any severity" />
-									</SelectTrigger>
-									<SelectContent>
-										{REVIEW_HISTORY_SEVERITY_OPTIONS.map((option) => (
-											<SelectItem key={option.value} value={option.value}>
-												{option.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</label>
-
-							<DatePicker
-								label="Generated After"
-								value={filters.historyStartDate}
-								onChange={filters.setHistoryStartDate}
-								id="review-history-start-date"
-								placeholder="Start date"
+			<div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
+				<div className="flex h-full min-h-0 flex-col gap-3">
+					<div className="grid shrink-0 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+						<label className="flex min-w-0 flex-col gap-1 sm:col-span-2 lg:col-span-3 xl:col-span-2">
+							<Label className="text-xs text-text-secondary">Search</Label>
+							<Input
+								value={filters.historySearchQuery}
+								onChange={(event) =>
+									filters.setHistorySearchQuery(event.target.value)
+								}
+								placeholder="Search ids, refs, SHAs, timestamps, or metadata"
+								className="h-9"
 							/>
+						</label>
 
-							<DatePicker
-								label="Generated Before"
-								value={filters.historyEndDate}
-								onChange={filters.setHistoryEndDate}
-								id="review-history-end-date"
-								placeholder="End date"
-							/>
-						</div>
+						<label className="flex min-w-0 flex-col gap-1">
+							<Label className="text-xs text-text-secondary">Outcome</Label>
+							<Select
+								value={filters.historyOutcomeFilter}
+								onValueChange={(value) =>
+									filters.setHistoryOutcomeFilter(
+										value as typeof filters.historyOutcomeFilter,
+									)
+								}
+							>
+								<SelectTrigger className="h-9">
+									<SelectValue placeholder="All reviews" />
+								</SelectTrigger>
+								<SelectContent>
+									{REVIEW_HISTORY_OUTCOME_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</label>
 
-						{historyError ? (
-							<InlineBanner tone="danger" title={historyError} />
-						) : null}
+						<label className="flex min-w-0 flex-col gap-1">
+							<Label className="text-xs text-text-secondary">Severity</Label>
+							<Select
+								value={filters.historySeverityFilter}
+								onValueChange={(value) =>
+									filters.setHistorySeverityFilter(
+										value as typeof filters.historySeverityFilter,
+									)
+								}
+							>
+								<SelectTrigger className="h-9">
+									<SelectValue placeholder="Any severity" />
+								</SelectTrigger>
+								<SelectContent>
+									{REVIEW_HISTORY_SEVERITY_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</label>
 
+						<DatePicker
+							label="Generated After"
+							value={filters.historyStartDate}
+							onChange={filters.setHistoryStartDate}
+							id="review-history-start-date"
+							placeholder="Start date"
+						/>
+
+						<DatePicker
+							label="Generated Before"
+							value={filters.historyEndDate}
+							onChange={filters.setHistoryEndDate}
+							id="review-history-end-date"
+							placeholder="End date"
+						/>
+					</div>
+
+					{historyError ? (
+						<InlineBanner tone="danger" title={historyError} />
+					) : null}
+
+					<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
 						<div className="space-y-2">
 							{filteredReviewHistory.length > 0 ? (
 								filteredReviewHistory.map((entry) => {
@@ -303,10 +272,10 @@ export function PreviousReviewsSection({
 								/>
 							)}
 						</div>
-					</>
-				) : null}
+					</div>
+				</div>
 			</div>
-		</section>
+		</div>
 	);
 }
 

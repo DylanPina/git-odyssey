@@ -137,8 +137,8 @@ describe("useReviewRefSelection", () => {
 				}),
 			{
 				initialProps: {
-					branches: [],
-					commits: [],
+					branches: [] as Branch[],
+					commits: [] as Commit[],
 					isRepoLoading: false,
 				},
 			},

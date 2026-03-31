@@ -32,7 +32,6 @@ export function useReviewLayoutState({
 	const lastOpenedRunIdRef = useRef<string | null>(null);
 	const wasAssistantEnabledRef = useRef(false);
 	const hadReviewContentRef = useRef(Boolean(activeRunId));
-	const [isPreviousReviewsOpen, setIsPreviousReviewsOpen] = useState(false);
 	const [reviewPanelMode, setReviewPanelMode] =
 		useState<ReviewPanelMode>("collapsed");
 	const [assistantTab, setAssistantTab] = useState<ReviewAssistantTab>(() =>
@@ -129,8 +128,6 @@ export function useReviewLayoutState({
 	}, []);
 
 	return {
-		isPreviousReviewsOpen,
-		setIsPreviousReviewsOpen,
 		reviewPanelMode,
 		setReviewPanelMode,
 		assistantTab,

@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 
 import type { ReviewHistoryEntry } from "@/lib/definitions/review";
 import {
@@ -124,27 +124,39 @@ export function useReviewHistoryFilters(
 		Boolean(historyStartDate) ||
 		Boolean(historyEndDate);
 
-	const resetHistoryFilters = () => {
+	const resetHistoryFilters = useCallback(() => {
 		setHistorySearchQuery("");
 		setHistoryOutcomeFilter("all");
 		setHistorySeverityFilter("any");
 		setHistoryStartDate(undefined);
 		setHistoryEndDate(undefined);
-	};
+	}, []);
 
-	return {
-		historySearchQuery,
-		setHistorySearchQuery,
-		historyOutcomeFilter,
-		setHistoryOutcomeFilter,
-		historySeverityFilter,
-		setHistorySeverityFilter,
-		historyStartDate,
-		setHistoryStartDate,
-		historyEndDate,
-		setHistoryEndDate,
-		filteredReviewHistory,
-		hasActiveHistoryFilters,
-		resetHistoryFilters,
-	};
+	return useMemo(
+		() => ({
+			historySearchQuery,
+			setHistorySearchQuery,
+			historyOutcomeFilter,
+			setHistoryOutcomeFilter,
+			historySeverityFilter,
+			setHistorySeverityFilter,
+			historyStartDate,
+			setHistoryStartDate,
+			historyEndDate,
+			setHistoryEndDate,
+			filteredReviewHistory,
+			hasActiveHistoryFilters,
+			resetHistoryFilters,
+		}),
+		[
+			filteredReviewHistory,
+			hasActiveHistoryFilters,
+			historyEndDate,
+			historyOutcomeFilter,
+			historySearchQuery,
+			historySeverityFilter,
+			historyStartDate,
+			resetHistoryFilters,
+		],
+	);
 }
