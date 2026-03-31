@@ -1,7 +1,8 @@
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional
 
-from sqlalchemy import distinct, func, literal, or_, select
+from sqlalchemy import String, distinct, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from core.embedder import EmbeddingEngine
@@ -183,6 +184,13 @@ class Retriever:
         "file_change": 0.6,
         "hunk": 0.6,
     }
+    EXACT_MATCH_BONUSES = {
+        "commit": 0.14,
+        "file_change": 0.18,
+        "hunk": 0.22,
+    }
+    RECENCY_WINDOW_DAYS = 30.0
+    RECENCY_WEIGHT = 0.18
 
     EXCLUDED_FILE_PATTERNS = [
         ".gitignore",
@@ -272,6 +280,55 @@ class Retriever:
             "RENAMED": "renamed",
             "COPIED": "copied",
         }.get(str(status), str(status).lower())
+
+    def _current_timestamp(self) -> int:
+        return int(time.time())
+
+    def _candidate_semantic_score(self, candidate: FilterCandidate) -> float:
+        if candidate.similarity is None:
+            return 0.0
+
+        threshold = self.SIMILARITY_THRESHOLDS.get(candidate.match_type)
+        if threshold is None or threshold <= 0:
+            return 0.0
+
+        clipped_similarity = min(max(candidate.similarity, 0.0), threshold)
+        return max(0.0, 1.0 - (clipped_similarity / threshold))
+
+    def _candidate_recency_score(
+        self,
+        commit_time: int | None,
+        *,
+        now_ts: int | None = None,
+    ) -> float:
+        if commit_time is None:
+            return 0.0
+
+        reference_ts = now_ts if now_ts is not None else self._current_timestamp()
+        age_seconds = max(0, reference_ts - commit_time)
+        age_days = age_seconds / 86400
+        freshness = 1.0 / (1.0 + (age_days / self.RECENCY_WINDOW_DAYS))
+        return freshness * self.RECENCY_WEIGHT
+
+    def _best_exact_match_bonus(
+        self, candidates: list[FilterCandidate]
+    ) -> tuple[float, FilterCandidate | None]:
+        exact_candidates = [candidate for candidate in candidates if candidate.exact_match]
+        if not exact_candidates:
+            return 0.0, None
+
+        best_exact_candidate = min(
+            exact_candidates,
+            key=lambda candidate: (
+                MATCH_TYPE_PRIORITY.get(candidate.match_type, 99),
+                -(candidate.commit_time or 0),
+                candidate.sha,
+            ),
+        )
+        return (
+            self.EXACT_MATCH_BONUSES.get(best_exact_candidate.match_type, 0.0),
+            best_exact_candidate,
+        )
 
     def get_commit(self, sha: str) -> Optional[Commit]:
         query = (
@@ -445,7 +502,7 @@ class Retriever:
 
         return candidates
 
-    def _compile_exact_results(
+    def _compile_ranked_results(
         self,
         candidates: list[FilterCandidate],
         query: str,
@@ -459,70 +516,77 @@ class Retriever:
                 continue
             grouped.setdefault(candidate.sha, []).append(candidate)
 
-        ranked_candidates = [
-            min(group, key=_candidate_display_sort_key)
-            for group in grouped.values()
-            if group
-        ]
-        ranked_candidates.sort(
-            key=lambda candidate: (
-                MATCH_TYPE_PRIORITY.get(candidate.match_type, 99),
-                -(candidate.commit_time or 0),
-                candidate.sha,
-            )
-        )
-
-        return [
-            self._build_filter_result(candidate, query)
-            for candidate in ranked_candidates[:max_results]
-        ]
-
-    def _compile_semantic_results(
-        self,
-        candidates: list[FilterCandidate],
-        query: str,
-        max_results: int,
-        exclude_shas: set[str] | None = None,
-    ) -> list[dict[str, Any]]:
-        grouped: dict[str, list[FilterCandidate]] = {}
-
-        for candidate in candidates:
-            if exclude_shas and candidate.sha in exclude_shas:
-                continue
-            grouped.setdefault(candidate.sha, []).append(candidate)
-
-        ranked_candidates: list[tuple[FilterCandidate, FilterCandidate]] = []
+        now_ts = self._current_timestamp()
+        ranked_candidates: list[
+            tuple[float, float, float, float, FilterCandidate, float | None]
+        ] = []
         for group in grouped.values():
             if not group:
                 continue
 
-            ranking_candidate = min(
-                group,
+            semantic_candidates = [
+                candidate for candidate in group if candidate.similarity is not None
+            ]
+            best_semantic_candidate = max(
+                semantic_candidates,
                 key=lambda candidate: (
-                    candidate.similarity
-                    if candidate.similarity is not None
-                    else float("inf"),
-                    MATCH_TYPE_PRIORITY.get(candidate.match_type, 99),
+                    self._candidate_semantic_score(candidate),
+                    -(MATCH_TYPE_PRIORITY.get(candidate.match_type, 99)),
                     -(candidate.commit_time or 0),
                     candidate.sha,
                 ),
+                default=None,
             )
-            display_candidate = min(group, key=_candidate_display_sort_key)
-            ranked_candidates.append((ranking_candidate, display_candidate))
+            semantic_score = (
+                self._candidate_semantic_score(best_semantic_candidate)
+                if best_semantic_candidate is not None
+                else 0.0
+            )
+            exact_bonus, best_exact_candidate = self._best_exact_match_bonus(group)
+            commit_time = max(
+                (candidate.commit_time for candidate in group if candidate.commit_time),
+                default=None,
+            )
+            recency_score = self._candidate_recency_score(commit_time, now_ts=now_ts)
+            final_score = semantic_score + exact_bonus + recency_score
+
+            display_candidate = (
+                best_exact_candidate
+                if best_exact_candidate is not None
+                else min(group, key=_candidate_display_sort_key)
+            )
+            similarity = (
+                best_semantic_candidate.similarity
+                if best_semantic_candidate is not None
+                else None
+            )
+            ranked_candidates.append(
+                (
+                    final_score,
+                    exact_bonus,
+                    semantic_score,
+                    recency_score,
+                    display_candidate,
+                    similarity,
+                )
+            )
 
         ranked_candidates.sort(
-            key=lambda pair: (
-                pair[0].similarity if pair[0].similarity is not None else float("inf"),
-                MATCH_TYPE_PRIORITY.get(pair[1].match_type, 99),
-                -(pair[0].commit_time or 0),
-                pair[0].sha,
+            key=lambda item: (
+                -item[0],
+                -item[1],
+                -item[2],
+                -item[3],
+                MATCH_TYPE_PRIORITY.get(item[4].match_type, 99),
+                -(item[4].commit_time or 0),
+                item[4].sha,
             )
         )
 
         results: list[dict[str, Any]] = []
-        for ranking_candidate, display_candidate in ranked_candidates:
+        for _, _, _, _, display_candidate, similarity in ranked_candidates:
             result = self._build_filter_result(display_candidate, query)
-            result["similarity"] = ranking_candidate.similarity
+            result["similarity"] = similarity
             results.append(result)
             if len(results) >= max_results:
                 break
@@ -545,9 +609,7 @@ class Retriever:
                 literal("commit").label("match_type"),
                 literal(None).label("similarity"),
                 SQLCommit.time.label("commit_time"),
-                func.coalesce(SQLCommit.summary, SQLCommit.message).label(
-                    "preview_source"
-                ),
+                SQLCommit.message.label("preview_source"),
                 literal("text").label("preview_kind"),
                 literal(None).label("file_change_id"),
                 literal(None).label("hunk_id"),
@@ -560,10 +622,7 @@ class Retriever:
                 literal(None).label("preview_new_lines"),
             ).where(
                 SQLCommit.sha.in_(commit_shas),
-                or_(
-                    SQLCommit.message.ilike(pattern, escape="\\"),
-                    SQLCommit.summary.ilike(pattern, escape="\\"),
-                ),
+                SQLCommit.message.ilike(pattern, escape="\\"),
             )
         ).mappings().all()
 
@@ -573,9 +632,7 @@ class Retriever:
                 literal("file_change").label("match_type"),
                 literal(None).label("similarity"),
                 SQLCommit.time.label("commit_time"),
-                func.coalesce(SQLFileChange.summary, file_path_expr).label(
-                    "preview_source"
-                ),
+                file_path_expr.label("preview_source"),
                 literal("text").label("preview_kind"),
                 SQLFileChange.id.label("file_change_id"),
                 literal(None).label("hunk_id"),
@@ -593,7 +650,7 @@ class Retriever:
                 or_(
                     SQLFileChange.new_path.ilike(pattern, escape="\\"),
                     SQLFileChange.old_path.ilike(pattern, escape="\\"),
-                    SQLFileChange.summary.ilike(pattern, escape="\\"),
+                    SQLFileChange.status.cast(String).ilike(pattern, escape="\\"),
                 ),
             )
         ).mappings().all()
@@ -649,9 +706,7 @@ class Retriever:
                 literal("commit").label("match_type"),
                 commit_similarity.label("similarity"),
                 SQLCommit.time.label("commit_time"),
-                func.coalesce(SQLCommit.summary, SQLCommit.message).label(
-                    "preview_source"
-                ),
+                SQLCommit.message.label("preview_source"),
                 literal("text").label("preview_kind"),
                 literal(None).label("file_change_id"),
                 literal(None).label("hunk_id"),
@@ -676,9 +731,7 @@ class Retriever:
                 literal("file_change").label("match_type"),
                 fc_similarity.label("similarity"),
                 SQLCommit.time.label("commit_time"),
-                func.coalesce(SQLFileChange.summary, file_path_expr).label(
-                    "preview_source"
-                ),
+                file_path_expr.label("preview_source"),
                 literal("text").label("preview_kind"),
                 SQLFileChange.id.label("file_change_id"),
                 literal(None).label("hunk_id"),
@@ -706,9 +759,7 @@ class Retriever:
                 literal("hunk").label("match_type"),
                 hunk_similarity.label("similarity"),
                 SQLCommit.time.label("commit_time"),
-                func.coalesce(SQLDiffHunk.summary, SQLDiffHunk.content).label(
-                    "preview_source"
-                ),
+                SQLDiffHunk.content.label("preview_source"),
                 literal("diff").label("preview_kind"),
                 SQLDiffHunk.file_change_id.label("file_change_id"),
                 SQLDiffHunk.id.label("hunk_id"),
@@ -801,36 +852,20 @@ class Retriever:
                 for sha in ordered_shas
             ]
 
-        results: list[dict[str, Any]] = []
         exact_candidates = self._fetch_exact_candidates(filtered_shas, normalized_query)
-        if exact_candidates:
-            results.extend(
-                self._compile_exact_results(
-                    exact_candidates,
-                    normalized_query,
-                    max_results,
-                )
-            )
-
-        if len(results) < max_results:
-            query_embedding = self._get_query_embedding(normalized_query)
-        else:
-            query_embedding = None
-
-        if query_embedding and len(results) < max_results:
+        query_embedding = self._get_query_embedding(normalized_query)
+        semantic_candidates: list[FilterCandidate] = []
+        if query_embedding:
             semantic_candidates = self._fetch_semantic_candidates(
                 filtered_shas,
                 query_embedding,
             )
-            if semantic_candidates:
-                results.extend(
-                    self._compile_semantic_results(
-                        semantic_candidates,
-                        normalized_query,
-                        max_results - len(results),
-                        exclude_shas={result["sha"] for result in results},
-                    )
-                )
+
+        results = self._compile_ranked_results(
+            [*exact_candidates, *semantic_candidates],
+            normalized_query,
+            max_results,
+        )
 
         logger.info("Found %s relevant commits", len(results))
         return results

@@ -174,10 +174,16 @@ class EmbeddingEngineTests(unittest.TestCase):
         )
 
     def test_embed_repo_batches_commit_and_hunks_by_token_limit(self) -> None:
-        embedder = RecordingEmbeddingEngine()
+        embedder = RecordingEmbeddingEngine(token_limit=100)
         first_hunk = SimpleNamespace(content="1234", semantic_embedding=None)
         second_hunk = SimpleNamespace(content="5678", semantic_embedding=None)
-        file_change = SimpleNamespace(hunks=[first_hunk, second_hunk])
+        file_change = SimpleNamespace(
+            hunks=[first_hunk, second_hunk],
+            old_path="src/search.ts",
+            new_path="src/search.ts",
+            status=SimpleNamespace(value="modified"),
+            semantic_embedding=None,
+        )
         commit = SimpleNamespace(
             author="Casey",
             message="alpha",
@@ -189,9 +195,9 @@ class EmbeddingEngineTests(unittest.TestCase):
         embedder.embed_repo(repo)
 
         self.assertEqual(len(embedder.batches), 2)
-        self.assertEqual(len(embedder.batches[0]), 1)
-        self.assertEqual(len(embedder.batches[1]), 2)
+        self.assertEqual(sum(len(batch) for batch in embedder.batches), 4)
         self.assertIsNotNone(commit.semantic_embedding)
+        self.assertIsNotNone(file_change.semantic_embedding)
         self.assertIsNotNone(first_hunk.semantic_embedding)
         self.assertIsNotNone(second_hunk.semantic_embedding)
 
@@ -199,7 +205,13 @@ class EmbeddingEngineTests(unittest.TestCase):
         embedder = RecordingEmbeddingEngine(token_limit=6, max_input_tokens=4)
         first_hunk = SimpleNamespace(content="12345678", semantic_embedding=None)
         second_hunk = SimpleNamespace(content="abcd", semantic_embedding=None)
-        file_change = SimpleNamespace(hunks=[first_hunk, second_hunk])
+        file_change = SimpleNamespace(
+            hunks=[first_hunk, second_hunk],
+            old_path="src/a.ts",
+            new_path="src/a.ts",
+            status=SimpleNamespace(value="modified"),
+            semantic_embedding=None,
+        )
         commit = SimpleNamespace(
             author="Casey",
             message=None,
@@ -210,9 +222,50 @@ class EmbeddingEngineTests(unittest.TestCase):
 
         embedder.embed_repo(repo)
 
-        self.assertEqual(embedder.batches, [["1234"], ["abcd"]])
+        flattened_batches = [text for batch in embedder.batches for text in batch]
+        self.assertTrue(flattened_batches)
+        self.assertTrue(all(len(text) <= 4 for text in flattened_batches))
+        self.assertIsNotNone(file_change.semantic_embedding)
         self.assertIsNotNone(first_hunk.semantic_embedding)
         self.assertIsNotNone(second_hunk.semantic_embedding)
+
+    def test_embed_repo_builds_search_docs_without_using_summaries(self) -> None:
+        embedder = RecordingEmbeddingEngine(token_limit=1000)
+        hunk = SimpleNamespace(
+            content="- const oldToken = false;\n+ const authToken = true;\n",
+            semantic_embedding=None,
+            summary="should not be used",
+        )
+        file_change = SimpleNamespace(
+            hunks=[hunk],
+            old_path="src/auth.ts",
+            new_path="src/auth.ts",
+            status=SimpleNamespace(value="modified"),
+            semantic_embedding=None,
+            summary="ignored file summary",
+        )
+        commit = SimpleNamespace(
+            author="Casey",
+            message="Refine authentication flow",
+            semantic_embedding=None,
+            file_changes=[file_change],
+            summary="ignored commit summary",
+        )
+        repo = SimpleNamespace(commits={"abc123": commit})
+
+        embedder.embed_repo(repo)
+
+        flattened_batches = [text for batch in embedder.batches for text in batch]
+        self.assertTrue(
+            any("Commit Message: Refine authentication flow" in text for text in flattened_batches)
+        )
+        self.assertTrue(
+            any("File Change: modified src/auth.ts" in text for text in flattened_batches)
+        )
+        self.assertTrue(
+            any("Hunk Diff:" in text and "authToken = true;" in text for text in flattened_batches)
+        )
+        self.assertFalse(any("ignored" in text for text in flattened_batches))
 
     def test_engine_captures_observed_dimension(self) -> None:
         client = Mock()

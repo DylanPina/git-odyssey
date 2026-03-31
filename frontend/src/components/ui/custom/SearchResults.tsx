@@ -2,6 +2,10 @@ import { useMemo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  SearchResultCodePreview,
+  normalizeSemanticPreviewSnippet,
+} from "@/components/ui/custom/SearchResultCodePreview";
 import { SidebarGroup } from "@/components/ui/sidebar";
 import { SearchResultDiffPreview } from "@/components/ui/custom/SearchResultDiffPreview";
 import type {
@@ -115,7 +119,7 @@ export default function SearchResults(props: {
         {displayedCount === 0 ? (
           <EmptyState
             title="No matching commits"
-            description="Try a different phrase, path, SHA fragment, or summary term."
+            description="Try a different phrase, path, SHA fragment, or diff term."
           />
         ) : hasSearchResults ? (
           <div className="space-y-2">
@@ -127,6 +131,12 @@ export default function SearchResults(props: {
                 match?.highlight_strategy === "exact_query";
               const preview = match?.preview?.trim() || null;
               const isDiffPreview = match?.preview_kind === "diff";
+              const shouldUseCodePreview = Boolean(
+                preview &&
+                  isDiffPreview &&
+                  match?.file_path &&
+                  normalizeSemanticPreviewSnippet(preview),
+              );
               const handleOpenResult = () => {
                 if (!repoPath) {
                   onCommitClick(result.sha);
@@ -143,53 +153,75 @@ export default function SearchResults(props: {
               };
 
               return (
-                <button
+                <div
                   key={result.sha}
-                  type="button"
                   className="workspace-panel flex w-full min-w-0 flex-col gap-2 overflow-hidden px-3 py-3 text-left transition-colors hover:bg-control/60"
-                  onClick={handleOpenResult}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-mono text-xs text-[#c7d8ff]">
-                        {result.sha.substring(0, 8)}
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 flex-col gap-2 text-left"
+                    onClick={handleOpenResult}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-mono text-xs text-[#c7d8ff]">
+                          {result.sha.substring(0, 8)}
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-sm leading-6 text-text-primary">
+                          {commit?.message || `Commit ${result.sha.substring(0, 8)}`}
+                        </div>
                       </div>
-                      <div className="mt-1 line-clamp-2 text-sm leading-6 text-text-primary">
-                        {commit?.message || `Commit ${result.sha.substring(0, 8)}`}
+                      <div className="shrink-0 font-mono text-[11px] text-text-tertiary">
+                        {commit?.time
+                          ? new Date(commit.time * 1000).toLocaleDateString()
+                          : null}
                       </div>
                     </div>
-                    <div className="shrink-0 font-mono text-[11px] text-text-tertiary">
-                      {commit?.time
-                        ? new Date(commit.time * 1000).toLocaleDateString()
-                        : null}
-                    </div>
-                  </div>
 
-                  {badgeLabel || match?.file_path ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {badgeLabel ? (
-                        <span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-primary">
-                          {badgeLabel}
-                        </span>
-                      ) : null}
-                      {match?.file_path ? (
-                        <span className="truncate font-mono text-[11px] text-text-secondary">
-                          {match.file_path}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
+                    {badgeLabel || match?.file_path ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {badgeLabel ? (
+                          <span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-primary">
+                            {badgeLabel}
+                          </span>
+                        ) : null}
+                        {match?.file_path ? (
+                          <span className="truncate font-mono text-[11px] text-text-secondary">
+                            {match.file_path}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </button>
 
                   {preview ? (
-                    isDiffPreview ? (
-                      <SearchResultDiffPreview value={preview} />
+                    shouldUseCodePreview ? (
+                      <SearchResultCodePreview
+                        value={preview}
+                        filePath={match?.file_path ?? ""}
+                        onOpen={handleOpenResult}
+                      />
+                    ) : isDiffPreview ? (
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={handleOpenResult}
+                      >
+                        <SearchResultDiffPreview value={preview} />
+                      </button>
                     ) : (
-                      <div className="line-clamp-3 text-xs leading-5 text-text-secondary">
-                        {renderHighlightedText(preview, query, shouldHighlightPreview)}
-                      </div>
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={handleOpenResult}
+                      >
+                        <div className="line-clamp-3 text-xs leading-5 text-text-secondary">
+                          {renderHighlightedText(preview, query, shouldHighlightPreview)}
+                        </div>
+                      </button>
                     )
                   ) : null}
-                </button>
+                </div>
               );
             })}
 

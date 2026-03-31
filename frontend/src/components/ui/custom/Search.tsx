@@ -74,7 +74,7 @@ export default function Search({
       </InputGroupAddon>
       <InputGroupInput
         id={inputId}
-        placeholder="Search commits, files, paths, or summaries"
+        placeholder="Search commits, files, paths, or diffs"
         aria-keyshortcuts="Meta+K Control+K"
         className="px-1.5 py-3 pr-3 text-sm placeholder:text-text-tertiary"
         value={query}

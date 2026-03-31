@@ -7,6 +7,31 @@ from infrastructure.errors import AIRequestError
 from utils.logger import logger
 
 
+def _normalize_diff_text(value: str | None) -> str:
+    if not value:
+        return ""
+
+    normalized_lines: list[str] = []
+    for raw_line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if not raw_line:
+            continue
+
+        prefix = raw_line[0] if raw_line[:1] in {"+", "-", " "} else ""
+        body = raw_line[1:] if prefix else raw_line
+        compact_body = " ".join(body.split())
+        if compact_body:
+            normalized_lines.append(f"{prefix}{compact_body}")
+
+    return "\n".join(normalized_lines)
+
+
+def _format_status(value: Any) -> str:
+    raw_value = getattr(value, "value", value)
+    if raw_value is None:
+        return "modified"
+    return str(raw_value).replace("_", " ").lower()
+
+
 class BaseEmbeddingEngine(ABC):
     """Abstract base class for embedding implementations."""
 
@@ -49,7 +74,7 @@ class BaseEmbeddingEngine(ABC):
         """Get batch embeddings for a list of texts."""
 
     def embed_repo(self, repo: Repo) -> None:
-        """Generate semantic embeddings for commit messages and hunk patches."""
+        """Generate semantic embeddings for commit, file, and hunk search docs."""
         print(
             f"Starting embedding generation for repository with {len(repo.commits)} commits..."
         )
@@ -59,9 +84,18 @@ class BaseEmbeddingEngine(ABC):
 
         for commit in repo.commits.values():
             if commit.message is not None and commit.semantic_embedding is None:
-                commit_info = (
-                    f"Commit Author: {commit.author}, Commit Message: {commit.message}"
-                )
+                changed_files = []
+                for file_change in commit.file_changes:
+                    file_path = file_change.new_path or file_change.old_path
+                    changed_files.append(
+                        f"{_format_status(file_change.status)} {file_path}"
+                    )
+                commit_info_parts = [f"Commit Message: {commit.message.strip()}"]
+                if changed_files:
+                    commit_info_parts.append(
+                        "Changed Files:\n" + "\n".join(changed_files)
+                    )
+                commit_info = "\n\n".join(commit_info_parts)
                 commit_payload = self._build_embedding_payload(
                     commit, commit_info, "semantic_embedding"
                 )
@@ -79,12 +113,55 @@ class BaseEmbeddingEngine(ABC):
                     num_tokens += commit_tokens
 
             for file_change in commit.file_changes:
+                if file_change.semantic_embedding is None:
+                    file_path = file_change.new_path or file_change.old_path
+                    normalized_hunks = [
+                        _normalize_diff_text(hunk.content)
+                        for hunk in file_change.hunks
+                        if hunk.content
+                    ]
+                    file_change_parts = [
+                        f"File Change: {_format_status(file_change.status)} {file_path}"
+                    ]
+                    if normalized_hunks:
+                        file_change_parts.append(
+                            "Diff:\n" + "\n\n".join(normalized_hunks)
+                        )
+                    file_change_payload = self._build_embedding_payload(
+                        file_change,
+                        "\n\n".join(file_change_parts),
+                        "semantic_embedding",
+                    )
+                    if file_change_payload is not None:
+                        repo_object, file_change_tokens = file_change_payload
+                        if (
+                            repo_objects
+                            and file_change_tokens + num_tokens > self.token_limit
+                        ):
+                            print(
+                                f"Reached token limit of {self.token_limit} with {num_tokens} tokens. Embedding {len(repo_objects)} objects."
+                            )
+                            self.embed_batch(repo_objects)
+                            total_repo_objects += len(repo_objects)
+                            repo_objects = []
+                            num_tokens = 0
+                        repo_objects.append(repo_object)
+                        num_tokens += file_change_tokens
+
                 for hunk in file_change.hunks:
                     if hunk.content is None or hunk.semantic_embedding is not None:
                         continue
 
+                    normalized_hunk = _normalize_diff_text(hunk.content)
                     hunk_payload = self._build_embedding_payload(
-                        hunk, hunk.content, "semantic_embedding"
+                        hunk,
+                        (
+                            "Hunk Diff:\n"
+                            f"{normalized_hunk}"
+                            if normalized_hunk
+                            else hunk.content
+                        ),
+                        "semantic_embedding",
                     )
                     if hunk_payload is None:
                         continue

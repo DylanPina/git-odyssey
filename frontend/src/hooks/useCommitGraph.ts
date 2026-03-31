@@ -30,6 +30,7 @@ import {
   type LayoutDirection,
 } from "@/lib/graph/layout";
 import type { FilterSearchResult } from "@/lib/definitions/api";
+import { getRepoStableKey } from "@/lib/repoPaths";
 
 type UseCommitGraphArgs = {
   repoPath?: string | null;
@@ -60,6 +61,87 @@ type UseCommitGraph = {
   handleClearFilters: () => void;
   reactFlowInstanceRef: MutableRefObject<ReactFlowInstance | null>;
 };
+
+type PersistedRepoSearchState = {
+  searchQuery: string;
+  lastSearchQuery: string;
+  searchResults: FilterSearchResult[];
+  searchResultCommitShas: string[] | null;
+};
+
+const REPO_SEARCH_STATE_STORAGE_PREFIX = "git-odyssey-repo-search:";
+
+function getRepoSearchStorageKey(repoPath?: string | null): string | null {
+  if (!repoPath) {
+    return null;
+  }
+
+  return `${REPO_SEARCH_STATE_STORAGE_PREFIX}${getRepoStableKey(repoPath)}`;
+}
+
+function loadRepoSearchState(
+  repoPath?: string | null
+): PersistedRepoSearchState | null {
+  const storageKey = getRepoSearchStorageKey(repoPath);
+  if (!storageKey) {
+    return null;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(storageKey);
+    if (!stored) {
+      return null;
+    }
+
+    const parsed = JSON.parse(stored) as Partial<PersistedRepoSearchState>;
+    return {
+      searchQuery:
+        typeof parsed.searchQuery === "string" ? parsed.searchQuery : "",
+      lastSearchQuery:
+        typeof parsed.lastSearchQuery === "string" ? parsed.lastSearchQuery : "",
+      searchResults: Array.isArray(parsed.searchResults)
+        ? (parsed.searchResults as FilterSearchResult[])
+        : [],
+      searchResultCommitShas: Array.isArray(parsed.searchResultCommitShas)
+        ? parsed.searchResultCommitShas.filter(
+            (sha): sha is string => typeof sha === "string"
+          )
+        : null,
+    };
+  } catch (error) {
+    console.error("Failed to load repo search state from localStorage:", error);
+    return null;
+  }
+}
+
+function saveRepoSearchState(
+  repoPath: string,
+  state: PersistedRepoSearchState
+): void {
+  const storageKey = getRepoSearchStorageKey(repoPath);
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(state));
+  } catch (error) {
+    console.error("Failed to save repo search state to localStorage:", error);
+  }
+}
+
+function clearRepoSearchState(repoPath?: string | null): void {
+  const storageKey = getRepoSearchStorageKey(repoPath);
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(storageKey);
+  } catch (error) {
+    console.error("Failed to clear repo search state from localStorage:", error);
+  }
+}
 
 function applySelectedCommitShas(nodes: Node[], selectedCommitShas: Set<string>) {
   let changed = false;
@@ -141,6 +223,7 @@ export function useCommitGraph({
   const [summaryBySha, setSummaryBySha] = useState<Record<string, string | null>>(
     {}
   );
+  const [searchStateHydrated, setSearchStateHydrated] = useState<boolean>(false);
 
   const commitsWithLocalSummary = useMemo(
     () =>
@@ -259,12 +342,47 @@ export function useCommitGraph({
   useEffect(() => {
     setFilters({ ...EMPTY_FILTERS });
     setFocusedCommitSha(null);
-    setSearchQuery("");
-    setLastSearchQuery("");
-    setSearchResults([]);
-    setSearchResultCommitShas(null);
     setHasAnimated(false);
+
+    const persistedSearchState = loadRepoSearchState(repoPath);
+    setSearchQuery(persistedSearchState?.searchQuery ?? "");
+    setLastSearchQuery(persistedSearchState?.lastSearchQuery ?? "");
+    setSearchResults(persistedSearchState?.searchResults ?? []);
+    setSearchResultCommitShas(
+      persistedSearchState?.searchResultCommitShas ?? null
+    );
+    setSearchStateHydrated(true);
   }, [repoPath]);
+
+  useEffect(() => {
+    if (!repoPath || !searchStateHydrated) {
+      return;
+    }
+
+    if (
+      !searchQuery &&
+      !lastSearchQuery &&
+      searchResults.length === 0 &&
+      searchResultCommitShas == null
+    ) {
+      clearRepoSearchState(repoPath);
+      return;
+    }
+
+    saveRepoSearchState(repoPath, {
+      searchQuery,
+      lastSearchQuery,
+      searchResults,
+      searchResultCommitShas,
+    });
+  }, [
+    lastSearchQuery,
+    repoPath,
+    searchQuery,
+    searchResultCommitShas,
+    searchResults,
+    searchStateHydrated,
+  ]);
 
   useEffect(() => {
     const visibleCommitShas = new Set(commits.map((commit) => commit.sha));
