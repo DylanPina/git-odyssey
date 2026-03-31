@@ -189,6 +189,7 @@ class ReviewRouterTests(unittest.TestCase):
         result = asyncio.run(
             review_router.list_review_history(
                 repo_path="/tmp/example-repo",
+                target_mode="compare",
                 base_ref="main",
                 head_ref="feature",
                 review_session_service=review_session_service,
@@ -198,8 +199,10 @@ class ReviewRouterTests(unittest.TestCase):
         self.assertEqual(result, expected)
         review_session_service.list_history.assert_called_once_with(
             repo_path="/tmp/example-repo",
+            target_mode="compare",
             base_ref="main",
             head_ref="feature",
+            commit_sha=None,
         )
 
     def test_create_review_run_returns_service_payload(self) -> None:

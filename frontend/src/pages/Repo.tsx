@@ -194,11 +194,11 @@ function RepoWorkspace() {
 
 		const storedReviewRefs = getStoredReviewRefs(getReviewRefsStorageKey(repoPath));
 		navigate(
-			buildReviewRoute(
-				repoPath,
-				storedReviewRefs?.baseRef ?? null,
-				storedReviewRefs?.headRef ?? null,
-			),
+			buildReviewRoute(repoPath, {
+				mode: "compare",
+				baseRef: storedReviewRefs?.baseRef ?? null,
+				headRef: storedReviewRefs?.headRef ?? null,
+			}),
 		);
 	}, [navigate, repoPath]);
 	const desktopTitleBarChrome = useMemo(

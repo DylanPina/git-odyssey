@@ -10,7 +10,7 @@ import type {
 } from "@/lib/definitions/api";
 import type { Commit } from "@/lib/definitions/repo";
 import type { DiffSearchContext } from "@/lib/diff";
-import { buildCommitRoute } from "@/lib/repoPaths";
+import { buildReviewRoute } from "@/lib/repoPaths";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -134,11 +134,11 @@ export default function SearchResults(props: {
                 }
 
                 navigate(
-                  buildCommitRoute(
-                    repoPath,
-                    result.sha,
-                    getSearchContext(result, query),
-                  ),
+                  buildReviewRoute(repoPath, {
+                    mode: "commit",
+                    commitSha: result.sha,
+                    searchContext: getSearchContext(result, query),
+                  }),
                 );
               };
 

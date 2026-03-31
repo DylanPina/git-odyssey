@@ -56,6 +56,7 @@ describe("useReviewRefSelection", () => {
 		const { result } = renderHook(() =>
 			useReviewRefSelection({
 				repoPath,
+				targetMode: "compare",
 				queryBaseRef: null,
 				queryHeadRef: null,
 				branches: [
@@ -76,7 +77,11 @@ describe("useReviewRefSelection", () => {
 		expect(result.current.baseTipCommit?.sha).toBe("aaaaaaaa");
 		expect(result.current.headTipCommit?.sha).toBe("bbbbbbbb");
 		expect(navigate).toHaveBeenCalledWith(
-			buildReviewRoute(repoPath, "main", "feature"),
+			buildReviewRoute(repoPath, {
+				mode: "compare",
+				baseRef: "main",
+				headRef: "feature",
+			}),
 			{ replace: true },
 		);
 	});
@@ -87,6 +92,7 @@ describe("useReviewRefSelection", () => {
 		const { result } = renderHook(() =>
 			useReviewRefSelection({
 				repoPath,
+				targetMode: "compare",
 				queryBaseRef: "missing",
 				queryHeadRef: "feature",
 				branches: [
@@ -128,6 +134,7 @@ describe("useReviewRefSelection", () => {
 			}) =>
 				useReviewRefSelection({
 					repoPath,
+					targetMode: "compare",
 					queryBaseRef: null,
 					queryHeadRef: null,
 					branches,

@@ -205,27 +205,35 @@ export interface GitOdysseyDesktopApi {
   ): Promise<CommitsResponse>;
   compareReviewTarget(input: {
     repoPath: string;
-    baseRef: string;
-    headRef: string;
+    targetMode: "compare" | "commit";
+    baseRef?: string;
+    headRef?: string;
+    commitSha?: string | null;
     contextLines: number;
   }): Promise<ReviewCompareResponse>;
   generateReview(input: {
     repoPath: string;
-    baseRef: string;
-    headRef: string;
+    targetMode: "compare" | "commit";
+    baseRef?: string;
+    headRef?: string;
+    commitSha?: string | null;
     contextLines: number;
   }): Promise<ReviewReport>;
   createReviewSession(input: {
     repoPath: string;
-    baseRef: string;
-    headRef: string;
+    targetMode: "compare" | "commit";
+    baseRef?: string;
+    headRef?: string;
+    commitSha?: string | null;
     contextLines: number;
   }): Promise<ReviewSession>;
   getReviewSession(sessionId: string): Promise<ReviewSession>;
   getReviewHistory(input: {
     repoPath: string;
-    baseRef: string;
-    headRef: string;
+    targetMode: "compare" | "commit";
+    baseRef?: string;
+    headRef?: string;
+    commitSha?: string | null;
   }): Promise<ReviewHistoryResponse>;
   startReviewRun(input: {
     sessionId: string;

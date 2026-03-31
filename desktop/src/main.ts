@@ -304,8 +304,10 @@ function registerIpcHandlers(): void {
       method: "POST",
       body: {
         repo_path: project.path,
-        base_ref: input.baseRef,
-        head_ref: input.headRef,
+        target_mode: input.targetMode,
+        base_ref: input.baseRef ?? "",
+        head_ref: input.headRef ?? "",
+        commit_sha: input.commitSha ?? null,
         context_lines: input.contextLines,
       },
     });
@@ -317,8 +319,10 @@ function registerIpcHandlers(): void {
       method: "POST",
       body: {
         repo_path: project.path,
-        base_ref: input.baseRef,
-        head_ref: input.headRef,
+        target_mode: input.targetMode,
+        base_ref: input.baseRef ?? "",
+        head_ref: input.headRef ?? "",
+        commit_sha: input.commitSha ?? null,
         context_lines: input.contextLines,
       },
     });
@@ -330,8 +334,10 @@ function registerIpcHandlers(): void {
       method: "POST",
       body: {
         repo_path: project.path,
-        base_ref: input.baseRef,
-        head_ref: input.headRef,
+        target_mode: input.targetMode,
+        base_ref: input.baseRef ?? "",
+        head_ref: input.headRef ?? "",
+        commit_sha: input.commitSha ?? null,
         context_lines: input.contextLines,
       },
     });
@@ -345,9 +351,17 @@ function registerIpcHandlers(): void {
     const project = requireConfigStore().recordRecentProject(input.repoPath);
     const params = new URLSearchParams({
       repo_path: project.path,
-      base_ref: input.baseRef,
-      head_ref: input.headRef,
+      target_mode: input.targetMode,
     });
+    if (input.baseRef) {
+      params.set("base_ref", input.baseRef);
+    }
+    if (input.headRef) {
+      params.set("head_ref", input.headRef);
+    }
+    if (input.commitSha) {
+      params.set("commit_sha", input.commitSha);
+    }
     return requireBackendManager().request(`/api/review/history?${params.toString()}`);
   });
 

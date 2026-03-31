@@ -1325,10 +1325,9 @@ export const DiffWorkspace = forwardRef<
   const hasDesktopResize = Boolean(desktopResize);
   const isDesktopFileTreeVisible = !isRightRailFullscreen;
   const isDesktopFileTreeExpanded = isDesktopFileTreeVisible && !isFileTreeCollapsed;
-  const isDesktopRightRailVisible =
-    Boolean(rightRail || rightRailCollapsedSummary) && !isRightRailFullscreen;
+  const isDesktopRightRailVisible = Boolean(rightRail || rightRailCollapsedSummary);
   const isDesktopRightRailExpanded =
-    isDesktopRightRailVisible && isRightRailOpen;
+    isDesktopRightRailVisible && (isRightRailOpen || isRightRailFullscreen);
   const desktopPanelWidths = useMemo(
     () =>
       resolveDesktopPanelWidths({
@@ -1374,7 +1373,7 @@ export const DiffWorkspace = forwardRef<
       desktopResize?.rightRail.preferredWidth ?? desktopPanelWidths.rightRail,
   });
   const rightRailStyle =
-    hasDesktopResize && isDesktopRightRailVisible
+    hasDesktopResize && isDesktopRightRailVisible && !isRightRailFullscreen
       ? ({
           width: `${desktopPanelWidths.rightRail}px`,
           minWidth: `${desktopPanelWidths.rightRail}px`,
@@ -1671,7 +1670,7 @@ export const DiffWorkspace = forwardRef<
                       : "w-[3.75rem]",
                 )}
               >
-                {desktopResize && isDesktopRightRailExpanded ? (
+                {desktopResize && isDesktopRightRailExpanded && !isRightRailFullscreen ? (
                   <DiffWorkspaceResizeHandle
                     label="review panel"
                     side="right"
@@ -1688,7 +1687,7 @@ export const DiffWorkspace = forwardRef<
                       aria-hidden={!isRightRailOpen}
                       className={cn(
                         "absolute inset-0 min-h-0 transition-opacity duration-75 ease-out",
-                        isRightRailOpen
+                        isRightRailOpen || isRightRailFullscreen
                           ? "pointer-events-auto opacity-100"
                           : "pointer-events-none opacity-0",
                       )}
@@ -1701,7 +1700,7 @@ export const DiffWorkspace = forwardRef<
                       aria-hidden={isRightRailOpen}
                       className={cn(
                         "absolute inset-0 min-h-0 transition-opacity duration-75 ease-out",
-                        isRightRailOpen
+                        isRightRailOpen || isRightRailFullscreen
                           ? "pointer-events-none opacity-0"
                           : "pointer-events-auto opacity-100",
                       )}

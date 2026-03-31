@@ -12,6 +12,7 @@ import {
 
 type UseReviewRefSelectionArgs = {
 	repoPath?: string | null;
+	targetMode: "compare" | "commit";
 	queryBaseRef?: string | null;
 	queryHeadRef?: string | null;
 	branches: Branch[];
@@ -22,6 +23,7 @@ type UseReviewRefSelectionArgs = {
 
 export function useReviewRefSelection({
 	repoPath,
+	targetMode,
 	queryBaseRef,
 	queryHeadRef,
 	branches,
@@ -89,18 +91,22 @@ export function useReviewRefSelection({
 
 	const updateRoute = useCallback(
 		(nextBaseRef: string, nextHeadRef: string) => {
-			if (!repoPath) {
+			if (!repoPath || targetMode !== "compare") {
 				return;
 			}
 
 			navigate(
-				buildReviewRoute(repoPath, nextBaseRef || null, nextHeadRef || null),
+				buildReviewRoute(repoPath, {
+					mode: "compare",
+					baseRef: nextBaseRef || null,
+					headRef: nextHeadRef || null,
+				}),
 				{
 					replace: true,
 				},
 			);
 		},
-		[navigate, repoPath],
+		[navigate, repoPath, targetMode],
 	);
 
 	const setStoredReviewRefs = useCallback(
@@ -114,6 +120,12 @@ export function useReviewRefSelection({
 	);
 
 	useEffect(() => {
+		if (targetMode !== "compare") {
+			setBaseRef("");
+			setHeadRef("");
+			return;
+		}
+
 		const storedReviewRefs = getStoredReviewRefs(reviewRefsStorageKey);
 		const nextBaseRef = queryBaseRef ?? storedReviewRefs?.baseRef ?? "";
 		const nextHeadRef = queryHeadRef ?? storedReviewRefs?.headRef ?? "";
@@ -136,10 +148,15 @@ export function useReviewRefSelection({
 		repoPath,
 		reviewRefsStorageKey,
 		setStoredReviewRefs,
+		targetMode,
 		updateRoute,
 	]);
 
 	useEffect(() => {
+		if (targetMode !== "compare") {
+			return;
+		}
+
 		if (isRepoLoading) {
 			return;
 		}
@@ -180,6 +197,7 @@ export function useReviewRefSelection({
 		queryHeadRef,
 		repoPath,
 		setStoredReviewRefs,
+		targetMode,
 		updateRoute,
 	]);
 

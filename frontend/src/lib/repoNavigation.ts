@@ -1,12 +1,8 @@
 import { matchPath } from "react-router-dom";
 
-export type RepoWorkflowRoute = "repo" | "commit" | "review";
+export type RepoWorkflowRoute = "repo" | "review";
 
 export function getRepoWorkflowRoute(pathname: string): RepoWorkflowRoute | null {
-  if (matchPath("/repo/commit/:commitSha", pathname)) {
-    return "commit";
-  }
-
   if (matchPath("/repo/review", pathname)) {
     return "review";
   }

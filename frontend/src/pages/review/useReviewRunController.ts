@@ -29,14 +29,18 @@ import type { SelectedReviewHistoryView } from "@/pages/review/review-types";
 
 type UseReviewRunControllerArgs = {
 	repoPath?: string | null;
-	baseRef: string;
-	headRef: string;
+	targetMode: "compare" | "commit";
+	baseRef?: string;
+	headRef?: string;
+	commitSha?: string | null;
 };
 
 export function useReviewRunController({
 	repoPath,
-	baseRef,
-	headRef,
+	targetMode,
+	baseRef = "",
+	headRef = "",
+	commitSha = null,
 }: UseReviewRunControllerArgs) {
 	const sessionRequestIdRef = useRef(0);
 	const historyRequestIdRef = useRef(0);
@@ -78,7 +82,7 @@ export function useReviewRunController({
 		setApprovalLoadingById({});
 		historySelectionRequestIdRef.current += 1;
 		lastHistorySyncRunKeyRef.current = null;
-	}, [baseRef, headRef, repoPath]);
+	}, [baseRef, commitSha, headRef, repoPath, targetMode]);
 
 	const refreshSessionState = useCallback(
 		async (sessionId: string, preferredRunId?: string | null) => {
@@ -104,11 +108,15 @@ export function useReviewRunController({
 
 	const loadReviewHistory = useCallback(
 		async ({
+			targetMode: nextTargetMode = targetMode,
 			baseRef: nextBaseRef = baseRef,
 			headRef: nextHeadRef = headRef,
+			commitSha: nextCommitSha = commitSha,
 		}: {
+			targetMode?: "compare" | "commit";
 			baseRef?: string;
 			headRef?: string;
+			commitSha?: string | null;
 		} = {}) => {
 			if (!repoPath) {
 				setHistoryError("No Git project path was provided.");
@@ -116,7 +124,10 @@ export function useReviewRunController({
 				return;
 			}
 
-			if (!nextBaseRef || !nextHeadRef) {
+			if (
+				(nextTargetMode === "compare" && (!nextBaseRef || !nextHeadRef)) ||
+				(nextTargetMode === "commit" && !nextCommitSha)
+			) {
 				setReviewHistory([]);
 				setHistoryError(null);
 				return;
@@ -129,8 +140,10 @@ export function useReviewRunController({
 			try {
 				const nextHistory = await getReviewHistory({
 					repoPath,
-					baseRef: nextBaseRef,
-					headRef: nextHeadRef,
+					targetMode: nextTargetMode,
+					baseRef: nextTargetMode === "compare" ? nextBaseRef : undefined,
+					headRef: nextTargetMode === "compare" ? nextHeadRef : undefined,
+					commitSha: nextTargetMode === "commit" ? nextCommitSha : undefined,
 				});
 				if (historyRequestIdRef.current !== requestId) {
 					return;
@@ -150,23 +163,30 @@ export function useReviewRunController({
 				}
 			}
 		},
-		[baseRef, headRef, repoPath],
+		[baseRef, commitSha, headRef, repoPath, targetMode],
 	);
 
 	const loadSession = useCallback(
 		async ({
+			targetMode: nextTargetMode = targetMode,
 			baseRef: nextBaseRef = baseRef,
 			headRef: nextHeadRef = headRef,
+			commitSha: nextCommitSha = commitSha,
 		}: {
+			targetMode?: "compare" | "commit";
 			baseRef?: string;
 			headRef?: string;
+			commitSha?: string | null;
 		} = {}): Promise<ReviewSession | null> => {
 			if (!repoPath) {
 				setSessionError("No Git project path was provided.");
 				return null;
 			}
 
-			if (!nextBaseRef || !nextHeadRef) {
+			if (
+				(nextTargetMode === "compare" && (!nextBaseRef || !nextHeadRef)) ||
+				(nextTargetMode === "commit" && !nextCommitSha)
+			) {
 				return null;
 			}
 
@@ -179,8 +199,10 @@ export function useReviewRunController({
 				const repoSettings = await getDesktopRepoSettings(repoPath);
 				const nextSession = await createReviewSession({
 					repoPath,
-					baseRef: nextBaseRef,
-					headRef: nextHeadRef,
+					targetMode: nextTargetMode,
+					baseRef: nextTargetMode === "compare" ? nextBaseRef : undefined,
+					headRef: nextTargetMode === "compare" ? nextHeadRef : undefined,
+					commitSha: nextTargetMode === "commit" ? nextCommitSha : undefined,
 					contextLines: repoSettings.contextLines,
 				});
 				if (sessionRequestIdRef.current !== requestId) {
@@ -226,21 +248,29 @@ export function useReviewRunController({
 				}
 			}
 		},
-		[baseRef, headRef, repoPath],
+		[baseRef, commitSha, headRef, repoPath, targetMode],
 	);
 
 	useEffect(() => {
-		if (!repoPath || !baseRef || !headRef) {
+		if (
+			!repoPath ||
+			(targetMode === "compare" && (!baseRef || !headRef)) ||
+			(targetMode === "commit" && !commitSha)
+		) {
 			sessionRequestIdRef.current += 1;
 			setIsSessionLoading(false);
 			return;
 		}
 
-		void loadSession({ baseRef, headRef });
-	}, [baseRef, headRef, loadSession, repoPath]);
+		void loadSession({ targetMode, baseRef, headRef, commitSha });
+	}, [baseRef, commitSha, headRef, loadSession, repoPath, targetMode]);
 
 	useEffect(() => {
-		if (!repoPath || !baseRef || !headRef) {
+		if (
+			!repoPath ||
+			(targetMode === "compare" && (!baseRef || !headRef)) ||
+			(targetMode === "commit" && !commitSha)
+		) {
 			historyRequestIdRef.current += 1;
 			setReviewHistory([]);
 			setIsHistoryLoading(false);
@@ -248,8 +278,8 @@ export function useReviewRunController({
 			return;
 		}
 
-		void loadReviewHistory({ baseRef, headRef });
-	}, [baseRef, headRef, loadReviewHistory, repoPath]);
+		void loadReviewHistory({ targetMode, baseRef, headRef, commitSha });
+	}, [baseRef, commitSha, headRef, loadReviewHistory, repoPath, targetMode]);
 
 	useEffect(() => {
 		if (!session?.id) {
@@ -305,7 +335,11 @@ export function useReviewRunController({
 	);
 
 	useEffect(() => {
-		if (!repoPath || !baseRef || !headRef) {
+		if (
+			!repoPath ||
+			(targetMode === "compare" && (!baseRef || !headRef)) ||
+			(targetMode === "commit" && !commitSha)
+		) {
 			lastHistorySyncRunKeyRef.current = null;
 			return;
 		}
@@ -324,15 +358,17 @@ export function useReviewRunController({
 		}
 
 		lastHistorySyncRunKeyRef.current = syncKey;
-		void loadReviewHistory({ baseRef, headRef });
+		void loadReviewHistory({ targetMode, baseRef, headRef, commitSha });
 	}, [
 		baseRef,
+		commitSha,
 		headRef,
 		currentActiveRun?.completed_at,
 		currentActiveRun?.id,
 		currentActiveRun?.status,
 		loadReviewHistory,
 		repoPath,
+		targetMode,
 	]);
 
 	const clearHistorySelection = useCallback(() => {

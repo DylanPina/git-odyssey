@@ -257,8 +257,10 @@ def _review_sessions_schema_migration(connection, settings: Settings) -> None:
             CREATE TABLE IF NOT EXISTS review_sessions (
                 id VARCHAR(64) PRIMARY KEY,
                 repo_path TEXT NOT NULL,
+                target_mode VARCHAR(16) NOT NULL DEFAULT 'compare',
                 base_ref TEXT NOT NULL,
                 head_ref TEXT NOT NULL,
+                commit_sha VARCHAR(40),
                 merge_base_sha VARCHAR(40) NOT NULL,
                 base_head_sha VARCHAR(40) NOT NULL,
                 head_head_sha VARCHAR(40) NOT NULL,
@@ -391,6 +393,14 @@ def _review_sessions_schema_repair_migration(connection, settings: Settings) -> 
         text(
             """
             ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS target_mode VARCHAR(16) DEFAULT 'compare'
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
             ADD COLUMN IF NOT EXISTS base_ref TEXT
             """
         )
@@ -400,6 +410,14 @@ def _review_sessions_schema_repair_migration(connection, settings: Settings) -> 
             """
             ALTER TABLE review_sessions
             ADD COLUMN IF NOT EXISTS head_ref TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS commit_sha VARCHAR(40)
             """
         )
     )
@@ -479,7 +497,8 @@ def _review_sessions_schema_repair_migration(connection, settings: Settings) -> 
         text(
             """
             UPDATE review_sessions
-            SET truncated = COALESCE(truncated, FALSE),
+            SET target_mode = COALESCE(NULLIF(target_mode, ''), 'compare'),
+                truncated = COALESCE(truncated, FALSE),
                 status = COALESCE(status, 'ready'),
                 created_at = COALESCE(created_at, NOW()),
                 updated_at = COALESCE(updated_at, NOW())
@@ -885,6 +904,53 @@ def _review_session_history_index_migration(connection, settings: Settings) -> N
             CREATE INDEX IF NOT EXISTS idx_review_sessions_lookup
             ON review_sessions (
                 repo_path,
+                target_mode,
+                commit_sha,
+                base_ref,
+                head_ref,
+                base_head_sha,
+                head_head_sha,
+                context_lines,
+                created_at DESC
+            )
+            """
+        )
+    )
+
+
+def _review_session_target_mode_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS target_mode VARCHAR(16) DEFAULT 'compare'
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_sessions
+            ADD COLUMN IF NOT EXISTS commit_sha VARCHAR(40)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE review_sessions
+            SET target_mode = COALESCE(NULLIF(target_mode, ''), 'compare')
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_review_sessions_target_lookup
+            ON review_sessions (
+                repo_path,
+                target_mode,
+                commit_sha,
                 base_ref,
                 head_ref,
                 base_head_sha,
@@ -913,6 +979,10 @@ MIGRATIONS = [
     Migration(
         version="20260329_review_session_history_index",
         run=_review_session_history_index_migration,
+    ),
+    Migration(
+        version="20260331_review_session_target_mode",
+        run=_review_session_target_mode_migration,
     ),
 ]
 

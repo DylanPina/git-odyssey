@@ -62,8 +62,10 @@ type ReviewRuntimeApprovalInput = ReviewRuntimeCancelInput & {
 type ReviewSessionPayload = {
   id: string;
   repo_path: string;
+  target_mode?: "compare" | "commit";
   base_ref: string;
   head_ref: string;
+  commit_sha?: string | null;
   merge_base_sha: string;
   head_head_sha: string;
   stats?: {
@@ -146,8 +148,10 @@ type RunState = {
   sessionId: string;
   runId: string;
   repoPath: string;
+  targetMode: "compare" | "commit";
   baseRef: string;
   headRef: string;
+  commitSha: string | null;
   headHeadSha: string;
   customInstructions: string | null;
   baseThreadId: string | null;
@@ -172,8 +176,10 @@ type ChatState = {
   sessionId: string;
   runId: string | null;
   repoPath: string;
+  targetMode: "compare" | "commit";
   baseRef: string;
   headRef: string;
+  commitSha: string | null;
   mergeBaseSha: string | null;
   headHeadSha: string;
   stats: {
@@ -307,8 +313,10 @@ class ReviewRuntimeManager extends EventEmitter {
       sessionId,
       runId: run.id,
       repoPath: session.repo_path,
+      targetMode: session.target_mode || "compare",
       baseRef: session.base_ref,
       headRef: session.head_ref,
+      commitSha: session.commit_sha || null,
       headHeadSha: session.head_head_sha,
       customInstructions: input.customInstructions ?? null,
       baseThreadId: null,
@@ -483,8 +491,10 @@ class ReviewRuntimeManager extends EventEmitter {
       sessionId,
       runId,
       repoPath: "",
+      targetMode: "compare",
       baseRef: "",
       headRef: "",
+      commitSha: null,
       mergeBaseSha: null,
       headHeadSha: "",
       stats: null,
@@ -538,8 +548,10 @@ class ReviewRuntimeManager extends EventEmitter {
       `/api/review/sessions/${state.sessionId}`
     );
     state.repoPath = session.repo_path;
+    state.targetMode = session.target_mode || "compare";
     state.baseRef = session.base_ref;
     state.headRef = session.head_ref;
+    state.commitSha = session.commit_sha || null;
     state.mergeBaseSha = session.merge_base_sha || null;
     state.headHeadSha = session.head_head_sha;
     state.stats = session.stats
@@ -721,9 +733,13 @@ class ReviewRuntimeManager extends EventEmitter {
   }
 
   #buildReviewChatDeveloperInstructions(state: ChatState): string {
+    const targetLabel =
+      state.targetMode === "commit"
+        ? `commit ${state.commitSha || state.headRef}`
+        : `${state.baseRef}...${state.headRef}`;
     return [
       "You are GitOdyssey's Codex review chat assistant.",
-      `Only answer questions about the current compare target: ${state.baseRef}...${state.headRef}.`,
+      `Only answer questions about the current review target: ${targetLabel}.`,
       "Ignore unrelated historical commits and repo-wide retrieval assumptions.",
       "Use the current branch diff, any attached code context, and any provided persisted review findings.",
       "Do not make edits and do not execute commands that change files.",
@@ -773,12 +789,22 @@ class ReviewRuntimeManager extends EventEmitter {
   }
 
   #formatReviewChatTargetSummary(state: ChatState): string {
-    const lines = [
-      `Repository path: ${state.repoPath}`,
-      `Base ref: ${state.baseRef}`,
-      `Head ref: ${state.headRef}`,
-      `Merge base: ${state.mergeBaseSha || "Unavailable"}`,
-    ];
+    const lines =
+      state.targetMode === "commit"
+        ? [
+            `Repository path: ${state.repoPath}`,
+            "Target mode: single commit",
+            `Commit SHA: ${state.commitSha || state.headRef}`,
+            `Parent: ${state.baseRef}`,
+            `Diff base: ${state.mergeBaseSha || "Unavailable"}`,
+          ]
+        : [
+            `Repository path: ${state.repoPath}`,
+            "Target mode: branch compare",
+            `Base ref: ${state.baseRef}`,
+            `Head ref: ${state.headRef}`,
+            `Merge base: ${state.mergeBaseSha || "Unavailable"}`,
+          ];
 
     if (state.stats) {
       lines.push(
@@ -1568,9 +1594,13 @@ class ReviewRuntimeManager extends EventEmitter {
   }
 
   #buildDeveloperInstructions(state: RunState): string {
+    const primaryInstruction =
+      state.targetMode === "commit"
+        ? `Review commit ${state.commitSha || state.headRef} against its first parent ${state.baseRef}.`
+        : `Review the current branch against base branch ${state.baseRef}.`;
     const instructionLines = [
       "You are GitOdyssey's Codex review runtime.",
-      `Review the current branch against base branch ${state.baseRef}.`,
+      primaryInstruction,
       "Inspect the repo freely inside this disposable review worktree.",
       "Focus on actionable bugs, regressions, broken control flow, incorrect data/state handling, and missing validation or error handling.",
       "Do not focus on style-only issues or low-signal nits.",
@@ -1650,8 +1680,12 @@ class ReviewRuntimeManager extends EventEmitter {
   }
 
   #buildReviewTurnInstructions(state: RunState): string {
+    const primaryInstruction =
+      state.targetMode === "commit"
+        ? `Review commit ${state.commitSha || state.headRef} against its first parent ${state.baseRef}.`
+        : `Review the current branch against base branch ${state.baseRef}.`;
     const instructionLines = [
-      `Review the current branch against base branch ${state.baseRef}.`,
+      primaryInstruction,
       "This is a code review, not an implementation task.",
       "Focus on actionable bugs, regressions, broken control flow, incorrect data handling, missing validation, and risky behavior changes.",
       "Do not make edits, do not apply fixes, and do not focus on style-only nits.",

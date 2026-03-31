@@ -177,8 +177,10 @@ Provide a comprehensive summary of this commit's purpose and impact.
 
 def build_review_report_prompt(
     *,
+    target_mode: str,
     base_ref: str,
     head_ref: str,
+    commit_sha: str | None,
     merge_base_sha: str,
     files_changed: int,
     additions: int,
@@ -186,13 +188,27 @@ def build_review_report_prompt(
     partial: bool,
     reviewed_files: str,
 ) -> tuple[str, str]:
+    review_target_lines = (
+        [
+            "Review Target:",
+            f"  Mode: Single Commit",
+            f"  Commit SHA: {commit_sha or head_ref}",
+            f"  Parent: {base_ref}",
+            f"  Diff Base: {merge_base_sha}",
+        ]
+        if target_mode == "commit"
+        else [
+            "Review Target:",
+            f"  Mode: Branch Compare",
+            f"  Base Branch: {base_ref}",
+            f"  Head Branch: {head_ref}",
+            f"  Merge Base: {merge_base_sha}",
+        ]
+    )
     return (
         REVIEW_REPORT_INSTRUCTIONS,
         f"""
-Review Target:
-  Base Branch: {base_ref}
-  Head Branch: {head_ref}
-  Merge Base: {merge_base_sha}
+{chr(10).join(review_target_lines)}
 
 Diff Stats:
   Files Changed: {files_changed}

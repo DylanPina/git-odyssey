@@ -11,8 +11,10 @@ function buildHistoryEntry(overrides: Partial<ReviewHistoryEntry> = {}): ReviewH
 		run_id: "run-1",
 		session_id: "session-1",
 		repo_path: "/tmp/example-repo",
+		target_mode: "compare",
 		base_ref: "main",
 		head_ref: "feature",
+		commit_sha: null,
 		base_head_sha: "aaaaaaaa",
 		head_head_sha: "bbbbbbbb",
 		merge_base_sha: "cccccccc",
@@ -36,17 +38,21 @@ function buildHistoryEntry(overrides: Partial<ReviewHistoryEntry> = {}): ReviewH
 function ReviewTitleBarTrailingHarness({
 	reviewHistory,
 	isViewingHistory = false,
+	targetMode = "compare",
 }: {
 	reviewHistory: ReviewHistoryEntry[];
 	isViewingHistory?: boolean;
+	targetMode?: "compare" | "commit";
 }) {
 	const filters = useReviewHistoryFilters(reviewHistory);
 
 	return (
 		<ReviewTitleBarTrailing
+			targetMode={targetMode}
 			branchOptions={["main", "feature"]}
 			baseRef="main"
 			headRef="feature"
+			commitSha={targetMode === "commit" ? "1234567890abcdef" : null}
 			onBaseRefChange={() => {}}
 			onHeadRefChange={() => {}}
 			canStartReview
@@ -107,5 +113,18 @@ describe("ReviewTitleBarTrailing", () => {
 		expect(
 			screen.getByRole("button", { name: /return to latest/i }),
 		).toBeInTheDocument();
+	});
+
+	it("shows a commit chip instead of branch pickers in commit mode", () => {
+		render(
+			<ReviewTitleBarTrailingHarness
+				reviewHistory={[buildHistoryEntry({ target_mode: "commit", commit_sha: "1234567890abcdef" })]}
+				targetMode="commit"
+			/>,
+		);
+
+		expect(screen.getByText(/commit/i)).toBeInTheDocument();
+		expect(screen.getByText("1234567890ab")).toBeInTheDocument();
+		expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
 	});
 });

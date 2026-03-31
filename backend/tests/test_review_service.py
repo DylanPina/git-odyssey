@@ -10,6 +10,7 @@ from data.data_model import DiffHunk, FileChange, FileSnapshot
 from data.schema import FileChangeStatus
 from infrastructure.errors import AIRequestError
 from services.review_service import (
+    EMPTY_TREE_SHA,
     MAX_REVIEW_FILES,
     ReviewCompareService,
     ReviewGenerationService,
@@ -185,6 +186,68 @@ class ReviewCompareServiceTests(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 400)
         self.assertIn("No changes were found", context.exception.detail)
+
+    def test_compare_commit_mode_uses_first_parent_diff(self) -> None:
+        response = self.service.compare(
+            ReviewCompareRequest(
+                repo_path=self.repo_dir,
+                target_mode="commit",
+                commit_sha=self.feature_sha,
+                context_lines=3,
+            )
+        )
+
+        self.assertEqual(response.target_mode, "commit")
+        self.assertEqual(response.commit_sha, self.feature_sha)
+        self.assertEqual(response.merge_base_sha, self.initial_sha)
+        self.assertEqual(response.stats.files_changed, 4)
+
+    def test_compare_commit_mode_supports_root_commits(self) -> None:
+        response = self.service.compare(
+            ReviewCompareRequest(
+                repo_path=self.repo_dir,
+                target_mode="commit",
+                commit_sha=self.initial_sha,
+                context_lines=3,
+            )
+        )
+
+        self.assertEqual(response.target_mode, "commit")
+        self.assertEqual(response.commit_sha, self.initial_sha)
+        self.assertEqual(response.merge_base_sha, EMPTY_TREE_SHA)
+        self.assertGreaterEqual(response.stats.files_changed, 1)
+
+    def test_compare_commit_mode_uses_first_parent_for_merge_commits(self) -> None:
+        run_git(self.repo_dir, "checkout", "feature")
+        run_git(self.repo_dir, "checkout", "-b", "review-merge")
+        run_git(self.repo_dir, "merge", "--no-ff", "main", "-m", "Merge main into feature")
+        merge_sha = run_git(self.repo_dir, "rev-parse", "HEAD")
+
+        response = self.service.compare(
+            ReviewCompareRequest(
+                repo_path=self.repo_dir,
+                target_mode="commit",
+                commit_sha=merge_sha,
+                context_lines=3,
+            )
+        )
+
+        changed_paths = {file_change.new_path or file_change.old_path for file_change in response.file_changes}
+        self.assertIn("base-only.txt", changed_paths)
+
+    def test_compare_commit_mode_rejects_missing_commit(self) -> None:
+        with self.assertRaises(ReviewServiceError) as context:
+            self.service.compare(
+                ReviewCompareRequest(
+                    repo_path=self.repo_dir,
+                    target_mode="commit",
+                    commit_sha="deadbeef",
+                    context_lines=3,
+                )
+            )
+
+        self.assertEqual(context.exception.status_code, 400)
+        self.assertIn("was not found", context.exception.detail)
 
 
 def build_compare_response(file_count: int = 1) -> ReviewCompareResponse:

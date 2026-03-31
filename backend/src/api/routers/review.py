@@ -88,8 +88,10 @@ async def get_review_session(
 @router.get("/history", response_model=ReviewHistoryResponse)
 async def list_review_history(
     repo_path: str,
-    base_ref: str,
-    head_ref: str,
+    target_mode: str = "compare",
+    base_ref: str = "",
+    head_ref: str = "",
+    commit_sha: str | None = None,
     review_session_service: ReviewSessionPersistenceService = Depends(
         get_review_session_persistence_service
     ),
@@ -97,8 +99,10 @@ async def list_review_history(
     try:
         return review_session_service.list_history(
             repo_path=repo_path,
+            target_mode=target_mode,
             base_ref=base_ref,
             head_ref=head_ref,
+            commit_sha=commit_sha,
         )
     except ReviewServiceError as error:
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error

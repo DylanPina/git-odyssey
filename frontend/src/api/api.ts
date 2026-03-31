@@ -132,8 +132,10 @@ export const getCommits = async (
 
 export const compareReviewTarget = async (input: {
   repoPath: string;
-  baseRef: string;
-  headRef: string;
+  targetMode: "compare" | "commit";
+  baseRef?: string;
+  headRef?: string;
+  commitSha?: string | null;
   contextLines: number;
 }): Promise<ReviewCompareResponse> => {
   return getDesktopBridge().api.compareReviewTarget(input);
@@ -141,8 +143,10 @@ export const compareReviewTarget = async (input: {
 
 export const generateReview = async (input: {
   repoPath: string;
-  baseRef: string;
-  headRef: string;
+  targetMode: "compare" | "commit";
+  baseRef?: string;
+  headRef?: string;
+  commitSha?: string | null;
   contextLines: number;
 }): Promise<ReviewReport> => {
   return getDesktopBridge().api.generateReview(input);
@@ -150,8 +154,10 @@ export const generateReview = async (input: {
 
 export const createReviewSession = async (input: {
   repoPath: string;
-  baseRef: string;
-  headRef: string;
+  targetMode: "compare" | "commit";
+  baseRef?: string;
+  headRef?: string;
+  commitSha?: string | null;
   contextLines: number;
 }): Promise<ReviewSession> => {
   return getDesktopBridge().api.createReviewSession(input);
@@ -165,8 +171,10 @@ export const getReviewSession = async (
 
 export const getReviewHistory = async (input: {
   repoPath: string;
-  baseRef: string;
-  headRef: string;
+  targetMode: "compare" | "commit";
+  baseRef?: string;
+  headRef?: string;
+  commitSha?: string | null;
 }): Promise<ReviewHistoryResponse> => {
   return getDesktopBridge().api.getReviewHistory(input);
 };

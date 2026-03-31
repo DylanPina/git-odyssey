@@ -91,4 +91,26 @@ describe("DiffWorkspace", () => {
 		expect(screen.getByTestId("panel-src/alpha.ts")).toHaveTextContent("inline");
 		expect(screen.getByTestId("panel-src/beta.ts")).toHaveTextContent("inline");
 	});
+
+	it("keeps the right rail visible in fullscreen mode", () => {
+		render(
+			<DiffWorkspace
+				repoPath="/Users/dillonpina/Documents/code/git-odyssey"
+				viewerId="review:fullscreen"
+				files={[buildFileChange("src/alpha.ts")]}
+				fileSearchInputId="file-search"
+				codeSearchInputId="code-search"
+				emptyTitle="No files"
+				rightRail={<div data-testid="assistant-rail">Assistant rail</div>}
+				rightRailCollapsedSummary={
+					<div data-testid="assistant-collapsed">Assistant collapsed</div>
+				}
+				isRightRailOpen={false}
+				isRightRailFullscreen
+			/>
+		);
+
+		expect(screen.getByTestId("assistant-rail")).toBeInTheDocument();
+		expect(screen.getByTestId("assistant-collapsed")).toBeInTheDocument();
+	});
 });

@@ -1,9 +1,7 @@
-import { matchPath } from "react-router-dom";
-
 import {
   getRepoDisplayName,
   readRepoPathFromSearchParams,
-  readReviewRefsFromSearchParams,
+  readReviewTargetFromSearchParams,
 } from "@/lib/repoPaths";
 import {
   getReviewRefsStorageKey,
@@ -33,7 +31,6 @@ export function resolveDesktopTitleBarMeta(
   const repoDisplayName = repoPath ? getRepoDisplayName(repoPath) : null;
   const repoPathDetail =
     repoPath && repoPath !== repoDisplayName ? repoPath : null;
-  const commitMatch = matchPath("/repo/commit/:commitSha", pathname);
 
   if (pathname === "/" || pathname === "/index.html") {
     return {
@@ -45,30 +42,23 @@ export function resolveDesktopTitleBarMeta(
     };
   }
 
-  if (commitMatch) {
-    const commitSha = commitMatch.params.commitSha ?? null;
-    const shortSha = commitSha ? commitSha.slice(0, 8) : null;
-
-    return {
-      sectionLabel: null,
-      scopeLabel: repoDisplayName ?? "Repository",
-      detailLabel: shortSha,
-      detailTitle: commitSha,
-      surface: "default",
-      documentTitle: buildDocumentTitle(
-        shortSha ? `Commit ${shortSha}` : "Commit",
-        repoDisplayName
-      ),
-    };
-  }
-
   if (pathname === "/repo/review") {
-    const { baseRef: queryBaseRef, headRef: queryHeadRef } =
-      readReviewRefsFromSearchParams(searchParams);
+    const reviewTarget = readReviewTargetFromSearchParams(searchParams);
     const storedReviewRefs = getStoredReviewRefs(getReviewRefsStorageKey(repoPath));
-    const baseRef = queryBaseRef ?? storedReviewRefs?.baseRef ?? null;
-    const headRef = queryHeadRef ?? storedReviewRefs?.headRef ?? null;
-    const reviewRefLabel = baseRef && headRef ? `${baseRef} -> ${headRef}` : null;
+    const baseRef =
+      reviewTarget.mode === "compare"
+        ? reviewTarget.baseRef ?? storedReviewRefs?.baseRef ?? null
+        : null;
+    const headRef =
+      reviewTarget.mode === "compare"
+        ? reviewTarget.headRef ?? storedReviewRefs?.headRef ?? null
+        : null;
+    const reviewRefLabel =
+      reviewTarget.mode === "commit"
+        ? `commit ${reviewTarget.commitSha.slice(0, 8)}`
+        : baseRef && headRef
+          ? `${baseRef} -> ${headRef}`
+          : null;
 
     return {
       sectionLabel: null,

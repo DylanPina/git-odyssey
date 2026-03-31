@@ -72,37 +72,31 @@ class ReviewSessionPersistenceService:
         self.compare_service = compare_service
 
     def create_session(self, request: ReviewSessionCreateRequest) -> ReviewSessionResponse:
-        base_ref = request.base_ref.strip()
-        head_ref = request.head_ref.strip()
-        (
-            repo,
-            repo_path,
-            base_commit,
-            head_commit,
-            merge_base_commit,
-        ) = self.compare_service.resolve_compare_target(
+        resolved_target = self.compare_service.resolve_target(
             repo_path=request.repo_path,
-            base_ref=base_ref,
-            head_ref=head_ref,
+            target_mode=request.target_mode,
+            base_ref=request.base_ref,
+            head_ref=request.head_ref,
+            commit_sha=request.commit_sha,
         )
+        base_ref = resolved_target.base_ref
+        head_ref = resolved_target.head_ref
+        repo_path = resolved_target.repo_path
         existing_session = self._find_matching_session(
             repo_path=repo_path,
+            target_mode=resolved_target.target_mode,
+            commit_sha=resolved_target.commit_sha,
             base_ref=base_ref,
             head_ref=head_ref,
-            base_head_sha=str(base_commit.id),
-            head_head_sha=str(head_commit.id),
+            base_head_sha=resolved_target.base_head_sha,
+            head_head_sha=resolved_target.head_head_sha,
             context_lines=request.context_lines,
         )
         if existing_session is not None:
             return self._build_session_response(existing_session, include_runs=True)
 
         compare = self.compare_service.compare_resolved(
-            repo=repo,
-            repo_path=repo_path,
-            base_ref=base_ref,
-            head_ref=head_ref,
-            head_commit=head_commit,
-            merge_base_commit=merge_base_commit,
+            resolved_target=resolved_target,
             context_lines=request.context_lines,
         )
 
@@ -110,11 +104,13 @@ class ReviewSessionPersistenceService:
         session_row = SQLReviewSession(
             id=self._next_id("rev_sess"),
             repo_path=repo_path,
+            target_mode=compare.target_mode,
             base_ref=compare.base_ref,
             head_ref=compare.head_ref,
+            commit_sha=compare.commit_sha,
             merge_base_sha=compare.merge_base_sha,
-            base_head_sha=str(base_commit.id),
-            head_head_sha=str(head_commit.id),
+            base_head_sha=resolved_target.base_head_sha,
+            head_head_sha=resolved_target.head_head_sha,
             context_lines=request.context_lines,
             review_mode="diff",
             instructions_preset="default",
@@ -146,19 +142,29 @@ class ReviewSessionPersistenceService:
         self,
         *,
         repo_path: str,
-        base_ref: str,
-        head_ref: str,
+        target_mode: str,
+        base_ref: str | None = None,
+        head_ref: str | None = None,
+        commit_sha: str | None = None,
     ) -> ReviewHistoryResponse:
         normalized_repo_path = self.compare_service.resolve_repo_path(repo_path)
-        normalized_base_ref = base_ref.strip()
-        normalized_head_ref = head_ref.strip()
-        if not normalized_base_ref or not normalized_head_ref:
+        normalized_target_mode = self._normalize_target_mode(target_mode)
+        normalized_base_ref = (base_ref or "").strip()
+        normalized_head_ref = (head_ref or "").strip()
+        normalized_commit_sha = (commit_sha or "").strip() or None
+        if normalized_target_mode == "commit":
+            if not normalized_commit_sha:
+                raise ReviewServiceError(
+                    "Select a commit before loading review history.",
+                    status_code=400,
+                )
+        elif not normalized_base_ref or not normalized_head_ref:
             raise ReviewServiceError(
                 "Select both a base branch and a head branch before loading review history.",
                 status_code=400,
             )
 
-        runs = (
+        query = (
             self.session.query(SQLReviewRun)
             .join(SQLReviewRun.session)
             .join(SQLReviewRun.result)
@@ -168,17 +174,22 @@ class ReviewSessionPersistenceService:
             )
             .filter(
                 SQLReviewSession.repo_path == normalized_repo_path,
-                SQLReviewSession.base_ref == normalized_base_ref,
-                SQLReviewSession.head_ref == normalized_head_ref,
+                SQLReviewSession.target_mode == normalized_target_mode,
                 SQLReviewRun.status == "completed",
             )
-            .order_by(
-                SQLReviewResult.generated_at.desc(),
-                SQLReviewRun.completed_at.desc(),
-                SQLReviewRun.created_at.desc(),
-            )
-            .all()
         )
+        if normalized_target_mode == "commit":
+            query = query.filter(SQLReviewSession.commit_sha == normalized_commit_sha)
+        else:
+            query = query.filter(
+                SQLReviewSession.base_ref == normalized_base_ref,
+                SQLReviewSession.head_ref == normalized_head_ref,
+            )
+        runs = query.order_by(
+            SQLReviewResult.generated_at.desc(),
+            SQLReviewRun.completed_at.desc(),
+            SQLReviewRun.created_at.desc(),
+        ).all()
 
         return ReviewHistoryResponse(
             items=[self._build_history_entry(run) for run in runs if run.result is not None]
@@ -601,10 +612,21 @@ class ReviewSessionPersistenceService:
             raise ReviewServiceError("Review run was not found.", status_code=404)
         return run
 
+    def _normalize_target_mode(self, target_mode: str | None) -> str:
+        normalized_target_mode = (target_mode or "compare").strip() or "compare"
+        if normalized_target_mode not in {"compare", "commit"}:
+            raise ReviewServiceError(
+                f"Unsupported review target mode '{target_mode}'.",
+                status_code=400,
+            )
+        return normalized_target_mode
+
     def _find_matching_session(
         self,
         *,
         repo_path: str,
+        target_mode: str,
+        commit_sha: str | None,
         base_ref: str,
         head_ref: str,
         base_head_sha: str,
@@ -615,6 +637,8 @@ class ReviewSessionPersistenceService:
             self.session.query(SQLReviewSession)
             .filter(
                 SQLReviewSession.repo_path == repo_path,
+                SQLReviewSession.target_mode == target_mode,
+                SQLReviewSession.commit_sha == commit_sha,
                 SQLReviewSession.base_ref == base_ref,
                 SQLReviewSession.head_ref == head_ref,
                 SQLReviewSession.base_head_sha == base_head_sha,
@@ -636,8 +660,10 @@ class ReviewSessionPersistenceService:
         return ReviewSessionResponse(
             id=session_row.id,
             repo_path=session_row.repo_path,
+            target_mode=session_row.target_mode or "compare",
             base_ref=session_row.base_ref,
             head_ref=session_row.head_ref,
+            commit_sha=session_row.commit_sha,
             merge_base_sha=session_row.merge_base_sha,
             base_head_sha=session_row.base_head_sha,
             head_head_sha=session_row.head_head_sha,
@@ -735,8 +761,10 @@ class ReviewSessionPersistenceService:
             session_id=run.session_id,
             run_id=run.id,
             repo_path=run.session.repo_path,
+            target_mode=run.session.target_mode or "compare",
             base_ref=run.session.base_ref,
             head_ref=run.session.head_ref,
+            commit_sha=run.session.commit_sha,
             merge_base_sha=run.session.merge_base_sha,
             base_head_sha=run.session.base_head_sha,
             head_head_sha=run.session.head_head_sha,

@@ -145,12 +145,14 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
     def test_create_session_reuses_existing_exact_session(self) -> None:
         existing_session = object()
         expected_response = object()
-        self.service.compare_service.resolve_compare_target.return_value = (
-            None,
-            "/tmp/example-repo",
-            SimpleNamespace(id="base-sha"),
-            SimpleNamespace(id="head-sha"),
-            None,
+        self.service.compare_service.resolve_target.return_value = SimpleNamespace(
+            target_mode="compare",
+            commit_sha=None,
+            repo_path="/tmp/example-repo",
+            base_ref="main",
+            head_ref="feature",
+            base_head_sha="base-sha",
+            head_head_sha="head-sha",
         )
         query = self.service.session.query.return_value
         query.filter.return_value.order_by.return_value.first.return_value = (
@@ -161,6 +163,7 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
         result = self.service.create_session(
             ReviewSessionCreateRequest(
                 repo_path="/tmp/example-repo",
+                target_mode="compare",
                 base_ref="main",
                 head_ref="feature",
                 context_lines=3,
@@ -168,7 +171,7 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
         )
 
         self.assertIs(result, expected_response)
-        self.service.compare_service.compare.assert_not_called()
+        self.service.compare_service.compare_resolved.assert_not_called()
         self.service.session.add.assert_not_called()
         self.service.session.commit.assert_not_called()
         self.service._build_session_response.assert_called_once_with(
@@ -188,8 +191,10 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
             created_at=created_at,
             session=SimpleNamespace(
                 repo_path="/tmp/example-repo",
+                target_mode="compare",
                 base_ref="main",
                 head_ref="feature",
+                commit_sha=None,
                 merge_base_sha="merge-sha",
                 base_head_sha="base-sha",
                 head_head_sha="head-sha",
@@ -227,6 +232,7 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
 
         result = self.service.list_history(
             repo_path="/tmp/example-repo",
+            target_mode="compare",
             base_ref=" main ",
             head_ref=" feature ",
         )
@@ -236,8 +242,10 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
         self.assertEqual(item.session_id, "rev_sess_123")
         self.assertEqual(item.run_id, "rev_run_123")
         self.assertEqual(item.repo_path, "/tmp/example-repo")
+        self.assertEqual(item.target_mode, "compare")
         self.assertEqual(item.base_ref, "main")
         self.assertEqual(item.head_ref, "feature")
+        self.assertIsNone(item.commit_sha)
         self.assertEqual(item.findings_count, 2)
         self.assertEqual(item.severity_counts.high, 1)
         self.assertEqual(item.severity_counts.medium, 0)

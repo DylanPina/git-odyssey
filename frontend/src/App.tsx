@@ -13,7 +13,6 @@ import {
 } from "react-router-dom";
 import { Home } from "@/pages/Home";
 import { Repo } from "@/pages/Repo";
-import { Commit } from "@/pages/Commit";
 import { Review } from "@/pages/Review";
 import { Settings } from "@/pages/Settings";
 import { DesktopTitleBar } from "@/components/ui/custom/DesktopTitleBar";
@@ -47,13 +46,12 @@ function App() {
 	const repoPath = readRepoPathFromSearchParams(searchParams);
 	const titleBarMeta = resolveDesktopTitleBarMeta(location.pathname, searchParams);
 	const workflowRoute = getRepoWorkflowRoute(location.pathname);
-	const showWorkflowActions = workflowRoute === "commit" || workflowRoute === "review";
+	const showWorkflowActions = workflowRoute === "review";
 	const currentHistoryIndex = getHistoryIndex();
 	const canNavigateBack =
 		workflowRoute === "repo"
 			? false
 			: currentHistoryIndex > 0 ||
-				workflowRoute === "commit" ||
 				workflowRoute === "review";
 	const canNavigateForward = currentHistoryIndex < maxHistoryIndex;
 
@@ -87,7 +85,7 @@ function App() {
 			return;
 		}
 
-		if (workflowRoute === "commit" || workflowRoute === "review") {
+		if (workflowRoute === "review") {
 			navigate(repoPath ? buildRepoRoute(repoPath) : "/", { replace: true });
 		}
 	};
@@ -126,7 +124,6 @@ function App() {
 								<Route path="/" element={<Home />} />
 								<Route path="/index.html" element={<Navigate to="/" replace />} />
 								<Route path="/repo" element={<Repo />} />
-								<Route path="/repo/commit/:commitSha" element={<Commit />} />
 								<Route path="/repo/review" element={<Review />} />
 								<Route path="/settings" element={<Settings />} />
 							</Routes>

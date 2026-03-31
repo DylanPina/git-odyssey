@@ -67,28 +67,36 @@ const bridge = {
       invoke("git-odyssey:api:get-commits", repoPath, repoSettings),
     compareReviewTarget: (input: {
       repoPath: string;
-      baseRef: string;
-      headRef: string;
+      targetMode: "compare" | "commit";
+      baseRef?: string;
+      headRef?: string;
+      commitSha?: string | null;
       contextLines: number;
     }) => invoke("git-odyssey:api:compare-review-target", input),
     generateReview: (input: {
       repoPath: string;
-      baseRef: string;
-      headRef: string;
+      targetMode: "compare" | "commit";
+      baseRef?: string;
+      headRef?: string;
+      commitSha?: string | null;
       contextLines: number;
     }) => invoke("git-odyssey:api:generate-review", input),
     createReviewSession: (input: {
       repoPath: string;
-      baseRef: string;
-      headRef: string;
+      targetMode: "compare" | "commit";
+      baseRef?: string;
+      headRef?: string;
+      commitSha?: string | null;
       contextLines: number;
     }) => invoke("git-odyssey:api:create-review-session", input),
     getReviewSession: (sessionId: string) =>
       invoke("git-odyssey:api:get-review-session", sessionId),
     getReviewHistory: (input: {
       repoPath: string;
-      baseRef: string;
-      headRef: string;
+      targetMode: "compare" | "commit";
+      baseRef?: string;
+      headRef?: string;
+      commitSha?: string | null;
     }) => invoke("git-odyssey:api:get-review-history", input),
     startReviewRun: (input: {
       sessionId: string;

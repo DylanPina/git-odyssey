@@ -154,6 +154,8 @@ export function buildReviewHistorySearchText(entry: ReviewHistoryEntry) {
 	return [
 		entry.session_id,
 		entry.run_id,
+		entry.target_mode,
+		entry.commit_sha ?? "",
 		entry.base_ref,
 		entry.head_ref,
 		entry.merge_base_sha,
@@ -176,6 +178,18 @@ export function buildReviewHistorySearchText(entry: ReviewHistoryEntry) {
 		formatGeneratedAt(entry.completed_at),
 		...severityTokens,
 	].join(" ").toLowerCase();
+}
+
+export function formatReviewTargetLabel(
+	entry:
+		| ReviewHistoryEntry
+		| Pick<ReviewSession, "target_mode" | "base_ref" | "head_ref" | "commit_sha">,
+) {
+	if (entry.target_mode === "commit") {
+		return `commit ${formatShortSha(entry.commit_sha, 8, "Unknown")}`;
+	}
+
+	return `${entry.base_ref} -> ${entry.head_ref}`;
 }
 
 export function formatFindingReference(finding: ReviewFinding) {

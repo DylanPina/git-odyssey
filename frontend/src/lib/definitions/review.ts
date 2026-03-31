@@ -1,10 +1,14 @@
 import type { ChatCodeContext } from "./chat";
 import type { FileChange } from "./repo";
 
+export type ReviewTargetMode = "compare" | "commit";
+
 export interface ReviewCompareRequest {
 	repo_path: string;
+	target_mode: ReviewTargetMode;
 	base_ref: string;
 	head_ref: string;
+	commit_sha?: string | null;
 	context_lines: number;
 }
 
@@ -16,8 +20,10 @@ export interface ReviewStats {
 
 export interface ReviewCompareResponse {
 	repo_path: string;
+	target_mode: ReviewTargetMode;
 	base_ref: string;
 	head_ref: string;
+	commit_sha?: string | null;
 	merge_base_sha: string;
 	stats: ReviewStats;
 	file_changes: FileChange[];
@@ -26,8 +32,10 @@ export interface ReviewCompareResponse {
 
 export interface GenerateReviewRequest {
 	repo_path: string;
+	target_mode: ReviewTargetMode;
 	base_ref: string;
 	head_ref: string;
+	commit_sha?: string | null;
 	context_lines: number;
 }
 
@@ -119,8 +127,10 @@ export interface ReviewHistoryEntry {
 	session_id: string;
 	run_id: string;
 	repo_path: string;
+	target_mode: ReviewTargetMode;
 	base_ref: string;
 	head_ref: string;
+	commit_sha?: string | null;
 	merge_base_sha: string;
 	base_head_sha: string;
 	head_head_sha: string;
@@ -161,8 +171,10 @@ export interface ReviewRun {
 export interface ReviewSession {
 	id: string;
 	repo_path: string;
+	target_mode: ReviewTargetMode;
 	base_ref: string;
 	head_ref: string;
+	commit_sha?: string | null;
 	merge_base_sha: string;
 	base_head_sha: string;
 	head_head_sha: string;

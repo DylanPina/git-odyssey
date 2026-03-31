@@ -26,6 +26,7 @@ import {
 	getFindingCountLabel,
 	getHistoryOutcomeTone,
 	getSeverityCountEntries,
+	formatReviewTargetLabel,
 } from "@/pages/review/review-formatters";
 import type { UseReviewHistoryFiltersResult } from "@/pages/review/useReviewHistoryFilters";
 
@@ -190,6 +191,7 @@ export function PreviousReviewsSection({
 									const isSelected = selectedHistoryRunId === entry.run_id;
 									const isLoading =
 										historySelectionLoadingRunId === entry.run_id;
+									const targetLabel = formatReviewTargetLabel(entry);
 
 									return (
 										<button
@@ -209,6 +211,9 @@ export function PreviousReviewsSection({
 											<div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
 												<div className="min-w-0 flex-1">
 													<div className="flex flex-wrap items-center gap-1.5">
+														<div className="font-mono text-[11px] text-text-secondary">
+															{targetLabel}
+														</div>
 														<div className="text-sm font-medium text-text-primary">
 															{formatGeneratedAt(entry.generated_at)}
 														</div>
@@ -226,12 +231,20 @@ export function PreviousReviewsSection({
 													</div>
 
 													<div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-text-secondary">
-														<span className="font-mono">
-															base {formatShortSha(entry.base_head_sha)}
-														</span>
-														<span className="font-mono">
-															head {formatShortSha(entry.head_head_sha)}
-														</span>
+														{entry.target_mode === "compare" ? (
+															<>
+																<span className="font-mono">
+																	base {formatShortSha(entry.base_head_sha)}
+																</span>
+																<span className="font-mono">
+																	head {formatShortSha(entry.head_head_sha)}
+																</span>
+															</>
+														) : (
+															<span className="font-mono">
+																commit {formatShortSha(entry.head_head_sha)}
+															</span>
+														)}
 														<span className="font-mono">
 															merge {formatShortSha(entry.merge_base_sha)}
 														</span>

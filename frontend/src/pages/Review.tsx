@@ -17,8 +17,14 @@ import { DiffWorkspacePage } from "@/components/ui/custom/DiffWorkspacePage";
 import { ReviewAssistantPanel } from "@/pages/review/components/ReviewAssistantPanel";
 import { ReviewTitleBarTrailing } from "@/pages/review/components/ReviewTitleBarTrailing";
 import { StatusPill } from "@/components/ui/status-pill";
+import { useCommitDetails } from "@/hooks/useCommitDetails";
 import { useRepoData } from "@/hooks/useRepoData";
-import { formatShortSha } from "@/lib/commitPresentation";
+import {
+	formatCommitTimestamp,
+	formatShortSha,
+	getCommitAuthorLabel,
+	getCommitTitle,
+} from "@/lib/commitPresentation";
 import {
 	type DiffSelectionContext,
 	getFileChangeLabelPath,
@@ -31,8 +37,9 @@ import type {
 } from "@/lib/definitions/review";
 import { useDesktopTitleBarChrome } from "@/lib/desktop-titlebar-actions";
 import {
+	readCommitSearchContextFromSearchParams,
 	readRepoPathFromSearchParams,
-	readReviewRefsFromSearchParams,
+	readReviewTargetFromSearchParams,
 } from "@/lib/repoPaths";
 import {
 	REVIEW_DIFF_MIN_WIDTH,
@@ -89,8 +96,12 @@ export function Review() {
 	const setDesktopTitleBarChrome = useDesktopTitleBarChrome();
 	const [searchParams] = useSearchParams();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
-	const { baseRef: queryBaseRef, headRef: queryHeadRef } = useMemo(
-		() => readReviewRefsFromSearchParams(searchParams),
+	const reviewTarget = useMemo(
+		() => readReviewTargetFromSearchParams(searchParams),
+		[searchParams],
+	);
+	const commitSearchContext = useMemo(
+		() => readCommitSearchContextFromSearchParams(searchParams),
 		[searchParams],
 	);
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
@@ -111,8 +122,9 @@ export function Review() {
 		handleHeadRefChange,
 	} = useReviewRefSelection({
 		repoPath,
-		queryBaseRef,
-		queryHeadRef,
+		targetMode: reviewTarget.mode,
+		queryBaseRef: reviewTarget.mode === "compare" ? reviewTarget.baseRef : null,
+		queryHeadRef: reviewTarget.mode === "compare" ? reviewTarget.headRef : null,
 		branches,
 		commits,
 		isRepoLoading,
@@ -144,12 +156,27 @@ export function Review() {
 		cancelCurrentRun,
 	} = useReviewRunController({
 		repoPath,
+		targetMode: reviewTarget.mode,
 		baseRef,
 		headRef,
+		commitSha: reviewTarget.mode === "commit" ? reviewTarget.commitSha : null,
+	});
+	const {
+		commit: targetCommit,
+		isLoading: isCommitLoading,
+		error: commitError,
+	} = useCommitDetails({
+		repoPath,
+		commitSha: reviewTarget.mode === "commit" ? reviewTarget.commitSha : undefined,
 	});
 
 	const historyFilters = useReviewHistoryFilters(reviewHistory);
-	const assistantEnabled = Boolean(repoPath && baseRef && headRef);
+	const assistantEnabled = Boolean(
+		repoPath &&
+			(reviewTarget.mode === "commit"
+				? reviewTarget.commitSha
+				: baseRef && headRef),
+	);
 	const {
 		reviewPanelMode,
 		setReviewPanelMode,
@@ -191,7 +218,9 @@ export function Review() {
 
 	const chatComposerNote =
 		!assistantEnabled
-			? "Select both branches to prepare Codex review chat."
+			? reviewTarget.mode === "commit"
+				? "Select a commit to prepare Codex review chat."
+				: "Select both branches to prepare Codex review chat."
 			: !isChatReady || isSessionLoading
 				? "Preparing Codex review chat for this compare target."
 				: null;
@@ -408,14 +437,32 @@ export function Review() {
 		: activeRun
 			? formatLabel(activeRun.status)
 			: "No review";
+	const commitTitle = useMemo(
+		() => getCommitTitle(targetCommit),
+		[targetCommit],
+	);
+	const commitAuthorLabel = useMemo(
+		() => getCommitAuthorLabel(targetCommit?.author),
+		[targetCommit?.author],
+	);
+	const commitTimestampLabel = useMemo(
+		() => formatCommitTimestamp(targetCommit?.time),
+		[targetCommit?.time],
+	);
+	const displayedTargetMode = displayedSession?.target_mode ?? reviewTarget.mode;
+	const displayedCommitSha =
+		displayedSession?.commit_sha ??
+		(reviewTarget.mode === "commit" ? reviewTarget.commitSha : null);
 
 	const reviewTitleBarChrome = useMemo(
 		() => ({
 			trailing: (
 				<ReviewTitleBarTrailing
+					targetMode={displayedTargetMode}
 					branchOptions={branchOptions}
 					baseRef={baseRef}
 					headRef={headRef}
+					commitSha={displayedCommitSha}
 					onBaseRefChange={handleBaseRefChange}
 					onHeadRefChange={handleHeadRefChange}
 					isRepoLoading={isRepoLoading}
@@ -455,6 +502,8 @@ export function Review() {
 			handleSelectHistoryReview,
 			baseRef,
 			headRef,
+			displayedCommitSha,
+			displayedTargetMode,
 			cancelCurrentRun,
 			customInstructions,
 			hasCancelableRun,
@@ -514,9 +563,13 @@ export function Review() {
 
 	const changedFilesLabel = displayedSession
 		? `${displayedSession.stats.files_changed} file${displayedSession.stats.files_changed === 1 ? "" : "s"} changed`
-		: "Review diff";
+		: reviewTarget.mode === "commit"
+			? "Commit diff"
+			: "Review diff";
 	const isDisplayedSessionLoading =
-		historySelectionLoadingRunId !== null || (!isViewingHistory && isSessionLoading);
+		historySelectionLoadingRunId !== null ||
+		(!isViewingHistory && isSessionLoading) ||
+		(reviewTarget.mode === "commit" && isCommitLoading);
 
 	const workspaceTopContent = (
 		<DiffWorkspaceHeader
@@ -532,22 +585,41 @@ export function Review() {
 				) : null
 			}
 			subtitle={
-				<>
-					{displayedSession?.merge_base_sha ? (
-						<>
-							<span className="text-text-tertiary">merge</span>
-							<span className="font-mono">
-								{formatShortSha(displayedSession.merge_base_sha)}
-							</span>
-						</>
-					) : null}
-					{activeRun ? (
-						<StatusPill tone={getRunStatusTone(activeRun.status)}>
-							{formatLabel(activeRun.status)}
-						</StatusPill>
-					) : null}
-					{reviewResult ? <span>{findingsLabel}</span> : null}
-				</>
+				displayedTargetMode === "commit" ? (
+					<>
+						<span className="truncate text-text-primary">{commitTitle}</span>
+						<span className="font-mono">
+							{displayedCommitSha
+								? formatShortSha(displayedCommitSha)
+								: formatShortSha(targetCommit?.sha)}
+						</span>
+						<span>{commitAuthorLabel}</span>
+						<span>{commitTimestampLabel}</span>
+						{activeRun ? (
+							<StatusPill tone={getRunStatusTone(activeRun.status)}>
+								{formatLabel(activeRun.status)}
+							</StatusPill>
+						) : null}
+						{reviewResult ? <span>{findingsLabel}</span> : null}
+					</>
+				) : (
+					<>
+						{displayedSession?.merge_base_sha ? (
+							<>
+								<span className="text-text-tertiary">merge</span>
+								<span className="font-mono">
+									{formatShortSha(displayedSession.merge_base_sha)}
+								</span>
+							</>
+						) : null}
+						{activeRun ? (
+							<StatusPill tone={getRunStatusTone(activeRun.status)}>
+								{formatLabel(activeRun.status)}
+							</StatusPill>
+						) : null}
+						{reviewResult ? <span>{findingsLabel}</span> : null}
+					</>
+				)
 			}
 		/>
 	);
@@ -692,14 +764,29 @@ export function Review() {
 								? null
 								: isViewingHistory
 									? historySelectionError
-									: sessionError
+									: reviewTarget.mode === "commit"
+										? commitError ?? sessionError
+										: sessionError
 					}
 					topContent={workspaceTopContent}
 					fileSearchInputId="review-file-search-input"
 					codeSearchInputId="review-code-search-input"
-					emptyTitle="Select two local branches to prepare a review session."
-					emptyDescription="GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
+					emptyTitle={
+						reviewTarget.mode === "commit"
+							? "Select a commit to prepare a review session."
+							: "Select two local branches to prepare a review session."
+					}
+					emptyDescription={
+						reviewTarget.mode === "commit"
+							? "GitOdyssey creates a persisted Codex review session for parent(commit)...commit and then runs the review in a disposable worktree."
+							: "GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
+					}
 					chromeDensity="compact"
+					searchContext={
+						reviewTarget.mode === "commit"
+							? (commitSearchContext ?? reviewTarget.searchContext ?? null)
+							: null
+					}
 					fileTreeCollapsible
 					desktopResize={{
 						minContentWidth: REVIEW_DIFF_MIN_WIDTH,

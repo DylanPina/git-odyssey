@@ -236,8 +236,10 @@ class SQLReviewSession(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     repo_path: Mapped[str] = mapped_column(Text)
+    target_mode: Mapped[str] = mapped_column(String(16), default="compare")
     base_ref: Mapped[str] = mapped_column(Text)
     head_ref: Mapped[str] = mapped_column(Text)
+    commit_sha: Mapped[Optional[str]] = mapped_column(String(40))
     merge_base_sha: Mapped[str] = mapped_column(String(40))
     base_head_sha: Mapped[str] = mapped_column(String(40))
     head_head_sha: Mapped[str] = mapped_column(String(40))

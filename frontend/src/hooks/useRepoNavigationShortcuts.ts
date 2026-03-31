@@ -145,7 +145,7 @@ export function useRepoNavigationShortcuts() {
         return;
       }
 
-      if (route === "commit" || route === "review") {
+      if (route === "review") {
         event.preventDefault();
         navigate(repoPath ? buildRepoRoute(repoPath) : "/", { replace: true });
       }

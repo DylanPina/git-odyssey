@@ -14,7 +14,7 @@ import {
 	formatCommitTimestamp,
 	getCommitAuthorLabel,
 } from "@/lib/commitPresentation";
-import { buildCommitRoute, readRepoPathFromSearchParams } from "@/lib/repoPaths";
+import { buildReviewRoute, readRepoPathFromSearchParams } from "@/lib/repoPaths";
 
 function CommitNode(props: {
   data: {
@@ -50,7 +50,12 @@ function CommitNode(props: {
     if (!repoPath) {
       return;
     }
-    navigate(buildCommitRoute(repoPath, sha));
+    navigate(
+      buildReviewRoute(repoPath, {
+        mode: "commit",
+        commitSha: sha,
+      })
+    );
   }, [navigate, repoPath, sha]);
 
   return (

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import pygit2
@@ -26,6 +27,8 @@ MAX_REVIEW_HUNKS_PER_FILE = 12
 MAX_REVIEW_HUNK_CHARS = 2400
 MAX_REVIEW_SNAPSHOT_CHARS = 4000
 RAW_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+EMPTY_TREE_LABEL = "(empty tree)"
 
 
 def build_review_finding_id(
@@ -56,63 +59,49 @@ class ReviewServiceError(ValueError):
         self.status_code = status_code
 
 
+@dataclass(frozen=True)
+class ResolvedReviewTarget:
+    target_mode: str
+    repo: pygit2.Repository
+    repo_path: str
+    base_ref: str
+    head_ref: str
+    commit_sha: str | None
+    base_head_sha: str
+    head_head_sha: str
+    merge_base_sha: str
+    base_tree: pygit2.Tree
+    head_commit: pygit2.Commit
+
+
 class ReviewCompareService:
     def resolve_repo_path(self, repo_path: str) -> str:
         _repo, resolved_repo_path = self._open_repo(repo_path)
         return resolved_repo_path
 
     def compare(self, request: ReviewCompareRequest) -> ReviewCompareResponse:
-        base_ref = request.base_ref.strip()
-        head_ref = request.head_ref.strip()
-
         if not request.repo_path.strip():
             raise ReviewServiceError("Repository path is required.", status_code=400)
-
-        if not base_ref or not head_ref:
-            raise ReviewServiceError(
-                "Select both a base branch and a head branch before loading the diff.",
-                status_code=400,
-            )
-
-        if base_ref == head_ref:
-            raise ReviewServiceError(
-                "Choose two different local branches to compare.", status_code=400
-            )
-
-        (
-            repo,
-            repo_path,
-            _base_commit,
-            head_commit,
-            merge_base_commit,
-        ) = self.resolve_compare_target(
+        resolved_target = self.resolve_target(
             repo_path=request.repo_path,
-            base_ref=base_ref,
-            head_ref=head_ref,
+            target_mode=request.target_mode,
+            base_ref=request.base_ref,
+            head_ref=request.head_ref,
+            commit_sha=request.commit_sha,
         )
         return self.compare_resolved(
-            repo=repo,
-            repo_path=repo_path,
-            base_ref=base_ref,
-            head_ref=head_ref,
-            head_commit=head_commit,
-            merge_base_commit=merge_base_commit,
+            resolved_target=resolved_target,
             context_lines=request.context_lines,
         )
 
     def compare_resolved(
         self,
         *,
-        repo: pygit2.Repository,
-        repo_path: str,
-        base_ref: str,
-        head_ref: str,
-        head_commit: pygit2.Commit,
-        merge_base_commit: pygit2.Commit,
+        resolved_target: ResolvedReviewTarget,
         context_lines: int,
     ) -> ReviewCompareResponse:
-        diff = merge_base_commit.tree.diff_to_tree(
-            head_commit.tree, context_lines=context_lines
+        diff = resolved_target.base_tree.diff_to_tree(
+            resolved_target.head_commit.tree, context_lines=context_lines
         )
         try:
             diff.find_similar(
@@ -128,9 +117,10 @@ class ReviewCompareService:
 
         for patch in diff:
             file_change, file_additions, file_deletions = self._build_file_change(
-                repo=repo,
-                merge_base_commit=merge_base_commit,
-                head_commit=head_commit,
+                repo=resolved_target.repo,
+                base_tree=resolved_target.base_tree,
+                base_commit_sha=resolved_target.base_head_sha,
+                head_commit=resolved_target.head_commit,
                 patch=patch,
             )
             file_changes.append(file_change)
@@ -138,15 +128,22 @@ class ReviewCompareService:
             deletions += file_deletions
 
         if not file_changes:
+            no_changes_message = (
+                "No changes were found in the selected commit."
+                if resolved_target.target_mode == "commit"
+                else "No changes were found between the selected branches."
+            )
             raise ReviewServiceError(
-                "No changes were found between the selected branches.", status_code=400
+                no_changes_message, status_code=400
             )
 
         return ReviewCompareResponse(
-            repo_path=repo_path,
-            base_ref=base_ref,
-            head_ref=head_ref,
-            merge_base_sha=str(merge_base_commit.id),
+            repo_path=resolved_target.repo_path,
+            target_mode=resolved_target.target_mode,
+            base_ref=resolved_target.base_ref,
+            head_ref=resolved_target.head_ref,
+            commit_sha=resolved_target.commit_sha,
+            merge_base_sha=resolved_target.merge_base_sha,
             stats=ReviewStats(
                 files_changed=len(file_changes),
                 additions=additions,
@@ -156,22 +153,57 @@ class ReviewCompareService:
             truncated=False,
         )
 
+    def resolve_target(
+        self,
+        *,
+        repo_path: str,
+        target_mode: str,
+        base_ref: str,
+        head_ref: str,
+        commit_sha: str | None,
+    ) -> ResolvedReviewTarget:
+        normalized_target_mode = (target_mode or "compare").strip() or "compare"
+        if normalized_target_mode == "commit":
+            return self.resolve_commit_target(
+                repo_path=repo_path,
+                commit_sha=commit_sha,
+            )
+
+        if normalized_target_mode != "compare":
+            raise ReviewServiceError(
+                f"Unsupported review target mode '{target_mode}'.",
+                status_code=400,
+            )
+
+        return self.resolve_compare_target(
+            repo_path=repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
+
     def resolve_compare_target(
         self,
         *,
         repo_path: str,
         base_ref: str,
         head_ref: str,
-    ) -> tuple[
-        pygit2.Repository,
-        str,
-        pygit2.Commit,
-        pygit2.Commit,
-        pygit2.Commit,
-    ]:
+    ) -> ResolvedReviewTarget:
+        normalized_base_ref = base_ref.strip()
+        normalized_head_ref = head_ref.strip()
+        if not normalized_base_ref or not normalized_head_ref:
+            raise ReviewServiceError(
+                "Select both a base branch and a head branch before loading the diff.",
+                status_code=400,
+            )
+
+        if normalized_base_ref == normalized_head_ref:
+            raise ReviewServiceError(
+                "Choose two different local branches to compare.", status_code=400
+            )
+
         repo, resolved_repo_path = self._open_repo(repo_path)
-        base_commit = self._resolve_local_branch(repo, base_ref)
-        head_commit = self._resolve_local_branch(repo, head_ref)
+        base_commit = self._resolve_local_branch(repo, normalized_base_ref)
+        head_commit = self._resolve_local_branch(repo, normalized_head_ref)
 
         merge_base_oid = repo.merge_base(base_commit.id, head_commit.id)
         if merge_base_oid is None:
@@ -180,12 +212,53 @@ class ReviewCompareService:
             )
 
         merge_base_commit = repo[merge_base_oid]
-        return (
+        return ResolvedReviewTarget(
+            target_mode="compare",
+            repo=repo,
+            repo_path=resolved_repo_path,
+            base_ref=normalized_base_ref,
+            head_ref=normalized_head_ref,
+            commit_sha=None,
+            base_head_sha=str(base_commit.id),
+            head_head_sha=str(head_commit.id),
+            merge_base_sha=str(merge_base_commit.id),
+            base_tree=merge_base_commit.tree,
+            head_commit=head_commit,
+        )
+
+    def resolve_commit_target(
+        self,
+        *,
+        repo_path: str,
+        commit_sha: str | None,
+    ) -> ResolvedReviewTarget:
+        normalized_commit_sha = (commit_sha or "").strip()
+        if not normalized_commit_sha:
+            raise ReviewServiceError(
+                "Select a commit before loading the review diff.",
+                status_code=400,
+            )
+
+        repo, resolved_repo_path = self._open_repo(repo_path)
+        head_commit = self._resolve_commit(repo, normalized_commit_sha)
+        parent_commit = head_commit.parents[0] if head_commit.parents else None
+        base_tree, base_head_sha, base_ref = self._resolve_commit_base_tree(
             repo,
-            resolved_repo_path,
-            base_commit,
-            head_commit,
-            merge_base_commit,
+            parent_commit,
+        )
+
+        return ResolvedReviewTarget(
+            target_mode="commit",
+            repo=repo,
+            repo_path=resolved_repo_path,
+            base_ref=base_ref,
+            head_ref=str(head_commit.id),
+            commit_sha=str(head_commit.id),
+            base_head_sha=base_head_sha,
+            head_head_sha=str(head_commit.id),
+            merge_base_sha=base_head_sha,
+            base_tree=base_tree,
+            head_commit=head_commit,
         )
 
     def _open_repo(self, repo_path: str) -> tuple[pygit2.Repository, str]:
@@ -241,11 +314,47 @@ class ReviewCompareService:
 
         return resolved
 
+    def _resolve_commit(self, repo: pygit2.Repository, commit_sha: str) -> pygit2.Commit:
+        if not RAW_SHA_PATTERN.fullmatch(commit_sha):
+            raise ReviewServiceError(
+                "Commit review mode requires a valid commit SHA.",
+                status_code=400,
+            )
+
+        try:
+            resolved = repo.revparse_single(commit_sha)
+        except Exception as error:
+            raise ReviewServiceError(
+                f"Commit '{commit_sha}' was not found in this repository.",
+                status_code=400,
+            ) from error
+
+        if not isinstance(resolved, pygit2.Commit):
+            raise ReviewServiceError(
+                f"Revision '{commit_sha}' does not point to a commit.",
+                status_code=400,
+            )
+
+        return resolved
+
+    def _resolve_commit_base_tree(
+        self,
+        repo: pygit2.Repository,
+        parent_commit: pygit2.Commit | None,
+    ) -> tuple[pygit2.Tree, str, str]:
+        if parent_commit is not None:
+            return parent_commit.tree, str(parent_commit.id), str(parent_commit.id)
+
+        empty_tree_oid = repo.TreeBuilder().write()
+        empty_tree = repo[empty_tree_oid]
+        return empty_tree, EMPTY_TREE_SHA, EMPTY_TREE_LABEL
+
     def _build_file_change(
         self,
         *,
         repo: pygit2.Repository,
-        merge_base_commit: pygit2.Commit,
+        base_tree: pygit2.Tree,
+        base_commit_sha: str,
         head_commit: pygit2.Commit,
         patch,
     ) -> tuple[FileChange, int, int]:
@@ -285,7 +394,8 @@ class ReviewCompareService:
 
         snapshot = self._build_snapshot(
             repo=repo,
-            merge_base_commit=merge_base_commit,
+            base_tree=base_tree,
+            base_commit_sha=base_commit_sha,
             head_commit=head_commit,
             old_path=old_path,
             new_path=new_path,
@@ -309,7 +419,8 @@ class ReviewCompareService:
         self,
         *,
         repo: pygit2.Repository,
-        merge_base_commit: pygit2.Commit,
+        base_tree: pygit2.Tree,
+        base_commit_sha: str,
         head_commit: pygit2.Commit,
         old_path: str,
         new_path: str,
@@ -318,7 +429,7 @@ class ReviewCompareService:
         commit_sha = str(head_commit.id)
 
         if status == FileChangeStatus.DELETED:
-            deleted_content = self._get_snapshot(repo, merge_base_commit.tree, old_path)
+            deleted_content = self._get_snapshot(repo, base_tree, old_path)
             return FileSnapshot(
                 path=old_path or new_path,
                 content=deleted_content or "",
@@ -334,11 +445,11 @@ class ReviewCompareService:
             FileChangeStatus.RENAMED,
             FileChangeStatus.COPIED,
         }:
-            previous_content = self._get_snapshot(repo, merge_base_commit.tree, old_path)
+            previous_content = self._get_snapshot(repo, base_tree, old_path)
             previous_snapshot = FileSnapshot(
                 path=old_path,
                 content=previous_content or "",
-                commit_sha=str(merge_base_commit.id),
+                commit_sha=base_commit_sha,
             )
 
         return FileSnapshot(
@@ -418,16 +529,20 @@ class ReviewGenerationService:
         compare = self.compare_service.compare(
             ReviewCompareRequest(
                 repo_path=request.repo_path,
+                target_mode=request.target_mode,
                 base_ref=request.base_ref,
                 head_ref=request.head_ref,
+                commit_sha=request.commit_sha,
                 context_lines=request.context_lines,
             )
         )
 
         reviewed_files, partial = self._prepare_review_context(compare)
         instructions, input_text = build_review_report_prompt(
+            target_mode=compare.target_mode,
             base_ref=compare.base_ref,
             head_ref=compare.head_ref,
+            commit_sha=compare.commit_sha,
             merge_base_sha=compare.merge_base_sha,
             files_changed=compare.stats.files_changed,
             additions=compare.stats.additions,

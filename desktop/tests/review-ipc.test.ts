@@ -55,6 +55,7 @@ test("preload exposes review IPC bridge methods", async () => {
 
   const input = {
     repoPath: "/tmp/example-repo",
+    targetMode: "compare",
     baseRef: "main",
     headRef: "feature",
     contextLines: 5,
@@ -66,6 +67,7 @@ test("preload exposes review IPC bridge methods", async () => {
   await exposed.gitOdysseyDesktop.api.getReviewSession("rev_sess_123");
   await exposed.gitOdysseyDesktop.api.getReviewHistory({
     repoPath: "/tmp/example-repo",
+    targetMode: "compare",
     baseRef: "main",
     headRef: "feature",
   });
@@ -106,6 +108,7 @@ test("preload exposes review IPC bridge methods", async () => {
     "git-odyssey:api:get-review-history",
     {
       repoPath: "/tmp/example-repo",
+      targetMode: "compare",
       baseRef: "main",
       headRef: "feature",
     },
@@ -346,6 +349,7 @@ test("main process review handlers forward requests to the backend", async () =>
   const respondApprovalHandler = handlers.get("git-odyssey:api:respond-review-approval");
   const input = {
     repoPath: "/tmp/example-repo",
+    targetMode: "compare",
     baseRef: "main",
     headRef: "feature",
     contextLines: 7,
@@ -357,6 +361,7 @@ test("main process review handlers forward requests to the backend", async () =>
   await getSessionHandler({}, "rev_sess_123");
   await getHistoryHandler({}, {
     repoPath: "/tmp/example-repo",
+    targetMode: "compare",
     baseRef: "main",
     headRef: "feature",
   });
@@ -397,8 +402,10 @@ test("main process review handlers forward requests to the backend", async () =>
       method: "POST",
       body: {
         repo_path: "/tmp/example-repo",
+        target_mode: "compare",
         base_ref: "main",
         head_ref: "feature",
+        commit_sha: null,
         context_lines: 7,
       },
     },
@@ -409,8 +416,10 @@ test("main process review handlers forward requests to the backend", async () =>
       method: "POST",
       body: {
         repo_path: "/tmp/example-repo",
+        target_mode: "compare",
         base_ref: "main",
         head_ref: "feature",
+        commit_sha: null,
         context_lines: 7,
       },
     },
@@ -421,8 +430,10 @@ test("main process review handlers forward requests to the backend", async () =>
       method: "POST",
       body: {
         repo_path: "/tmp/example-repo",
+        target_mode: "compare",
         base_ref: "main",
         head_ref: "feature",
+        commit_sha: null,
         context_lines: 7,
       },
     },
@@ -432,7 +443,7 @@ test("main process review handlers forward requests to the backend", async () =>
     options: undefined,
   });
   assert.deepEqual(backendManagerInstance.requests[4], {
-    apiPath: "/api/review/history?repo_path=%2Ftmp%2Fexample-repo&base_ref=main&head_ref=feature",
+    apiPath: "/api/review/history?repo_path=%2Ftmp%2Fexample-repo&target_mode=compare&base_ref=main&head_ref=feature",
     options: undefined,
   });
   assert.deepEqual(backendManagerInstance.requests[5], {

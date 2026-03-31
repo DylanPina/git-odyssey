@@ -3,6 +3,7 @@ import {
 	ArrowRight,
 	CheckIcon,
 	ChevronsUpDownIcon,
+	GitCommitHorizontal,
 	Loader2,
 	Play,
 	ScrollText,
@@ -105,9 +106,11 @@ function ReviewTitleBarBranchPicker({
 }
 
 type ReviewTitleBarTrailingProps = {
+	targetMode: "compare" | "commit";
 	branchOptions: string[];
 	baseRef: string;
 	headRef: string;
+	commitSha?: string | null;
 	onBaseRefChange: (value: string) => void;
 	onHeadRefChange: (value: string) => void;
 	isRepoLoading?: boolean;
@@ -131,9 +134,11 @@ type ReviewTitleBarTrailingProps = {
 };
 
 export function ReviewTitleBarTrailing({
+	targetMode,
 	branchOptions,
 	baseRef,
 	headRef,
+	commitSha = null,
 	onBaseRefChange,
 	onHeadRefChange,
 	isRepoLoading = false,
@@ -158,6 +163,7 @@ export function ReviewTitleBarTrailing({
 	const [isPreviousReviewsOpen, setIsPreviousReviewsOpen] = React.useState(false);
 	const shouldShowStartReview = !hasCancelableRun && !isRunStarting;
 	const branchSelectionDisabled = branchOptions.length === 0 || isRepoLoading;
+	const commitLabel = commitSha ? commitSha.slice(0, 12) : "Unknown commit";
 
 	return (
 		<div className="flex min-w-0 items-center gap-2">
@@ -206,25 +212,35 @@ export function ReviewTitleBarTrailing({
 				</Popover>
 			) : null}
 
-			<div className="flex min-w-0 items-center gap-2">
-				<ReviewTitleBarBranchPicker
-					options={branchOptions}
-					value={baseRef}
-					onSelect={onBaseRefChange}
-					disabled={branchSelectionDisabled}
-					placeholder="Base"
-				/>
-				<span className="inline-flex items-center justify-center px-0.5 text-text-tertiary">
-					<ArrowRight className="size-4" />
-				</span>
-				<ReviewTitleBarBranchPicker
-					options={branchOptions}
-					value={headRef}
-					onSelect={onHeadRefChange}
-					disabled={branchSelectionDisabled}
-					placeholder="Head"
-				/>
-			</div>
+			{targetMode === "compare" ? (
+				<div className="flex min-w-0 items-center gap-2">
+					<ReviewTitleBarBranchPicker
+						options={branchOptions}
+						value={baseRef}
+						onSelect={onBaseRefChange}
+						disabled={branchSelectionDisabled}
+						placeholder="Base"
+					/>
+					<span className="inline-flex items-center justify-center px-0.5 text-text-tertiary">
+						<ArrowRight className="size-4" />
+					</span>
+					<ReviewTitleBarBranchPicker
+						options={branchOptions}
+						value={headRef}
+						onSelect={onHeadRefChange}
+						disabled={branchSelectionDisabled}
+						placeholder="Head"
+					/>
+				</div>
+			) : (
+				<div className="flex min-w-0 items-center">
+					<div className="inline-flex h-8 min-w-0 items-center gap-2 rounded-[14px] border border-border-subtle bg-[rgba(255,255,255,0.03)] px-3 text-[11px] font-semibold text-text-secondary">
+						<GitCommitHorizontal className="size-3.5 shrink-0" />
+						<span className="text-text-tertiary">Commit</span>
+						<span className="truncate font-mono text-text-primary">{commitLabel}</span>
+					</div>
+				</div>
+			)}
 
 			{shouldShowStartReview ? (
 				<Button

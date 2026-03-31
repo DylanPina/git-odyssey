@@ -29,6 +29,7 @@ FilterHighlightStrategy = Literal[
     "none",
 ]
 FilterPreviewKind = Literal["text", "diff"]
+ReviewTargetMode = Literal["compare", "commit"]
 
 
 class FilterDisplayMatch(BaseModel):
@@ -92,8 +93,10 @@ class CommitResponse(BaseModel):
 
 class ReviewCompareRequest(BaseModel):
     repo_path: str = ""
+    target_mode: ReviewTargetMode = "compare"
     base_ref: str = ""
     head_ref: str = ""
+    commit_sha: str | None = None
     context_lines: int = 3
 
 
@@ -105,8 +108,10 @@ class ReviewStats(BaseModel):
 
 class ReviewCompareResponse(BaseModel):
     repo_path: str
+    target_mode: ReviewTargetMode = "compare"
     base_ref: str
     head_ref: str
+    commit_sha: str | None = None
     merge_base_sha: str
     stats: ReviewStats = Field(default_factory=ReviewStats)
     file_changes: List[FileChange] = Field(default_factory=list)
@@ -115,8 +120,10 @@ class ReviewCompareResponse(BaseModel):
 
 class GenerateReviewRequest(BaseModel):
     repo_path: str = ""
+    target_mode: ReviewTargetMode = "compare"
     base_ref: str = ""
     head_ref: str = ""
+    commit_sha: str | None = None
     context_lines: int = 3
 
 
@@ -163,8 +170,10 @@ ReviewApprovalStatus = Literal[
 
 class ReviewSessionCreateRequest(BaseModel):
     repo_path: str = ""
+    target_mode: ReviewTargetMode = "compare"
     base_ref: str = ""
     head_ref: str = ""
+    commit_sha: str | None = None
     context_lines: int = 3
 
 
@@ -268,8 +277,10 @@ class ReviewHistoryEntry(BaseModel):
     session_id: str
     run_id: str
     repo_path: str
+    target_mode: ReviewTargetMode = "compare"
     base_ref: str
     head_ref: str
+    commit_sha: str | None = None
     merge_base_sha: str
     base_head_sha: str
     head_head_sha: str
@@ -310,8 +321,10 @@ class ReviewRunResponse(BaseModel):
 class ReviewSessionResponse(BaseModel):
     id: str
     repo_path: str
+    target_mode: ReviewTargetMode = "compare"
     base_ref: str
     head_ref: str
+    commit_sha: str | None = None
     merge_base_sha: str
     base_head_sha: str
     head_head_sha: str

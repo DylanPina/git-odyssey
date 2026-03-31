@@ -1,6 +1,17 @@
 import type { DiffSearchContext } from "@/lib/diff";
 
 export type MonacoSide = "original" | "modified";
+export type ReviewRouteTarget =
+  | {
+      mode: "compare";
+      baseRef?: string | null;
+      headRef?: string | null;
+    }
+  | {
+      mode: "commit";
+      commitSha: string;
+      searchContext?: DiffSearchContext | null;
+    };
 
 export function normalizeRepoPath(repoPath: string): string {
   const normalized = repoPath.replace(/\\/g, "/");
@@ -72,29 +83,23 @@ function parseOptionalLineNumber(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function buildCommitRoute(
-  repoPath: string,
-  commitSha: string,
-  searchContext?: DiffSearchContext | null,
-): string {
-  const params = new URLSearchParams({ path: normalizeRepoPath(repoPath) });
-  appendCommitSearchContext(params, searchContext);
-  return `/repo/commit/${commitSha}?${params.toString()}`;
-}
-
 export function buildReviewRoute(
   repoPath: string,
-  baseRef?: string | null,
-  headRef?: string | null
+  target: ReviewRouteTarget,
 ): string {
   const params = new URLSearchParams({ path: normalizeRepoPath(repoPath) });
 
-  if (baseRef) {
-    params.set("base", baseRef);
-  }
+  if (target.mode === "commit") {
+    params.set("commit", target.commitSha);
+    appendCommitSearchContext(params, target.searchContext);
+  } else {
+    if (target.baseRef) {
+      params.set("base", target.baseRef);
+    }
 
-  if (headRef) {
-    params.set("head", headRef);
+    if (target.headRef) {
+      params.set("head", target.headRef);
+    }
   }
 
   return `/repo/review?${params.toString()}`;
@@ -123,6 +128,26 @@ export function readReviewRefsFromSearchParams(searchParams: URLSearchParams): {
   return {
     baseRef: searchParams.get("base"),
     headRef: searchParams.get("head"),
+  };
+}
+
+export function readReviewTargetFromSearchParams(
+  searchParams: URLSearchParams,
+): ReviewRouteTarget {
+  const commitSha = searchParams.get("commit")?.trim();
+  if (commitSha) {
+    return {
+      mode: "commit",
+      commitSha,
+      searchContext: readCommitSearchContextFromSearchParams(searchParams),
+    };
+  }
+
+  const { baseRef, headRef } = readReviewRefsFromSearchParams(searchParams);
+  return {
+    mode: "compare",
+    baseRef,
+    headRef,
   };
 }
 

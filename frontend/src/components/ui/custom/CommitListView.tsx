@@ -14,7 +14,7 @@ import {
 	getCommitSubject,
 } from "@/lib/commitPresentation";
 import type { Commit } from "@/lib/definitions/repo";
-import { buildCommitRoute } from "@/lib/repoPaths";
+import { buildReviewRoute } from "@/lib/repoPaths";
 
 type CommitListViewProps = {
 	commits: Commit[];
@@ -89,7 +89,12 @@ export function CommitListView({
 							const effectiveRepoPath = repoPath ?? commit.repo_path;
 							const isSelected = focusedCommitSha === commit.sha;
 							const handleOpenCommit = () => {
-								navigate(buildCommitRoute(effectiveRepoPath, commit.sha));
+								navigate(
+									buildReviewRoute(effectiveRepoPath, {
+										mode: "commit",
+										commitSha: commit.sha,
+									}),
+								);
 							};
 
 							return (
