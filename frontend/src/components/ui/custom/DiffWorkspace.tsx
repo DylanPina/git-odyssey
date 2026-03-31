@@ -1305,7 +1305,7 @@ export const DiffWorkspace = forwardRef<
           minWidth: `${desktopPanelWidths.rightRail}px`,
         } as CSSProperties)
       : undefined;
-  const headerPadding = isCompactChrome ? "px-4 py-3" : "px-4 py-4 sm:px-5";
+  const headerPadding = isCompactChrome ? "px-3 py-2.5" : "px-4 py-4 sm:px-5";
   const codeSearchShortcutLabel = useMemo(() => getCodeSearchShortcutLabel(), []);
   const codeSearchFieldPlaceholder = `${codeSearchPlaceholder} (${codeSearchShortcutLabel})`;
   const fileTreeSearch = (
@@ -1375,7 +1375,7 @@ export const DiffWorkspace = forwardRef<
             headerPadding,
           )}
         >
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             {topContent ? (
               <div className="min-w-0 flex-1">{topContent}</div>
             ) : (
@@ -1385,7 +1385,7 @@ export const DiffWorkspace = forwardRef<
             {hasFiles ? (
               <div
                 className={cn(
-                  "w-full xl:max-w-[22rem]",
+                  "w-full xl:max-w-[20rem]",
                   isRightRailFullscreen ? "xl:hidden" : undefined,
                 )}
               >
@@ -1397,7 +1397,7 @@ export const DiffWorkspace = forwardRef<
       ) : null}
 
       {error ? (
-        <div className="p-4 sm:p-5">
+        <div className="p-3 sm:p-4">
           <InlineBanner tone="danger" title={error} />
         </div>
       ) : hasFiles ? (
@@ -1453,15 +1453,15 @@ export const DiffWorkspace = forwardRef<
               <div
                 className={cn(
                   "h-full min-h-0 overflow-hidden",
-                  isCompactChrome ? "p-3 sm:p-4" : "p-4 sm:p-5",
+                  isCompactChrome ? "p-2.5 sm:p-3" : "p-4 sm:p-5",
                 )}
               >
                 <div
                   ref={diffListScrollRef}
-                  className="workspace-scrollbar h-full min-h-0 overflow-y-auto pr-0 xl:pr-1"
+                  className="workspace-scrollbar h-full min-h-0 overflow-y-auto pr-0.5"
                 >
                   {filteredFiles.length > 0 ? (
-                    <div className={cn(isCompactChrome ? "space-y-3" : "space-y-4")}>
+                    <div className={cn(isCompactChrome ? "space-y-2" : "space-y-4")}>
                       {filteredFiles.map((fileChange) => {
                         const labelPath = getFileChangeLabelPath(fileChange);
                         const isExpanded = expanded[labelPath] ?? true;
@@ -1613,7 +1613,7 @@ export const DiffWorkspace = forwardRef<
           </div>
         </div>
       ) : (
-        <div className="p-4 sm:p-5">
+        <div className="p-3 sm:p-4">
           <InlineBanner
             tone="info"
             title={emptyTitle}

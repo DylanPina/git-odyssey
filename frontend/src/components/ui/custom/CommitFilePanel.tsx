@@ -320,8 +320,8 @@ export function CommitFilePanel({
 	);
 	const summaryLoading = Boolean(fileSummary?.loading);
 	const diffHeight = isViewerExpanded
-		? "max(440px, calc(var(--app-content-height) - var(--header-height) - 12rem))"
-		: 440;
+		? "max(400px, calc(var(--app-content-height) - var(--header-height) - 11rem))"
+		: 400;
 	const canShowFileSummaryControls = Boolean(
 		onToggleFileSummary ||
 			onSummarizeFile ||
@@ -777,7 +777,7 @@ export function CommitFilePanel({
 			<div className="sticky top-0 z-20">
 				<div
 					className={cn(
-						"workspace-panel flex items-start justify-between gap-3 border-b border-border-subtle bg-[rgba(12,15,19,0.94)] px-4 py-3 backdrop-blur-md transition-[border-color,box-shadow,background-color] duration-150",
+						"workspace-panel flex items-start justify-between gap-3 border-b border-border-subtle bg-[rgba(12,15,19,0.94)] px-3 py-2.5 backdrop-blur-md transition-[border-color,box-shadow,background-color] duration-150",
 						"rounded-b-none",
 						panelSelectionClass,
 					)}
@@ -787,7 +787,7 @@ export function CommitFilePanel({
 					className="flex min-w-0 items-start gap-3 text-left"
 					onClick={onToggleExpanded}
 				>
-					<span className="mt-0.5 flex size-6 items-center justify-center rounded-[8px] border border-border-subtle bg-control text-text-tertiary">
+					<span className="mt-0.5 flex size-5.5 items-center justify-center rounded-[8px] border border-border-subtle bg-control text-text-tertiary">
 						{isExpanded ? (
 							<ChevronDown className="size-4" />
 						) : (
@@ -802,7 +802,7 @@ export function CommitFilePanel({
 							>
 								{getDiffStatusLabel(status)}
 							</StatusPill>
-							<span className="truncate font-mono text-xs text-text-secondary">
+							<span className="truncate font-mono text-[11px] text-text-secondary">
 								{labelPath}
 							</span>
 							{searchContextLabel ? (
@@ -921,7 +921,7 @@ export function CommitFilePanel({
 			{canShowFileSummaryControls &&
 			isFileSummaryOpen &&
 			(fileSummary?.text || fileSummary?.error) ? (
-				<div className="space-y-3 border-b border-border-subtle bg-[rgba(255,255,255,0.02)] px-4 py-4">
+				<div className="space-y-2.5 border-b border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-3">
 					{fileSummary?.error ? (
 						<InlineBanner tone="danger" title={fileSummary.error} />
 					) : null}
@@ -982,7 +982,7 @@ export function CommitFilePanel({
 			) : null}
 
 			{hunkList.length ? (
-				<div className="space-y-2 px-4 py-4">
+				<div className="space-y-2 px-3 py-3">
 					<div className="workspace-section-label">Hunks</div>
 					{hunkList.map((hunk, index) => {
 						const hKey = hunk.id != null ? String(hunk.id) : undefined;
@@ -1005,12 +1005,12 @@ export function CommitFilePanel({
 									hunkRefs.current[anchorKey] = node;
 								}}
 								className={cn(
-									"rounded-[12px] border border-border-subtle bg-control/40 transition-[border-color,box-shadow,background-color] duration-150",
+									"rounded-[10px] border border-border-subtle bg-control/40 transition-[border-color,box-shadow,background-color] duration-150",
 									anchorKey === emphasizedHunkAnchorKey &&
 										"border-[rgba(122,162,255,0.34)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]",
 								)}
 							>
-								<div className="flex items-center justify-between gap-3 px-3 py-2.5">
+								<div className="flex items-center justify-between gap-3 px-3 py-2">
 									<button
 										type="button"
 										className="font-mono text-xs text-text-secondary transition-colors hover:text-text-primary"
@@ -1064,7 +1064,7 @@ export function CommitFilePanel({
 								{canShowHunkSummaryControls &&
 								hOpen &&
 								(hState?.text || hState?.error) ? (
-									<div className="space-y-3 border-t border-border-subtle px-3 py-3">
+									<div className="space-y-2.5 border-t border-border-subtle px-3 py-2.5">
 										{hState?.error ? (
 											<InlineBanner tone="danger" title={hState.error} />
 										) : null}

@@ -57,7 +57,7 @@ function ReviewInProgressState({
 	const visibleTrace = reasoningTrace.slice(0, 5);
 
 	return (
-		<div className="review-runtime-pulse relative overflow-hidden rounded-[16px] border border-[rgba(122,162,255,0.18)] bg-[linear-gradient(180deg,rgba(122,162,255,0.07),rgba(122,162,255,0.02))] px-3 py-3.5">
+			<div className="review-runtime-pulse relative overflow-hidden rounded-[14px] border border-[rgba(122,162,255,0.18)] bg-[linear-gradient(180deg,rgba(122,162,255,0.07),rgba(122,162,255,0.02))] px-3 py-3">
 			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,162,255,0.16),transparent_55%)] opacity-70" />
 			<div className="relative">
 				<div className="flex items-start justify-between gap-3">
@@ -148,7 +148,7 @@ function CompletedReasoningSection({
 		<section className="mt-3 border-t border-border-subtle pt-3">
 			<button
 				type="button"
-				className="flex w-full items-center justify-between gap-3 rounded-[12px] border border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-2 text-left transition-[background-color,border-color,color] duration-150 hover:border-[rgba(122,162,255,0.24)] hover:bg-[rgba(122,162,255,0.06)]"
+				className="flex w-full items-center justify-between gap-3 rounded-[10px] border border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-1.5 text-left transition-[background-color,border-color,color] duration-150 hover:border-[rgba(122,162,255,0.24)] hover:bg-[rgba(122,162,255,0.06)]"
 				onClick={() => setIsOpen((current) => !current)}
 				aria-expanded={isOpen}
 			>
@@ -213,7 +213,7 @@ function ReviewFindingsList({
 	}
 
 	return (
-		<div className="space-y-2">
+			<div className="space-y-1.5">
 			{findings.map((finding) => {
 				const { label, sideLabel } = formatFindingReference(finding);
 				const isSelected = selectedFindingId === finding.id;
@@ -255,7 +255,7 @@ function ReviewFindingsList({
 						<div
 							key={finding.id}
 							className={cn(
-								"rounded-[14px] border px-3 py-2.5",
+								"rounded-[12px] border px-2.5 py-2",
 								isSelected
 									? "border-[rgba(122,162,255,0.35)] bg-[rgba(122,162,255,0.08)]"
 									: "border-border-subtle bg-[rgba(255,255,255,0.025)]",
@@ -272,7 +272,7 @@ function ReviewFindingsList({
 						type="button"
 						aria-pressed={isSelected}
 						className={cn(
-							"w-full rounded-[14px] border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] duration-150",
+							"w-full rounded-[12px] border px-2.5 py-2 text-left transition-[background-color,border-color,box-shadow] duration-150",
 							isSelected
 								? "border-[rgba(122,162,255,0.45)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]"
 								: "border-border-subtle bg-[rgba(255,255,255,0.025)] hover:border-border-strong hover:bg-[rgba(255,255,255,0.045)]",
@@ -318,7 +318,7 @@ export function ReviewInsightsPanel({
 }: ReviewInsightsPanelProps) {
 	const summaryText = reviewResult?.summary?.trim() || null;
 	const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
-	const sectionPadding = isFullscreen ? "px-5 py-4 xl:px-6" : "px-3 py-3";
+	const sectionPadding = isFullscreen ? "px-4 py-3 xl:px-5" : "px-2.5 py-2.5";
 	const completedThoughtDuration = formatThoughtDuration(activeRun, reviewResult);
 	const completedThoughtTitle = completedThoughtDuration
 		? `Thought for ${completedThoughtDuration}`
@@ -405,7 +405,7 @@ export function ReviewInsightsPanel({
 							</button>
 						) : null}
 					</div>
-					<div className="mt-2.5">
+					<div className="mt-2">
 						{summaryText ? (
 							<div className="relative">
 								<div
@@ -449,7 +449,7 @@ export function ReviewInsightsPanel({
 							{findingsLabel}
 						</div>
 					</div>
-					<div className="mt-2.5">
+					<div className="mt-2">
 						{reviewResult ? (
 							<ReviewFindingsList
 								findings={reviewResult.findings}

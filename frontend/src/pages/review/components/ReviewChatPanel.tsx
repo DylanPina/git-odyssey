@@ -148,13 +148,13 @@ export function ReviewChatPanel({
 		<div className="flex h-full min-h-0 flex-col">
 			<div
 				ref={messagesContainerRef}
-				className="workspace-scrollbar min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto px-3 py-3"
+				className="workspace-scrollbar min-h-0 flex-1 space-y-2.5 overflow-x-hidden overflow-y-auto px-2.5 py-2.5"
 			>
 				{messages.length === 0 && !isLoading ? (
 					<EmptyState
 						title="Ask about this diff"
 						description="Ask follow-up questions about the diff, the current review, or any attached code context."
-						className="rounded-[16px] border border-dashed border-border-subtle bg-[rgba(255,255,255,0.02)] px-4 py-4"
+						className="rounded-[14px] border border-dashed border-border-subtle bg-[rgba(255,255,255,0.02)] px-3.5 py-3.5"
 					/>
 				) : (
 					messages.map((message) => {
@@ -174,14 +174,14 @@ export function ReviewChatPanel({
 									}`}
 								>
 									<div
-										className={`w-full min-w-0 rounded-[12px] border p-2.5 ${
+										className={`w-full min-w-0 rounded-[12px] border p-2 ${
 											isUser
 												? "border-[rgba(122,162,255,0.28)] bg-[rgba(122,162,255,0.1)]"
 												: "workspace-panel"
 										}`}
 									>
 										{hasCodeContexts ? (
-											<div className="mb-2 flex flex-wrap gap-1.5">
+											<div className="mb-1.5 flex flex-wrap gap-1.5">
 												{message.codeContexts?.map((context) => (
 													<ReviewChatCodeContextButton
 														key={context.id}
@@ -218,7 +218,7 @@ export function ReviewChatPanel({
 
 				{isLoading && messages[messages.length - 1]?.role === "user" ? (
 					<div className="flex justify-start">
-						<div className="workspace-panel flex w-full max-w-[92%] items-center gap-2 px-3 py-2.5 text-sm text-text-secondary">
+						<div className="workspace-panel flex w-full max-w-[92%] items-center gap-2 px-2.5 py-2 text-sm text-text-secondary">
 							<Loader2 className="size-4 animate-spin" />
 							AI is typing...
 						</div>
@@ -226,17 +226,17 @@ export function ReviewChatPanel({
 				) : null}
 			</div>
 
-			<div className="border-t border-border-subtle px-3 py-3">
-				{error ? <InlineBanner tone="danger" title={error} className="mb-2.5" /> : null}
+			<div className="border-t border-border-subtle px-2.5 py-2.5">
+				{error ? <InlineBanner tone="danger" title={error} className="mb-2" /> : null}
 				{composerNote ? (
 					<InlineBanner
 						tone="info"
 						title={composerNote}
-						className="mb-2.5"
+						className="mb-2"
 					/>
 				) : null}
 				{draftCodeContexts.length > 0 ? (
-					<div className="mb-2.5 flex flex-wrap gap-1.5">
+					<div className="mb-2 flex flex-wrap gap-1.5">
 						{draftCodeContexts.map((context) => (
 							<ReviewChatCodeContextButton
 								key={context.id}
@@ -259,7 +259,7 @@ export function ReviewChatPanel({
 							}
 						}}
 						placeholder="Ask Codex about this diff. Injected code context will stay attached as jump-back buttons."
-						className="min-h-[88px] resize-none pr-12"
+						className="min-h-[76px] resize-none pr-12"
 						disabled={isLoading || isComposerDisabled}
 					/>
 					<Button
@@ -273,7 +273,7 @@ export function ReviewChatPanel({
 						<Send className="size-4" />
 					</Button>
 				</div>
-				<p className="mt-1.5 text-[11px] text-text-tertiary">
+				<p className="mt-1 text-[10px] text-text-tertiary">
 					Press Enter to send. Use Shift+Enter for a new line.
 				</p>
 			</div>

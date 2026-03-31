@@ -17,4 +17,20 @@ describe("DiffWorkspacePage", () => {
 		expect(screen.getByText("Workspace")).toBeInTheDocument();
 		expect(screen.getByText("Bottom section")).toBeInTheDocument();
 	});
+
+	it("renders fixed layout content without dropping sections", () => {
+		render(
+			<DiffWorkspacePage
+				layout="fixed"
+				spacing="compact"
+				topSections={[<div key="top">Top section</div>]}
+				bottomSections={[<div key="bottom">Bottom section</div>]}
+				workspace={<div>Workspace</div>}
+			/>,
+		);
+
+		expect(screen.getByText("Top section")).toBeInTheDocument();
+		expect(screen.getByText("Workspace")).toBeInTheDocument();
+		expect(screen.getByText("Bottom section")).toBeInTheDocument();
+	});
 });

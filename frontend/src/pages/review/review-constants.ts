@@ -18,10 +18,10 @@ export const REVIEW_FILE_TREE_WIDTH_STORAGE_KEY =
 	"git-odyssey.review.file_tree_width";
 export const REVIEW_RIGHT_RAIL_WIDTH_STORAGE_KEY =
 	"git-odyssey.review.right_rail_width";
-export const REVIEW_FILE_TREE_WIDTH_DEFAULT = 320;
-export const REVIEW_FILE_TREE_WIDTH_MIN = 240;
-export const REVIEW_RIGHT_RAIL_WIDTH_DEFAULT = 384;
-export const REVIEW_RIGHT_RAIL_WIDTH_MIN = 320;
+export const REVIEW_FILE_TREE_WIDTH_DEFAULT = 272;
+export const REVIEW_FILE_TREE_WIDTH_MIN = 220;
+export const REVIEW_RIGHT_RAIL_WIDTH_DEFAULT = 336;
+export const REVIEW_RIGHT_RAIL_WIDTH_MIN = 280;
 export const REVIEW_DIFF_MIN_WIDTH = 512;
 
 export const REVIEW_HISTORY_OUTCOME_OPTIONS: Array<{

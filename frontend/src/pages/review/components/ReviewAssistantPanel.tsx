@@ -56,8 +56,8 @@ type ReviewAssistantPanelProps = {
 
 function ReviewPlaceholder() {
 	return (
-		<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
-			<div className="rounded-[14px] border border-dashed border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-3.5 text-sm leading-5 text-text-secondary">
+		<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
+			<div className="rounded-[12px] border border-dashed border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-3 text-sm leading-5 text-text-secondary">
 				Start a review to see the summary, findings, and review progress for
 				this diff. Chat is still available while you wait.
 			</div>
@@ -95,7 +95,7 @@ export function ReviewAssistantPanel({
 	onToggleOpen,
 	onToggleFullscreen,
 }: ReviewAssistantPanelProps) {
-	const sectionPadding = isFullscreen ? "px-5 py-4 xl:px-6" : "px-3 py-3";
+	const sectionPadding = isFullscreen ? "px-4 py-3 xl:px-5" : "px-2.5 py-2.5";
 	const reviewCountLabel = reviewResult
 		? String(reviewResult.findings.length)
 		: activeRun
@@ -114,8 +114,8 @@ export function ReviewAssistantPanel({
 			)}
 		>
 			<div className={cn("border-b border-border-subtle", sectionPadding)}>
-				<div className="flex flex-wrap items-center justify-between gap-2">
-					<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+				<div className="flex flex-wrap items-center justify-between gap-1.5">
+					<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
 						<ToggleGroup
 							type="single"
 							value={activeTab}
@@ -129,7 +129,7 @@ export function ReviewAssistantPanel({
 							<ToggleGroupItem
 								value="review"
 								aria-label="Review tab"
-								className="h-8 min-w-[6.5rem] gap-1.5 rounded-[10px] px-3 text-xs"
+								className="h-7.5 min-w-[5.75rem] gap-1.5 rounded-[9px] px-2.5 text-[11px]"
 							>
 								<Sparkles className="size-3.5" />
 								<span>Review</span>
@@ -140,7 +140,7 @@ export function ReviewAssistantPanel({
 							<ToggleGroupItem
 								value="chat"
 								aria-label="Chat tab"
-								className="h-8 min-w-[6.5rem] gap-1.5 rounded-[10px] px-3 text-xs"
+								className="h-7.5 min-w-[5.75rem] gap-1.5 rounded-[9px] px-2.5 text-[11px]"
 							>
 								<MessageCircle className="size-3.5" />
 								<span>Chat</span>
@@ -183,7 +183,7 @@ export function ReviewAssistantPanel({
 			<div
 				className={cn(
 					"min-h-0",
-					isInline ? "max-h-[32rem]" : "flex-1",
+					isInline ? "max-h-[30rem]" : "flex-1",
 				)}
 			>
 				{activeTab === "review" ? (

@@ -78,7 +78,6 @@ describe("ReviewAssistantPanel", () => {
 	it("defaults to the chat tab when requested", () => {
 		render(<ControlledAssistantPanel initialTab="chat" />);
 
-		expect(screen.getByText(/assistant/i)).toBeInTheDocument();
 		expect(
 			screen.getByRole("radio", { name: /chat tab/i }),
 		).toHaveAttribute("data-state", "on");

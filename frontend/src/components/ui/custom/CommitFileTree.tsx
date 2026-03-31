@@ -151,7 +151,7 @@ export function CommitFileTree({
 						<button
 							type="button"
 							className={cn(
-								"flex w-full items-center gap-2 rounded-[12px] py-2 pr-2.5 text-left text-[13px] transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary",
+								"flex w-full items-center gap-2 rounded-[10px] py-1.5 pr-2 text-left text-[12px] transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary",
 								isOpen ? "text-text-primary" : "text-text-secondary",
 							)}
 							style={{ paddingLeft }}
@@ -195,7 +195,7 @@ export function CommitFileTree({
 					key={node.id}
 					type="button"
 					className={cn(
-						"flex w-full items-center gap-2 rounded-[12px] py-2 pr-2.5 text-left text-[13px] transition-[background-color,color,box-shadow] duration-150",
+						"flex w-full items-center gap-2 rounded-[10px] py-1.5 pr-2 text-left text-[12px] transition-[background-color,color,box-shadow] duration-150",
 						isSelected
 							? "bg-[rgba(122,162,255,0.14)] text-text-primary shadow-[inset_0_0_0_1px_rgba(122,162,255,0.22)]"
 							: "text-text-secondary hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary",
@@ -212,7 +212,7 @@ export function CommitFileTree({
 						)}
 					/>
 					<FileCode2 className="size-4 shrink-0 text-text-tertiary" />
-					<span className="truncate font-mono text-[12px]">{node.name}</span>
+					<span className="truncate font-mono text-[11px]">{node.name}</span>
 					{searchMatchCount > 0 ? (
 						<span className="ml-auto rounded-full border border-border-subtle bg-control px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
 							{searchMatchCount}
@@ -286,12 +286,12 @@ export function CommitFileTree({
 			className="flex h-full min-h-[15rem] flex-col overflow-hidden border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:min-h-0 xl:w-[var(--commit-file-tree-width,20rem)] xl:min-w-[var(--commit-file-tree-width,20rem)] xl:border-b-0 xl:border-r"
 		>
 			{topContent ? (
-				<div className="border-b border-border-subtle px-3 py-3">
+				<div className="border-b border-border-subtle px-2.5 py-2.5">
 					{topContent}
 				</div>
 			) : null}
 
-			<div className="border-b border-border-subtle px-4 py-3">
+			<div className="border-b border-border-subtle px-3 py-2.5">
 				<div className="flex items-center justify-between gap-3">
 					<div className="workspace-section-label">Changed Files</div>
 					<div className="flex items-center gap-2">
@@ -308,7 +308,7 @@ export function CommitFileTree({
 				</div>
 			</div>
 
-			<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2.5">
+			<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
 				{treeNodes.length > 0 ? (
 					<div>{renderNodes(treeNodes)}</div>
 				) : (
