@@ -51,6 +51,39 @@ import { useReviewLayoutState } from "@/pages/review/useReviewLayoutState";
 import { useReviewRefSelection } from "@/pages/review/useReviewRefSelection";
 import { useReviewRunController } from "@/pages/review/useReviewRunController";
 
+function getShortcutTargetElement(target: EventTarget | null): Element | null {
+	if (target instanceof Element) {
+		return target;
+	}
+
+	if (target instanceof Node) {
+		return target.parentElement;
+	}
+
+	return null;
+}
+
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+	const element = getShortcutTargetElement(target);
+	if (!element) {
+		return false;
+	}
+
+	if (element.closest(".monaco-editor")) {
+		return false;
+	}
+
+	if (element.closest("input, textarea, select")) {
+		return true;
+	}
+
+	if (element.closest("[role='textbox'], [role='searchbox']")) {
+		return true;
+	}
+
+	return element instanceof HTMLElement ? element.isContentEditable : false;
+}
+
 export function Review() {
 	const navigate = useNavigate();
 	const setDesktopTitleBarChrome = useDesktopTitleBarChrome();
@@ -272,6 +305,30 @@ export function Review() {
 		[injectSelection, setAssistantTab, setReviewPanelMode],
 	);
 
+	const toggleReviewRail = useCallback(() => {
+		if (!assistantEnabled) {
+			return;
+		}
+
+		setReviewPanelMode((current) =>
+			current === "collapsed" ? "rail" : "collapsed",
+		);
+	}, [assistantEnabled, setReviewPanelMode]);
+
+	const closeReviewRail = useCallback(() => {
+		setReviewPanelMode("collapsed");
+	}, [setReviewPanelMode]);
+
+	const toggleReviewFullscreen = useCallback(() => {
+		setReviewPanelMode((current) =>
+			current === "fullscreen" ? "rail" : "fullscreen",
+		);
+	}, [setReviewPanelMode]);
+
+	const restoreReviewRail = useCallback(() => {
+		setReviewPanelMode("rail");
+	}, [setReviewPanelMode]);
+
 	const handleChatCodeContextClick = useCallback(
 		(context: ChatCodeContext) => {
 			const focusContext = () => {
@@ -425,6 +482,36 @@ export function Review() {
 		};
 	}, [reviewTitleBarChrome, setDesktopTitleBarChrome]);
 
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.repeat ||
+				event.isComposing ||
+				!(event.metaKey || event.ctrlKey) ||
+				event.altKey ||
+				event.shiftKey ||
+				isEditableShortcutTarget(event.target)
+			) {
+				return;
+			}
+
+			const key = event.key.toLowerCase();
+			if (key === "b") {
+				event.preventDefault();
+				diffWorkspaceRef.current?.toggleFileTree();
+				return;
+			}
+
+			if (key === "j" && assistantEnabled) {
+				event.preventDefault();
+				toggleReviewRail();
+			}
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [assistantEnabled, toggleReviewRail]);
+
 	const changedFilesLabel = displayedSession
 		? `${displayedSession.stats.files_changed} file${displayedSession.stats.files_changed === 1 ? "" : "s"} changed`
 		: "Review diff";
@@ -494,12 +581,8 @@ export function Review() {
 			chatComposerNote={chatComposerNote}
 			composerFocusToken={chatComposerFocusToken}
 			isFullscreen={isReviewFullscreen}
-			onToggleOpen={() => setReviewPanelMode("collapsed")}
-			onToggleFullscreen={() =>
-				setReviewPanelMode((current) =>
-					current === "fullscreen" ? "rail" : "fullscreen",
-				)
-			}
+			onToggleOpen={closeReviewRail}
+			onToggleFullscreen={toggleReviewFullscreen}
 		/>
 	) : undefined;
 
@@ -534,14 +617,14 @@ export function Review() {
 					chatComposerNote={chatComposerNote}
 					composerFocusToken={chatComposerFocusToken}
 					isInline
-					onToggleOpen={() => setReviewPanelMode("collapsed")}
-					onToggleFullscreen={() => setReviewPanelMode("rail")}
+					onToggleOpen={closeReviewRail}
+					onToggleFullscreen={restoreReviewRail}
 				/>
 			) : (
 				<button
 					type="button"
 					className="workspace-panel flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-control/60"
-					onClick={() => setReviewPanelMode("rail")}
+					onClick={restoreReviewRail}
 				>
 					<div>
 						<div className="workspace-section-label">Assistant</div>
@@ -570,7 +653,7 @@ export function Review() {
 		<button
 			type="button"
 			className="flex h-full w-full flex-col items-center justify-center gap-3 bg-transparent px-2 py-4 text-text-secondary transition-colors hover:bg-[rgba(255,255,255,0.04)]"
-			onClick={() => setReviewPanelMode("rail")}
+			onClick={restoreReviewRail}
 			aria-label="Show assistant"
 			title="Show assistant"
 		>

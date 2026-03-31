@@ -1,4 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { CommitFilePanel } from "@/components/ui/custom/CommitFilePanel";
@@ -85,12 +86,14 @@ const monacoHarness = vi.hoisted(() => {
 			getOriginalEditor: () => ReturnType<typeof createCodeEditor>;
 			getModifiedEditor: () => ReturnType<typeof createCodeEditor>;
 		} | null;
+		lastOptions: Record<string, unknown> | null;
 		reset: () => void;
 		createSelection: typeof createSelection;
 	} = {
 		originalEditor: null,
 		modifiedEditor: null,
 		diffEditor: null,
+		lastOptions: null,
 		reset() {
 			const originalEditor = createCodeEditor();
 			const modifiedEditor = createCodeEditor();
@@ -114,7 +117,10 @@ vi.mock("@monaco-editor/react", async () => {
 		DiffEditor: (props: {
 			beforeMount?: (monaco: unknown) => void;
 			onMount?: (editor: unknown) => void;
+			options?: Record<string, unknown>;
 		}) => {
+			monacoHarness.lastOptions = props.options ?? null;
+
 			React.useEffect(() => {
 				monacoHarness.reset();
 				const monaco = {
@@ -279,5 +285,43 @@ describe("CommitFilePanel", () => {
 		});
 
 		expect(onInjectSelection).not.toHaveBeenCalled();
+	});
+
+	it("switches the diff viewer between side-by-side and inline modes", async () => {
+		const user = userEvent.setup();
+
+		render(
+			<CommitFilePanel
+				repoPath="/Users/dillonpina/Documents/code/git-odyssey"
+				viewerId="review:test"
+				fileChange={buildFileChange()}
+				isExpanded
+				onToggleExpanded={() => {}}
+			/>,
+		);
+
+		await waitFor(() => {
+			expect(monacoHarness.lastOptions?.renderSideBySide).toBe(true);
+		});
+
+		await user.click(
+			screen.getByRole("button", {
+				name: "Diff mode: side-by-side. Switch to inline.",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(monacoHarness.lastOptions?.renderSideBySide).toBe(false);
+		});
+
+		await user.click(
+			screen.getByRole("button", {
+				name: "Diff mode: inline. Switch to side-by-side.",
+			}),
+		);
+
+		await waitFor(() => {
+			expect(monacoHarness.lastOptions?.renderSideBySide).toBe(true);
+		});
 	});
 });

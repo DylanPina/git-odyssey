@@ -48,6 +48,7 @@ export type DiffWorkspaceHandle = {
     newStart?: number | null;
     oldStart?: number | null;
   }) => void;
+  toggleFileTree: () => void;
 };
 
 type DiffWorkspaceSummaryActions = {
@@ -114,6 +115,7 @@ type DiffWorkspaceContextHighlight = {
   line?: number | null;
   highlightStrategy: DiffSearchContext["highlightStrategy"];
 };
+type DiffMode = "inline" | "side-by-side";
 
 function clampPanelWidth(width: number, minWidth: number, maxWidth: number) {
   return Math.min(maxWidth, Math.max(minWidth, width));
@@ -642,6 +644,7 @@ export const DiffWorkspace = forwardRef<
 ) {
   const [fileQuery, setFileQuery] = useState("");
   const [codeQuery, setCodeQuery] = useState("");
+  const [diffMode, setDiffMode] = useState<DiffMode>("side-by-side");
   const deferredFileQuery = useDeferredValue(fileQuery);
   const deferredCodeQuery = useDeferredValue(codeQuery);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
@@ -1129,14 +1132,22 @@ export const DiffWorkspace = forwardRef<
     },
     [handleSelectFile, resolveFilePath],
   );
+  const toggleFileTree = useCallback(() => {
+    if (!fileTreeCollapsible) {
+      return;
+    }
+
+    setIsFileTreeCollapsed((current) => !current);
+  }, [fileTreeCollapsible]);
 
   useImperativeHandle(
     ref,
     () => ({
       collapseAll,
       focusLocation,
+      toggleFileTree,
     }),
-    [collapseAll, focusLocation],
+    [collapseAll, focusLocation, toggleFileTree],
   );
   const selectedCodeMatch = selectedCodeMatchId
     ? codeSearchMatchById.get(selectedCodeMatchId) ?? null
@@ -1242,16 +1253,11 @@ export const DiffWorkspace = forwardRef<
   );
 
   const isCompactChrome = chromeDensity === "compact";
-  const desktopRightRailContent = isRightRailFullscreen
-    ? rightRail
-    : isRightRailOpen
-      ? rightRail
-      : rightRailCollapsedSummary;
   const hasDesktopResize = Boolean(desktopResize);
   const isDesktopFileTreeVisible = !isRightRailFullscreen;
   const isDesktopFileTreeExpanded = isDesktopFileTreeVisible && !isFileTreeCollapsed;
   const isDesktopRightRailVisible =
-    Boolean(desktopRightRailContent) && !isRightRailFullscreen;
+    Boolean(rightRail || rightRailCollapsedSummary) && !isRightRailFullscreen;
   const isDesktopRightRailExpanded =
     isDesktopRightRailVisible && isRightRailOpen;
   const desktopPanelWidths = useMemo(
@@ -1556,6 +1562,8 @@ export const DiffWorkspace = forwardRef<
                                   : null
                               }
                               onInjectSelection={onInjectSelection}
+                              diffMode={diffMode}
+                              onDiffModeChange={setDiffMode}
                               onNavigationTargetHandled={() =>
                                 setNavigationTarget((current) =>
                                   current?.filePath === labelPath
@@ -1580,11 +1588,11 @@ export const DiffWorkspace = forwardRef<
               </div>
             </div>
 
-            {desktopRightRailContent ? (
+            {isDesktopRightRailVisible ? (
               <div
                 style={rightRailStyle}
                 className={cn(
-                  "relative hidden min-h-0 shrink-0 border-l border-border-subtle bg-[linear-gradient(180deg,rgba(11,14,19,0.98),rgba(8,10,14,0.94))] transition-[width] duration-200 ease-out xl:flex",
+                  "relative hidden min-h-0 shrink-0 border-l border-border-subtle bg-[linear-gradient(180deg,rgba(11,14,19,0.98),rgba(8,10,14,0.94))] xl:flex",
                   isRightRailFullscreen
                     ? "w-full min-w-0 grow shrink border-l-0"
                     : hasDesktopResize
@@ -1605,8 +1613,33 @@ export const DiffWorkspace = forwardRef<
                     onWidthChange={desktopResize.rightRail.onPreferredWidthChange}
                   />
                 ) : null}
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  {desktopRightRailContent}
+                <div className="relative min-h-0 flex-1 overflow-hidden">
+                  {rightRail ? (
+                    <div
+                      aria-hidden={!isRightRailOpen}
+                      className={cn(
+                        "absolute inset-0 min-h-0 transition-opacity duration-75 ease-out",
+                        isRightRailOpen
+                          ? "pointer-events-auto opacity-100"
+                          : "pointer-events-none opacity-0",
+                      )}
+                    >
+                      {rightRail}
+                    </div>
+                  ) : null}
+                  {rightRailCollapsedSummary ? (
+                    <div
+                      aria-hidden={isRightRailOpen}
+                      className={cn(
+                        "absolute inset-0 min-h-0 transition-opacity duration-75 ease-out",
+                        isRightRailOpen
+                          ? "pointer-events-none opacity-0"
+                          : "pointer-events-auto opacity-100",
+                      )}
+                    >
+                      {rightRailCollapsedSummary}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}

@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import type * as MonacoEditor from "monaco-editor";
 import {
+	Columns2,
 	ChevronDown,
 	ChevronRight,
 	Loader2,
 	Maximize2,
 	MessageSquarePlus,
 	Minimize2,
+	Rows3,
 	Sparkles,
 } from "lucide-react";
 
@@ -51,6 +53,7 @@ type FileContextHighlight = {
 	line?: number | null;
 	highlightStrategy: DiffSearchHighlightStrategy;
 };
+type DiffMode = "inline" | "side-by-side";
 
 type CommitFilePanelProps = {
 	repoPath?: string | null;
@@ -76,6 +79,8 @@ type CommitFilePanelProps = {
 	searchMatchCount?: number;
 	contextHighlight?: FileContextHighlight | null;
 	onInjectSelection?: (selection: DiffSelectionContext) => void;
+	diffMode?: DiffMode;
+	onDiffModeChange?: (mode: DiffMode) => void;
 };
 
 function getHunkAnchorKey(hunk: FileHunk, index: number): string {
@@ -136,6 +141,8 @@ export function CommitFilePanel({
 	searchMatchCount = 0,
 	contextHighlight = null,
 	onInjectSelection,
+	diffMode: controlledDiffMode,
+	onDiffModeChange,
 }: CommitFilePanelProps) {
 	const diffEditorsRef = useRef<
 		Record<string, MonacoEditor.editor.IStandaloneDiffEditor | undefined>
@@ -152,10 +159,12 @@ export function CommitFilePanel({
 		original: [],
 		modified: [],
 	});
-	const activeSearchDecorationIdsRef = useRef<Record<DiffViewerSide, string[]>>({
-		original: [],
-		modified: [],
-	});
+	const activeSearchDecorationIdsRef = useRef<Record<DiffViewerSide, string[]>>(
+		{
+			original: [],
+			modified: [],
+		},
+	);
 	const contextDecorationIdsRef = useRef<Record<DiffViewerSide, string[]>>({
 		original: [],
 		modified: [],
@@ -172,15 +181,19 @@ export function CommitFilePanel({
 		Record<string, MonacoEditor.IDisposable[]>
 	>({});
 	const [isViewerExpanded, setIsViewerExpanded] = useState(false);
+	const [uncontrolledDiffMode, setUncontrolledDiffMode] =
+		useState<DiffMode>("side-by-side");
 	const [activeSelection, setActiveSelection] =
 		useState<DiffSelectionContext | null>(null);
+	const diffMode = controlledDiffMode ?? uncontrolledDiffMode;
 	const { status, original, modified } = getFileChangeDiffContents(fileChange);
 	const labelPath = getFileChangeLabelPath(fileChange);
 
 	const diffOptions = useMemo(
 		() => ({
 			readOnly: true,
-			renderSideBySide: true,
+			renderSideBySide: diffMode === "side-by-side",
+			useInlineViewWhenSpaceIsLimited: false,
 			minimap: { enabled: false },
 			scrollBeyondLastLine: false,
 			automaticLayout: true,
@@ -201,17 +214,19 @@ export function CommitFilePanel({
 				bottom: 14,
 			},
 		}),
-		[],
+		[diffMode],
 	);
 
 	const clearSelectionListeners = useCallback(() => {
-		const disposables = selectionListenerDisposablesRef.current[labelPath] ?? [];
+		const disposables =
+			selectionListenerDisposablesRef.current[labelPath] ?? [];
 		disposables.forEach((disposable) => disposable.dispose());
 		selectionListenerDisposablesRef.current[labelPath] = [];
 	}, [labelPath]);
 
 	const clearContextMenuActions = useCallback(() => {
-		const disposables = contextMenuActionDisposablesRef.current[labelPath] ?? [];
+		const disposables =
+			contextMenuActionDisposablesRef.current[labelPath] ?? [];
 		disposables.forEach((disposable) => disposable.dispose());
 		contextMenuActionDisposablesRef.current[labelPath] = [];
 	}, [labelPath]);
@@ -254,18 +269,26 @@ export function CommitFilePanel({
 			const modifiedEditor = editor.getModifiedEditor();
 
 			const handleOriginalSelectionChange = () => {
-				setActiveSelection(buildSelectionFromEditor(originalEditor, "original"));
+				setActiveSelection(
+					buildSelectionFromEditor(originalEditor, "original"),
+				);
 			};
 			const handleModifiedSelectionChange = () => {
-				setActiveSelection(buildSelectionFromEditor(modifiedEditor, "modified"));
+				setActiveSelection(
+					buildSelectionFromEditor(modifiedEditor, "modified"),
+				);
 			};
 
 			handleOriginalSelectionChange();
 			handleModifiedSelectionChange();
 
 			selectionListenerDisposablesRef.current[labelPath] = [
-				originalEditor.onDidChangeCursorSelection(handleOriginalSelectionChange),
-				modifiedEditor.onDidChangeCursorSelection(handleModifiedSelectionChange),
+				originalEditor.onDidChangeCursorSelection(
+					handleOriginalSelectionChange,
+				),
+				modifiedEditor.onDidChangeCursorSelection(
+					handleModifiedSelectionChange,
+				),
 			];
 		},
 		[buildSelectionFromEditor, clearSelectionListeners, labelPath],
@@ -303,7 +326,12 @@ export function CommitFilePanel({
 				registerEditorAction(editor.getModifiedEditor(), "modified"),
 			];
 		},
-		[buildSelectionFromEditor, clearContextMenuActions, labelPath, onInjectSelection],
+		[
+			buildSelectionFromEditor,
+			clearContextMenuActions,
+			labelPath,
+			onInjectSelection,
+		],
 	);
 
 	const originalModelPath = buildMonacoModelUri(
@@ -349,7 +377,10 @@ export function CommitFilePanel({
 			);
 		}
 
-		if (typeof window !== "undefined" && lineHighlightTimerRef.current != null) {
+		if (
+			typeof window !== "undefined" &&
+			lineHighlightTimerRef.current != null
+		) {
 			window.clearTimeout(lineHighlightTimerRef.current);
 			lineHighlightTimerRef.current = null;
 		}
@@ -391,17 +422,19 @@ export function CommitFilePanel({
 		const modifiedEditor = editor?.getModifiedEditor();
 
 		if (originalEditor) {
-			contextDecorationIdsRef.current.original = originalEditor.deltaDecorations(
-				contextDecorationIdsRef.current.original,
-				[],
-			);
+			contextDecorationIdsRef.current.original =
+				originalEditor.deltaDecorations(
+					contextDecorationIdsRef.current.original,
+					[],
+				);
 		}
 
 		if (modifiedEditor) {
-			contextDecorationIdsRef.current.modified = modifiedEditor.deltaDecorations(
-				contextDecorationIdsRef.current.modified,
-				[],
-			);
+			contextDecorationIdsRef.current.modified =
+				modifiedEditor.deltaDecorations(
+					contextDecorationIdsRef.current.modified,
+					[],
+				);
 		}
 	}, [labelPath]);
 
@@ -544,21 +577,24 @@ export function CommitFilePanel({
 			}
 
 			clearLineHighlights();
-			const decorationIds = targetEditor.deltaDecorations([], [
-				{
-					range: new monacoRef.current.Range(
-						resolvedLine,
-						1,
-						resolvedLine,
-						1,
-					),
-					options: {
-						isWholeLine: true,
-						className: "git-odyssey-target-line-highlight",
-						linesDecorationsClassName: "git-odyssey-target-line-gutter",
+			const decorationIds = targetEditor.deltaDecorations(
+				[],
+				[
+					{
+						range: new monacoRef.current.Range(
+							resolvedLine,
+							1,
+							resolvedLine,
+							1,
+						),
+						options: {
+							isWholeLine: true,
+							className: "git-odyssey-target-line-highlight",
+							linesDecorationsClassName: "git-odyssey-target-line-gutter",
+						},
 					},
-				},
-			]);
+				],
+			);
 
 			lineHighlightIdsRef.current[target.side] = decorationIds;
 			lineHighlightIdsRef.current[
@@ -616,7 +652,9 @@ export function CommitFilePanel({
 			return null;
 		}
 
-		const hunkIndex = hunkList.findIndex((candidate) => candidate === closestHunk);
+		const hunkIndex = hunkList.findIndex(
+			(candidate) => candidate === closestHunk,
+		);
 		return getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
 	}, [contextHighlight, hunkList]);
 
@@ -637,7 +675,10 @@ export function CommitFilePanel({
 			const lineCount = model.getLineCount();
 			const resolvedLine = Math.max(1, Math.min(target.startLine, lineCount));
 			const lineLength = model.getLineLength(resolvedLine);
-			const startColumn = Math.max(1, Math.min(target.startColumn, lineLength + 1));
+			const startColumn = Math.max(
+				1,
+				Math.min(target.startColumn, lineLength + 1),
+			);
 			const endColumn = Math.max(
 				startColumn + 1,
 				Math.min(target.endColumn, lineLength + 1),
@@ -676,7 +717,10 @@ export function CommitFilePanel({
 			return;
 		}
 
-		const navigationPosition = resolveNavigationPosition(status, navigationTarget);
+		const navigationPosition = resolveNavigationPosition(
+			status,
+			navigationTarget,
+		);
 		if (!navigationPosition) {
 			onNavigationTargetHandled?.();
 			return;
@@ -689,7 +733,9 @@ export function CommitFilePanel({
 		});
 
 		if (closestHunk) {
-			const hunkIndex = hunkList.findIndex((candidate) => candidate === closestHunk);
+			const hunkIndex = hunkList.findIndex(
+				(candidate) => candidate === closestHunk,
+			);
 			const anchorKey = getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
 
 			window.requestAnimationFrame(() => {
@@ -726,7 +772,12 @@ export function CommitFilePanel({
 
 	useEffect(() => {
 		applyCodeSearchDecorations();
-	}, [activeCodeMatch, applyCodeSearchDecorations, codeSearchIndex, isExpanded]);
+	}, [
+		activeCodeMatch,
+		applyCodeSearchDecorations,
+		codeSearchIndex,
+		isExpanded,
+	]);
 
 	useEffect(() => {
 		applyContextDecorations();
@@ -782,132 +833,160 @@ export function CommitFilePanel({
 						panelSelectionClass,
 					)}
 				>
-				<button
-					type="button"
-					className="flex min-w-0 items-start gap-3 text-left"
-					onClick={onToggleExpanded}
-				>
-					<span className="mt-0.5 flex size-5.5 items-center justify-center rounded-[8px] border border-border-subtle bg-control text-text-tertiary">
-						{isExpanded ? (
-							<ChevronDown className="size-4" />
-						) : (
-							<ChevronRight className="size-4" />
-						)}
-					</span>
-					<div className="min-w-0 space-y-1">
-						<div className="flex flex-wrap items-center gap-2">
-							<StatusPill
-								tone={getDiffStatusTone(status)}
-								className="uppercase"
-							>
-								{getDiffStatusLabel(status)}
-							</StatusPill>
-							<span className="truncate font-mono text-[11px] text-text-secondary">
-								{labelPath}
-							</span>
-							{searchContextLabel ? (
-								<span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-primary">
-									{searchContextLabel}
+					<button
+						type="button"
+						className="flex min-w-0 items-start gap-3 text-left"
+						onClick={onToggleExpanded}
+					>
+						<span className="mt-0.5 flex size-5.5 items-center justify-center rounded-[8px] border border-border-subtle bg-control text-text-tertiary">
+							{isExpanded ? (
+								<ChevronDown className="size-4" />
+							) : (
+								<ChevronRight className="size-4" />
+							)}
+						</span>
+						<div className="min-w-0 space-y-1">
+							<div className="flex flex-wrap items-center gap-2">
+								<StatusPill
+									tone={getDiffStatusTone(status)}
+									className="uppercase"
+								>
+									{getDiffStatusLabel(status)}
+								</StatusPill>
+								<span className="truncate font-mono text-[11px] text-text-secondary">
+									{labelPath}
 								</span>
-							) : null}
-							{searchMatchCount > 0 ? (
-								<span className="rounded-full border border-border-subtle bg-control px-2 py-0.5 font-mono text-[10px] text-text-secondary">
-									{searchMatchCount} match{searchMatchCount === 1 ? "" : "es"}
-								</span>
-							) : null}
+								{searchContextLabel ? (
+									<span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-primary">
+										{searchContextLabel}
+									</span>
+								) : null}
+								{searchMatchCount > 0 ? (
+									<span className="rounded-full border border-border-subtle bg-control px-2 py-0.5 font-mono text-[10px] text-text-secondary">
+										{searchMatchCount} match{searchMatchCount === 1 ? "" : "es"}
+									</span>
+								) : null}
+							</div>
 						</div>
-					</div>
-				</button>
+					</button>
 
-				<div className="flex items-center gap-2">
-					{activeSelection && onInjectSelection ? (
+					<div className="flex items-center gap-2">
 						<Button
 							variant="toolbar"
 							size="sm"
+							aria-label={`Diff mode: ${diffMode}. Switch to ${
+								diffMode === "side-by-side" ? "inline" : "side-by-side"
+							}.`}
 							onClick={(event) => {
 								event.stopPropagation();
-								onInjectSelection(activeSelection);
+								const nextMode =
+									diffMode === "side-by-side" ? "inline" : "side-by-side";
+								if (onDiffModeChange) {
+									onDiffModeChange(nextMode);
+									return;
+								}
+								setUncontrolledDiffMode(nextMode);
 							}}
-							title={`Add selected code to chat (${selectionLabel})`}
+							title={`Switch to ${
+								diffMode === "side-by-side" ? "inline" : "side-by-side"
+							} diff`}
 						>
-							<MessageSquarePlus className="size-4" />
-							Add to Chat
+							{diffMode === "side-by-side" ? (
+								<Columns2 className="size-3.5" />
+							) : (
+								<Rows3 className="size-3.5" />
+							)}
+							<span>{diffMode === "side-by-side" ? "Split" : "Inline"}</span>
 						</Button>
-					) : null}
 
-					<Button
-						variant="toolbar"
-						size="toolbar-icon"
-						aria-pressed={isViewerExpanded}
-						onClick={(event) => {
-							event.stopPropagation();
-							if (!isExpanded) onToggleExpanded();
-							setIsViewerExpanded((prev) => !prev);
-						}}
-						title={
-							isViewerExpanded
-								? "Restore diff viewer size"
-								: "Expand diff viewer"
-						}
-					>
-						{isViewerExpanded ? (
-							<Minimize2 className="size-4" />
-						) : (
-							<Maximize2 className="size-4" />
-						)}
-						<span className="sr-only">
-							{isViewerExpanded
-								? "Restore diff viewer size"
-								: "Expand diff viewer"}
-						</span>
-					</Button>
+						{activeSelection && onInjectSelection ? (
+							<Button
+								variant="toolbar"
+								size="sm"
+								onClick={(event) => {
+									event.stopPropagation();
+									onInjectSelection(activeSelection);
+								}}
+								title={`Add selected code to chat (${selectionLabel})`}
+							>
+								<MessageSquarePlus className="size-4" />
+								Add to Chat
+							</Button>
+						) : null}
 
-					{canShowFileSummaryControls ? (
 						<Button
-							variant={fileSummary?.text ? "toolbar" : "subtle"}
-							size="sm"
-							disabled={
-								summaryLoading ||
-								(!fileSummary?.text && typeof onSummarizeFile !== "function")
-							}
+							variant="toolbar"
+							size="toolbar-icon"
+							aria-pressed={isViewerExpanded}
 							onClick={(event) => {
 								event.stopPropagation();
-								if (fileSummary?.text) onToggleFileSummary?.();
-								else onSummarizeFile?.();
+								if (!isExpanded) onToggleExpanded();
+								setIsViewerExpanded((prev) => !prev);
 							}}
 							title={
-								fileSummary?.text
-									? isFileSummaryOpen
-										? "Hide summary"
-										: "View summary"
-									: typeof onSummarizeFile !== "function"
-										? "File summaries are unavailable for this diff"
-										: "Summarize file change"
+								isViewerExpanded
+									? "Restore diff viewer size"
+									: "Expand diff viewer"
 							}
 						>
-							{summaryLoading ? (
-								<>
-									<Loader2 className="size-4 animate-spin" />
-									Summarizing
-								</>
-							) : fileSummary?.text ? (
-								<>
-									{isFileSummaryOpen ? (
-										<ChevronDown className="size-4" />
-									) : (
-										<ChevronRight className="size-4" />
-									)}
-									Summary
-								</>
+							{isViewerExpanded ? (
+								<Minimize2 className="size-4" />
 							) : (
-								<>
-									<Sparkles className="size-4" />
-									Summarize
-								</>
+								<Maximize2 className="size-4" />
 							)}
+							<span className="sr-only">
+								{isViewerExpanded
+									? "Restore diff viewer size"
+									: "Expand diff viewer"}
+							</span>
 						</Button>
-					) : null}
-				</div>
+
+						{canShowFileSummaryControls ? (
+							<Button
+								variant={fileSummary?.text ? "toolbar" : "subtle"}
+								size="sm"
+								disabled={
+									summaryLoading ||
+									(!fileSummary?.text && typeof onSummarizeFile !== "function")
+								}
+								onClick={(event) => {
+									event.stopPropagation();
+									if (fileSummary?.text) onToggleFileSummary?.();
+									else onSummarizeFile?.();
+								}}
+								title={
+									fileSummary?.text
+										? isFileSummaryOpen
+											? "Hide summary"
+											: "View summary"
+										: typeof onSummarizeFile !== "function"
+											? "File summaries are unavailable for this diff"
+											: "Summarize file change"
+								}
+							>
+								{summaryLoading ? (
+									<>
+										<Loader2 className="size-4 animate-spin" />
+										Summarizing
+									</>
+								) : fileSummary?.text ? (
+									<>
+										{isFileSummaryOpen ? (
+											<ChevronDown className="size-4" />
+										) : (
+											<ChevronRight className="size-4" />
+										)}
+										Summary
+									</>
+								) : (
+									<>
+										<Sparkles className="size-4" />
+										Summarize
+									</>
+								)}
+							</Button>
+						) : null}
+					</div>
 				</div>
 			</div>
 
@@ -917,167 +996,165 @@ export function CommitFilePanel({
 					panelSelectionClass,
 				)}
 			>
+				{canShowFileSummaryControls &&
+				isFileSummaryOpen &&
+				(fileSummary?.text || fileSummary?.error) ? (
+					<div className="space-y-2.5 border-b border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-3">
+						{fileSummary?.error ? (
+							<InlineBanner tone="danger" title={fileSummary.error} />
+						) : null}
+						{fileSummary?.text ? (
+							<MarkdownRenderer content={fileSummary.text} />
+						) : null}
+					</div>
+				) : null}
 
-			{canShowFileSummaryControls &&
-			isFileSummaryOpen &&
-			(fileSummary?.text || fileSummary?.error) ? (
-				<div className="space-y-2.5 border-b border-border-subtle bg-[rgba(255,255,255,0.02)] px-3 py-3">
-					{fileSummary?.error ? (
-						<InlineBanner tone="danger" title={fileSummary.error} />
-					) : null}
-					{fileSummary?.text ? (
-						<MarkdownRenderer content={fileSummary.text} />
-					) : null}
-				</div>
-			) : null}
-
-			{isExpanded ? (
-				<div
-					className="border-b border-border-subtle bg-surface"
-					style={{ height: diffHeight }}
-				>
-					<DiffEditor
-						original={original}
-						modified={modified}
-						language={inferLanguage(labelPath)}
-						theme="git-odyssey-dark"
-						beforeMount={(monaco) => {
-							monacoRef.current = monaco;
-							registerGitOdysseyMonacoTheme(monaco);
-						}}
-						originalModelPath={originalModelPath}
-						modifiedModelPath={modifiedModelPath}
-						options={diffOptions}
-						onMount={(editor) => {
-							diffEditorsRef.current[labelPath] =
-								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor;
-							bindSelectionListeners(
-								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
-							);
-							registerContextMenuActions(
-								editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
-							);
-							applyCodeSearchDecorations();
-							applyContextDecorations();
-							const pending = pendingScrollRef.current[labelPath];
-							if (pending) {
-								focusMountedLine(
+				{isExpanded ? (
+					<div
+						className="border-b border-border-subtle bg-surface"
+						style={{ height: diffHeight }}
+					>
+						<DiffEditor
+							original={original}
+							modified={modified}
+							language={inferLanguage(labelPath)}
+							theme="git-odyssey-dark"
+							beforeMount={(monaco) => {
+								monacoRef.current = monaco;
+								registerGitOdysseyMonacoTheme(monaco);
+							}}
+							originalModelPath={originalModelPath}
+							modifiedModelPath={modifiedModelPath}
+							options={diffOptions}
+							onMount={(editor) => {
+								diffEditorsRef.current[labelPath] =
+									editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor;
+								bindSelectionListeners(
 									editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
-									pending,
 								);
-								pendingScrollRef.current[labelPath] = undefined;
-							}
-							const pendingCodeTarget =
-								pendingCodeNavigationRef.current[labelPath];
-							if (pendingCodeTarget) {
-								focusMountedCodeMatch(
+								registerContextMenuActions(
 									editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
-									pendingCodeTarget,
 								);
-								pendingCodeNavigationRef.current[labelPath] = undefined;
-							}
-						}}
-					/>
-				</div>
-			) : null}
+								applyCodeSearchDecorations();
+								applyContextDecorations();
+								const pending = pendingScrollRef.current[labelPath];
+								if (pending) {
+									focusMountedLine(
+										editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
+										pending,
+									);
+									pendingScrollRef.current[labelPath] = undefined;
+								}
+								const pendingCodeTarget =
+									pendingCodeNavigationRef.current[labelPath];
+								if (pendingCodeTarget) {
+									focusMountedCodeMatch(
+										editor as unknown as MonacoEditor.editor.IStandaloneDiffEditor,
+										pendingCodeTarget,
+									);
+									pendingCodeNavigationRef.current[labelPath] = undefined;
+								}
+							}}
+						/>
+					</div>
+				) : null}
 
-			{hunkList.length ? (
-				<div className="space-y-2 px-3 py-3">
-					<div className="workspace-section-label">Hunks</div>
-					{hunkList.map((hunk, index) => {
-						const hKey = hunk.id != null ? String(hunk.id) : undefined;
-						const hState = hKey ? hunkSummaries[hKey] : undefined;
-						const hOpen = hKey ? (hunkSummaryOpen[hKey] ?? false) : false;
-						const label = formatHunkLabel(hunk);
-						const anchorKey = getHunkAnchorKey(hunk, index);
-						const canShowHunkSummaryControls = Boolean(
-							hKey &&
-								(onToggleHunkSummary ||
-									onSummarizeHunk ||
-									hState?.text ||
-									hState?.error),
-						);
+				{hunkList.length ? (
+					<div className="space-y-2 px-3 py-3">
+						{hunkList.map((hunk, index) => {
+							const hKey = hunk.id != null ? String(hunk.id) : undefined;
+							const hState = hKey ? hunkSummaries[hKey] : undefined;
+							const hOpen = hKey ? (hunkSummaryOpen[hKey] ?? false) : false;
+							const label = formatHunkLabel(hunk);
+							const anchorKey = getHunkAnchorKey(hunk, index);
+							const canShowHunkSummaryControls = Boolean(
+								hKey &&
+									(onToggleHunkSummary ||
+										onSummarizeHunk ||
+										hState?.text ||
+										hState?.error),
+							);
 
-						return (
-							<div
-								key={`${viewerId}-${labelPath}-${anchorKey}`}
-								ref={(node) => {
-									hunkRefs.current[anchorKey] = node;
-								}}
-								className={cn(
-									"rounded-[10px] border border-border-subtle bg-control/40 transition-[border-color,box-shadow,background-color] duration-150",
-									anchorKey === emphasizedHunkAnchorKey &&
-										"border-[rgba(122,162,255,0.34)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]",
-								)}
-							>
-								<div className="flex items-center justify-between gap-3 px-3 py-2">
-									<button
-										type="button"
-										className="font-mono text-xs text-text-secondary transition-colors hover:text-text-primary"
-										onClick={() => revealHunk(hunk)}
-										title="Jump to hunk in diff"
-									>
-										{label}
-									</button>
-
-									{canShowHunkSummaryControls ? (
-										<Button
-											variant={hState?.text ? "toolbar" : "ghost"}
-											size="sm"
-											disabled={
-												Boolean(hState?.loading) ||
-												(hState?.text
-													? typeof onToggleHunkSummary !== "function"
-													: typeof onSummarizeHunk !== "function")
-											}
-											onClick={(event) => {
-												event.stopPropagation();
-												if (!hKey) return;
-												if (hState?.text) onToggleHunkSummary?.(hKey);
-												else onSummarizeHunk?.(hunk);
-											}}
+							return (
+								<div
+									key={`${viewerId}-${labelPath}-${anchorKey}`}
+									ref={(node) => {
+										hunkRefs.current[anchorKey] = node;
+									}}
+									className={cn(
+										"rounded-[10px] border border-border-subtle bg-control/40 transition-[border-color,box-shadow,background-color] duration-150",
+										anchorKey === emphasizedHunkAnchorKey &&
+											"border-[rgba(122,162,255,0.34)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]",
+									)}
+								>
+									<div className="flex items-center justify-between gap-3 px-3 py-2">
+										<button
+											type="button"
+											className="font-mono text-xs text-text-secondary transition-colors hover:text-text-primary"
+											onClick={() => revealHunk(hunk)}
+											title="Jump to hunk in diff"
 										>
-											{hState?.loading ? (
-												<>
-													<Loader2 className="size-4 animate-spin" />
-													Summarizing
-												</>
-											) : hState?.text ? (
-												<>
-													{hOpen ? (
-														<ChevronDown className="size-4" />
-													) : (
-														<ChevronRight className="size-4" />
-													)}
-													Summary
-												</>
-											) : (
-												<>
-													<Sparkles className="size-4" />
-													Summarize
-												</>
-											)}
-										</Button>
-									) : null}
-								</div>
+											{label}
+										</button>
 
-								{canShowHunkSummaryControls &&
-								hOpen &&
-								(hState?.text || hState?.error) ? (
-									<div className="space-y-2.5 border-t border-border-subtle px-3 py-2.5">
-										{hState?.error ? (
-											<InlineBanner tone="danger" title={hState.error} />
-										) : null}
-										{hState?.text ? (
-											<MarkdownRenderer content={hState.text} />
+										{canShowHunkSummaryControls ? (
+											<Button
+												variant={hState?.text ? "toolbar" : "ghost"}
+												size="sm"
+												disabled={
+													Boolean(hState?.loading) ||
+													(hState?.text
+														? typeof onToggleHunkSummary !== "function"
+														: typeof onSummarizeHunk !== "function")
+												}
+												onClick={(event) => {
+													event.stopPropagation();
+													if (!hKey) return;
+													if (hState?.text) onToggleHunkSummary?.(hKey);
+													else onSummarizeHunk?.(hunk);
+												}}
+											>
+												{hState?.loading ? (
+													<>
+														<Loader2 className="size-4 animate-spin" />
+														Summarizing
+													</>
+												) : hState?.text ? (
+													<>
+														{hOpen ? (
+															<ChevronDown className="size-4" />
+														) : (
+															<ChevronRight className="size-4" />
+														)}
+														Summary
+													</>
+												) : (
+													<>
+														<Sparkles className="size-4" />
+														Summarize
+													</>
+												)}
+											</Button>
 										) : null}
 									</div>
-								) : null}
-							</div>
-						);
-					})}
-				</div>
-			) : null}
+
+									{canShowHunkSummaryControls &&
+									hOpen &&
+									(hState?.text || hState?.error) ? (
+										<div className="space-y-2.5 border-t border-border-subtle px-3 py-2.5">
+											{hState?.error ? (
+												<InlineBanner tone="danger" title={hState.error} />
+											) : null}
+											{hState?.text ? (
+												<MarkdownRenderer content={hState.text} />
+											) : null}
+										</div>
+									) : null}
+								</div>
+							);
+						})}
+					</div>
+				) : null}
 			</div>
 		</section>
 	);

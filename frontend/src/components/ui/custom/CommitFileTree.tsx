@@ -46,6 +46,9 @@ type CommitFileTreeProps = {
 	onSelectFile: (path: string) => void;
 };
 
+const COMMIT_FILE_TREE_COLLAPSED_DESKTOP_WIDTH = "3.75rem";
+const COMMIT_FILE_TREE_DEFAULT_DESKTOP_WIDTH = "20rem";
+
 function getStatusDotClass(status?: DiffFileStatus) {
 	if (status === "added") {
 		return "bg-success";
@@ -245,46 +248,29 @@ export function CommitFileTree({
 		</Tooltip>
 	) : null;
 	const desktopWidthStyle =
-		desktopWidth != null
-			? ({
-					"--commit-file-tree-width": `${desktopWidth}px`,
-				} as CSSProperties)
-			: undefined;
+		({
+			"--commit-file-tree-width": isCollapsed
+				? COMMIT_FILE_TREE_COLLAPSED_DESKTOP_WIDTH
+				: desktopWidth != null
+					? `${desktopWidth}px`
+					: COMMIT_FILE_TREE_DEFAULT_DESKTOP_WIDTH,
+		} as CSSProperties);
 
-	if (isCollapsed) {
-		return (
-			<aside className="flex h-full min-h-[3.75rem] items-center justify-between gap-3 border-b border-border-subtle bg-[rgba(9,11,14,0.96)] px-3 py-2.5 xl:min-h-0 xl:w-[4.25rem] xl:min-w-[4.25rem] xl:flex-col xl:justify-start xl:border-b-0 xl:border-r xl:px-2 xl:py-3">
-				{collapseButton}
+	const collapsedDesktopContent = (
+		<div className="h-full min-h-0 flex-col items-center justify-start px-2 py-3">
+			{collapseButton}
 
-				<div className="flex min-w-0 items-center gap-2 xl:hidden">
-					<div className="workspace-section-label">Files</div>
-					<div className="font-mono text-xs text-text-tertiary">
-						{files.length} / {totalFileCount}
-					</div>
-					{hasActiveSearch ? (
-						<span className="rounded-full border border-border-subtle bg-control px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-text-secondary">
-							Filtered
-						</span>
-					) : null}
-				</div>
+			<div className="flex flex-1 flex-col items-center justify-center gap-3">
+				{hasActiveSearch ? <span className="size-2 rounded-full bg-accent" /> : null}
+				<span className="font-mono text-[11px] text-text-tertiary [writing-mode:vertical-rl] rotate-180">
+					{files.length}/{totalFileCount}
+				</span>
+			</div>
+		</div>
+	);
 
-				<div className="hidden xl:flex xl:flex-1 xl:flex-col xl:items-center xl:justify-center xl:gap-3">
-					{hasActiveSearch ? (
-						<span className="size-2 rounded-full bg-accent" />
-					) : null}
-					<span className="font-mono text-[11px] text-text-tertiary [writing-mode:vertical-rl] rotate-180">
-						{files.length}/{totalFileCount}
-					</span>
-				</div>
-			</aside>
-		);
-	}
-
-	return (
-		<aside
-			style={desktopWidthStyle}
-			className="flex h-full min-h-[15rem] flex-col overflow-hidden border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:min-h-0 xl:w-[var(--commit-file-tree-width,20rem)] xl:min-w-[var(--commit-file-tree-width,20rem)] xl:border-b-0 xl:border-r"
-		>
+	const expandedDesktopContent = (
+		<div className="h-full min-h-0 flex-col">
 			{topContent ? (
 				<div className="border-b border-border-subtle px-2.5 py-2.5">
 					{topContent}
@@ -316,6 +302,74 @@ export function CommitFileTree({
 						No matching files.
 					</div>
 				)}
+			</div>
+		</div>
+	);
+
+	const collapsedMobileContent = (
+		<aside className="flex h-full min-h-[3.75rem] items-center justify-between gap-3 border-b border-border-subtle bg-[rgba(9,11,14,0.96)] px-3 py-2.5 xl:hidden">
+			{collapseButton}
+
+			<div className="flex min-w-0 items-center gap-2">
+				<div className="workspace-section-label">Files</div>
+				<div className="font-mono text-xs text-text-tertiary">
+					{files.length} / {totalFileCount}
+				</div>
+				{hasActiveSearch ? (
+					<span className="rounded-full border border-border-subtle bg-control px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-text-secondary">
+						Filtered
+					</span>
+				) : null}
+			</div>
+		</aside>
+	);
+
+	const expandedMobileContent = (
+		<aside className="flex min-h-[15rem] flex-col overflow-hidden border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:hidden">
+			{topContent ? (
+				<div className="border-b border-border-subtle px-2.5 py-2.5">
+					{topContent}
+				</div>
+			) : null}
+
+			<div className="border-b border-border-subtle px-3 py-2.5">
+				<div className="flex items-center justify-between gap-3">
+					<div className="workspace-section-label">Changed Files</div>
+					<div className="flex items-center gap-2">
+						<div className="font-mono text-[11px] text-text-tertiary">
+							{files.length} / {totalFileCount}
+						</div>
+						{hasActiveSearch ? (
+							<span className="rounded-full border border-border-subtle bg-control px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-text-secondary">
+								Filtered
+							</span>
+						) : null}
+						{collapseButton}
+					</div>
+				</div>
+			</div>
+
+			<div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+				{treeNodes.length > 0 ? (
+					<div>{renderNodes(treeNodes)}</div>
+				) : (
+					<div className="px-3 py-4 text-sm text-text-secondary">
+						No matching files.
+					</div>
+				)}
+			</div>
+		</aside>
+	);
+
+	return (
+		<aside
+			style={desktopWidthStyle}
+			className="border-b border-border-subtle bg-[rgba(9,11,14,0.94)] xl:h-full xl:min-h-0 xl:w-[var(--commit-file-tree-width)] xl:min-w-[var(--commit-file-tree-width)] xl:overflow-hidden xl:border-b-0 xl:border-r"
+		>
+			{isCollapsed ? collapsedMobileContent : expandedMobileContent}
+
+			<div className="hidden h-full min-h-0 xl:flex xl:flex-col">
+				{isCollapsed ? collapsedDesktopContent : expandedDesktopContent}
 			</div>
 		</aside>
 	);
