@@ -828,41 +828,41 @@ export function CommitFilePanel({
 			<div className="sticky top-0 z-20">
 				<div
 					className={cn(
-						"workspace-panel flex items-start justify-between gap-3 border-b border-border-subtle bg-[rgba(12,15,19,0.94)] px-3 py-2.5 backdrop-blur-md transition-[border-color,box-shadow,background-color] duration-150",
+						"workspace-panel flex items-center justify-between gap-2.5 border-b border-border-subtle bg-[rgba(12,15,19,0.94)] px-3 py-2 backdrop-blur-md transition-[border-color,box-shadow,background-color] duration-150",
 						"rounded-b-none",
 						panelSelectionClass,
 					)}
 				>
 					<button
 						type="button"
-						className="flex min-w-0 items-start gap-3 text-left"
+						className="flex min-w-0 items-center gap-2.5 text-left"
 						onClick={onToggleExpanded}
 					>
-						<span className="mt-0.5 flex size-5.5 items-center justify-center rounded-[8px] border border-border-subtle bg-control text-text-tertiary">
+						<span className="flex size-5 items-center justify-center rounded-[7px] border border-border-subtle bg-control text-text-tertiary">
 							{isExpanded ? (
-								<ChevronDown className="size-4" />
+								<ChevronDown className="size-3.5" />
 							) : (
-								<ChevronRight className="size-4" />
+								<ChevronRight className="size-3.5" />
 							)}
 						</span>
-						<div className="min-w-0 space-y-1">
-							<div className="flex flex-wrap items-center gap-2">
+						<div className="min-w-0">
+							<div className="flex flex-wrap items-center gap-1.5">
 								<StatusPill
 									tone={getDiffStatusTone(status)}
-									className="uppercase"
+									className="min-h-5 px-2 py-0.5 text-[10px] uppercase"
 								>
 									{getDiffStatusLabel(status)}
 								</StatusPill>
-								<span className="truncate font-mono text-[11px] text-text-secondary">
+								<span className="truncate font-mono text-[10px] text-text-secondary">
 									{labelPath}
 								</span>
 								{searchContextLabel ? (
-									<span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-primary">
+									<span className="rounded-full border border-[rgba(122,162,255,0.24)] bg-[rgba(122,162,255,0.12)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-text-primary">
 										{searchContextLabel}
 									</span>
 								) : null}
 								{searchMatchCount > 0 ? (
-									<span className="rounded-full border border-border-subtle bg-control px-2 py-0.5 font-mono text-[10px] text-text-secondary">
+									<span className="rounded-full border border-border-subtle bg-control px-1.5 py-0.5 font-mono text-[9px] text-text-secondary">
 										{searchMatchCount} match{searchMatchCount === 1 ? "" : "es"}
 									</span>
 								) : null}
@@ -870,10 +870,11 @@ export function CommitFilePanel({
 						</div>
 					</button>
 
-					<div className="flex items-center gap-2">
+					<div className="flex shrink-0 items-center gap-1.5">
 						<Button
 							variant="toolbar"
 							size="sm"
+							className="h-8 gap-1.5 px-2.5 text-[12px] [&_svg:not([class*='size-'])]:size-3.5"
 							aria-label={`Diff mode: ${diffMode}. Switch to ${
 								diffMode === "side-by-side" ? "inline" : "side-by-side"
 							}.`}
@@ -903,6 +904,7 @@ export function CommitFilePanel({
 							<Button
 								variant="toolbar"
 								size="sm"
+								className="h-8 gap-1.5 px-2.5 text-[12px] [&_svg:not([class*='size-'])]:size-3.5"
 								onClick={(event) => {
 									event.stopPropagation();
 									onInjectSelection(activeSelection);
@@ -917,6 +919,7 @@ export function CommitFilePanel({
 						<Button
 							variant="toolbar"
 							size="toolbar-icon"
+							className="size-8 [&_svg:not([class*='size-'])]:size-3.5"
 							aria-pressed={isViewerExpanded}
 							onClick={(event) => {
 								event.stopPropagation();
@@ -945,6 +948,7 @@ export function CommitFilePanel({
 							<Button
 								variant={fileSummary?.text ? "toolbar" : "subtle"}
 								size="sm"
+								className="h-8 gap-1.5 px-2.5 text-[12px] [&_svg:not([class*='size-'])]:size-3.5"
 								disabled={
 									summaryLoading ||
 									(!fileSummary?.text && typeof onSummarizeFile !== "function")
