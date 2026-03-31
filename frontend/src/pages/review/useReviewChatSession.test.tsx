@@ -34,6 +34,7 @@ function buildStoredMessage(
 			overrides.timestamp ?? new Date("2026-03-29T10:00:00.000Z")
 		).toISOString(),
 		codeContexts: overrides.codeContexts,
+		findingContexts: overrides.findingContexts,
 	};
 }
 
@@ -180,6 +181,13 @@ describe("useReviewChatSession", () => {
 		expect(result.current.draftCodeContexts).toHaveLength(1);
 
 		act(() => {
+			result.current.injectFinding(reviewResult.findings[0]);
+			result.current.injectFinding(reviewResult.findings[0]);
+		});
+
+		expect(result.current.draftFindingContexts).toHaveLength(1);
+
+		act(() => {
 			result.current.setDraft("What is the main regression risk here?");
 		});
 
@@ -201,16 +209,19 @@ describe("useReviewChatSession", () => {
 					language: "typescript",
 				}),
 			],
+			findingContexts: [expect.objectContaining(reviewResult.findings[0])],
 			messages: [
 				{
 					role: "user",
 					content: "Previous user message",
 					codeContexts: undefined,
+					findingContexts: undefined,
 				},
 				{
 					role: "assistant",
 					content: "Previous assistant message",
 					codeContexts: undefined,
+					findingContexts: undefined,
 				},
 			],
 			reviewContext: {
@@ -220,6 +231,9 @@ describe("useReviewChatSession", () => {
 			},
 		});
 		expect(result.current.chatMessages.at(-2)?.codeContexts).toHaveLength(1);
+		expect(result.current.chatMessages.at(-2)?.findingContexts).toEqual([
+			expect.objectContaining(reviewResult.findings[0]),
+		]);
 		expect(result.current.chatMessages.at(-1)?.content).toContain(
 			"Codex says",
 		);
@@ -260,6 +274,7 @@ describe("useReviewChatSession", () => {
 		);
 
 		act(() => {
+			result.current.injectFinding(historyResult.findings[0]);
 			result.current.setDraft("Explain the historical finding.");
 		});
 
@@ -272,11 +287,49 @@ describe("useReviewChatSession", () => {
 			runId: "run-history",
 			message: "Explain the historical finding.",
 			codeContexts: [],
+			findingContexts: [expect.objectContaining(historyResult.findings[0])],
 			messages: [],
 			reviewContext: {
 				runStatus: "completed",
 				summary: "Historical summary",
 				findings: historyResult.findings,
+			},
+		});
+	});
+
+	it("sends finding-only drafts without requiring freeform text", async () => {
+		vi.mocked(sendReviewChatMessage).mockResolvedValue({
+			response: "Codex is answering about the attached finding.",
+		});
+
+		const reviewResult = buildReviewResult();
+		const { result } = renderHook(() =>
+			useReviewChatSession({
+				sessionId: "session-1",
+				activeRun: buildReviewRun(),
+				reviewResult,
+			}),
+		);
+
+		act(() => {
+			result.current.injectFinding(reviewResult.findings[0]);
+		});
+
+		await act(async () => {
+			await result.current.sendDraft();
+		});
+
+		expect(vi.mocked(sendReviewChatMessage).mock.calls[0][0]).toEqual({
+			sessionId: "session-1",
+			runId: null,
+			message: "",
+			codeContexts: [],
+			findingContexts: [expect.objectContaining(reviewResult.findings[0])],
+			messages: [],
+			reviewContext: {
+				runStatus: "completed",
+				summary: "The review found one risky state transition.",
+				findings: reviewResult.findings,
 			},
 		});
 	});

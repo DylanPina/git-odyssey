@@ -19,6 +19,16 @@ export type ChatCodeContext = {
 	isTruncated?: boolean;
 };
 
+export type ChatFindingContext = {
+	id: string;
+	severity: "high" | "medium" | "low";
+	title: string;
+	body: string;
+	file_path: string;
+	new_start?: number | null;
+	old_start?: number | null;
+};
+
 export type ChatMessage = {
 	id: string;
 	role: "user" | "assistant";
@@ -27,6 +37,7 @@ export type ChatMessage = {
 	isLoading?: boolean;
 	citedCommits?: Citation[];
 	codeContexts?: ChatCodeContext[];
+	findingContexts?: ChatFindingContext[];
 };
 
 export type ChatState = {

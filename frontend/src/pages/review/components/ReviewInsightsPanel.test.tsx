@@ -42,6 +42,7 @@ describe("ReviewInsightsPanel", () => {
 	it("renders findings and calls onSelectFinding for navigable items", async () => {
 		const user = userEvent.setup();
 		const onSelectFinding = vi.fn();
+		const onAddFindingToChat = vi.fn();
 		const findings: ReviewFinding[] = [
 			{
 				id: "finding-1",
@@ -67,6 +68,7 @@ describe("ReviewInsightsPanel", () => {
 				findingsLabel="2 findings"
 				selectedFindingId={null}
 				onSelectFinding={onSelectFinding}
+				onAddFindingToChat={onAddFindingToChat}
 				canNavigateToFinding={(finding) => finding.file_path === "src/auth.ts"}
 				reasoningTrace={[]}
 				onToggleOpen={() => {}}
@@ -74,9 +76,13 @@ describe("ReviewInsightsPanel", () => {
 			/>,
 		);
 
-		await user.click(screen.getByRole("button", { name: /fix the auth regression/i }));
+		await user.click(
+			screen.getByRole("button", { name: /open finding fix the auth regression/i }),
+		);
+		await user.click(screen.getByRole("button", { name: /ask ai about fix the auth regression/i }));
 
 		expect(onSelectFinding).toHaveBeenCalledWith(findings[0]);
+		expect(onAddFindingToChat).toHaveBeenCalledWith(findings[0]);
 		expect(screen.getByText("Reference unavailable in the current diff.")).toBeInTheDocument();
 	});
 

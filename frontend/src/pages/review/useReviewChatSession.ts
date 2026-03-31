@@ -2,8 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { sendReviewChatMessage } from "@/api/api";
 import type { DiffSelectionContext } from "@/lib/diff";
-import type { ChatCodeContext, ChatMessage } from "@/lib/definitions/chat";
 import type {
+	ChatCodeContext,
+	ChatFindingContext,
+	ChatMessage,
+} from "@/lib/definitions/chat";
+import type {
+	ReviewFinding,
 	ReviewChatContext,
 	ReviewChatTranscriptMessage,
 	ReviewResult,
@@ -27,12 +32,15 @@ type UseReviewChatSessionReturn = {
 	draft: string;
 	setDraft: (value: string) => void;
 	draftCodeContexts: ChatCodeContext[];
+	draftFindingContexts: ChatFindingContext[];
 	isChatLoading: boolean;
 	chatError: string | null;
 	isChatReady: boolean;
 	sendDraft: () => Promise<void>;
 	injectSelection: (selection: DiffSelectionContext) => void;
+	injectFinding: (finding: ReviewFinding) => void;
 	removeDraftCodeContext: (contextId: string) => void;
+	removeDraftFindingContext: (findingId: string) => void;
 	clearChatError: () => void;
 };
 
@@ -97,6 +105,20 @@ function buildCodeContextFromSelection(
 	};
 }
 
+function buildFindingContextFromFinding(
+	finding: ReviewFinding,
+): ChatFindingContext {
+	return {
+		id: finding.id,
+		severity: finding.severity,
+		title: finding.title,
+		body: finding.body,
+		file_path: finding.file_path,
+		new_start: finding.new_start ?? null,
+		old_start: finding.old_start ?? null,
+	};
+}
+
 export function formatReviewChatCodeContextLabel(context: ChatCodeContext) {
 	const range =
 		context.startLine === context.endLine
@@ -104,6 +126,14 @@ export function formatReviewChatCodeContextLabel(context: ChatCodeContext) {
 			: `lines ${context.startLine}:${context.startColumn}-${context.endLine}:${context.endColumn}`;
 	const sideLabel = context.side === "modified" ? "modified" : "original";
 	return `${context.filePath} • ${sideLabel} • ${range}`;
+}
+
+export function formatReviewChatFindingContextLabel(
+	context: ChatFindingContext,
+) {
+	const line = context.new_start ?? context.old_start ?? null;
+	const lineLabel = line == null ? context.file_path : `${context.file_path}:${line}`;
+	return `${context.severity} • ${context.title} • ${lineLabel}`;
 }
 
 function buildReviewChatContext(
@@ -128,6 +158,7 @@ function serializeTranscriptMessage(
 		role: message.role,
 		content: message.content,
 		codeContexts: message.codeContexts,
+		findingContexts: message.findingContexts,
 	};
 }
 
@@ -192,6 +223,9 @@ export function useReviewChatSession({
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [draft, setDraft] = useState("");
 	const [draftCodeContexts, setDraftCodeContexts] = useState<ChatCodeContext[]>([]);
+	const [draftFindingContexts, setDraftFindingContexts] = useState<
+		ChatFindingContext[]
+	>([]);
 	const [isChatLoading, setIsChatLoading] = useState(false);
 	const [chatError, setChatError] = useState<string | null>(null);
 	const isChatReady = Boolean(sessionId);
@@ -200,6 +234,7 @@ export function useReviewChatSession({
 		setChatMessages(loadMessagesFromStorage(storageKey));
 		setDraft("");
 		setDraftCodeContexts([]);
+		setDraftFindingContexts([]);
 		setChatError(null);
 	}, [storageKey]);
 
@@ -220,15 +255,34 @@ export function useReviewChatSession({
 		);
 	}, []);
 
+	const injectFinding = useCallback((finding: ReviewFinding) => {
+		const nextContext = buildFindingContextFromFinding(finding);
+		setDraftFindingContexts((current) =>
+			current.some((context) => context.id === nextContext.id)
+				? current
+				: [...current, nextContext],
+		);
+	}, []);
+
 	const removeDraftCodeContext = useCallback((contextId: string) => {
 		setDraftCodeContexts((current) =>
 			current.filter((context) => context.id !== contextId),
 		);
 	}, []);
 
+	const removeDraftFindingContext = useCallback((findingId: string) => {
+		setDraftFindingContexts((current) =>
+			current.filter((context) => context.id !== findingId),
+		);
+	}, []);
+
 	const sendDraft = useCallback(async () => {
 		const nextDraft = draft.trim();
-		if (!nextDraft && draftCodeContexts.length === 0) {
+		if (
+			!nextDraft &&
+			draftCodeContexts.length === 0 &&
+			draftFindingContexts.length === 0
+		) {
 			return;
 		}
 
@@ -248,11 +302,13 @@ export function useReviewChatSession({
 			content: nextDraft,
 			timestamp: new Date(),
 			codeContexts: draftCodeContexts,
+			findingContexts: draftFindingContexts,
 		};
 
 		setChatMessages((current) => [...current, nextUserMessage]);
 		setDraft("");
 		setDraftCodeContexts([]);
+		setDraftFindingContexts([]);
 
 		try {
 			const response = await sendReviewChatMessage({
@@ -260,6 +316,7 @@ export function useReviewChatSession({
 				runId: historyRunId,
 				message: nextDraft,
 				codeContexts: draftCodeContexts,
+				findingContexts: draftFindingContexts,
 				messages: chatMessages
 					.slice(-MAX_TRANSCRIPT_MESSAGES)
 					.map(serializeTranscriptMessage),
@@ -275,7 +332,7 @@ export function useReviewChatSession({
 			setChatMessages((current) => [...current, assistantMessage]);
 		} catch {
 			setChatError(
-				"Failed to get a response from Codex review chat. Please try again.",
+			"Failed to get a response from Codex review chat. Please try again.",
 			);
 		} finally {
 			setIsChatLoading(false);
@@ -285,6 +342,7 @@ export function useReviewChatSession({
 		chatMessages,
 		draft,
 		draftCodeContexts,
+		draftFindingContexts,
 		historyRunId,
 		reviewResult,
 		sessionId,
@@ -295,12 +353,15 @@ export function useReviewChatSession({
 		draft,
 		setDraft,
 		draftCodeContexts,
+		draftFindingContexts,
 		isChatLoading,
 		chatError,
 		isChatReady,
 		sendDraft,
 		injectSelection,
+		injectFinding,
 		removeDraftCodeContext,
+		removeDraftFindingContext,
 		clearChatError,
 	};
 }

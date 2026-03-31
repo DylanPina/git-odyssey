@@ -11,7 +11,11 @@ import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownR
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ReviewChatPanel } from "@/pages/review/components/ReviewChatPanel";
 import { ReviewInsightsPanel } from "@/pages/review/components/ReviewInsightsPanel";
-import type { ChatCodeContext, ChatMessage } from "@/lib/definitions/chat";
+import type {
+	ChatCodeContext,
+	ChatFindingContext,
+	ChatMessage,
+} from "@/lib/definitions/chat";
 import type {
 	ReviewFinding,
 	ReviewResult,
@@ -36,11 +40,15 @@ type ReviewAssistantPanelProps = {
 	chatMessages: ChatMessage[];
 	chatDraft: string;
 	draftCodeContexts: ChatCodeContext[];
+	draftFindingContexts?: ChatFindingContext[];
 	onChatDraftChange: (value: string) => void;
 	onSendChatMessage: () => void;
+	onAddFindingToChat?: (finding: ReviewFinding) => void;
 	onChatCodeContextClick?: (context: ChatCodeContext) => void;
+	onChatFindingContextClick?: (context: ChatFindingContext) => void;
 	onAssistantReferenceClick?: (target: ReviewChatReferenceTarget) => void;
 	onRemoveDraftCodeContext?: (contextId: string) => void;
+	onRemoveDraftFindingContext?: (findingId: string) => void;
 	reviewReferencePaths?: readonly string[];
 	reviewReferenceRepoPath?: string | null;
 	isChatLoading?: boolean;
@@ -78,11 +86,15 @@ export function ReviewAssistantPanel({
 	chatMessages,
 	chatDraft,
 	draftCodeContexts,
+	draftFindingContexts = [],
 	onChatDraftChange,
 	onSendChatMessage,
+	onAddFindingToChat = () => {},
 	onChatCodeContextClick,
+	onChatFindingContextClick,
 	onAssistantReferenceClick,
 	onRemoveDraftCodeContext,
+	onRemoveDraftFindingContext,
 	reviewReferencePaths,
 	reviewReferenceRepoPath,
 	isChatLoading = false,
@@ -194,6 +206,7 @@ export function ReviewAssistantPanel({
 							findingsLabel={findingsLabel}
 							selectedFindingId={selectedFindingId}
 							onSelectFinding={onSelectFinding}
+							onAddFindingToChat={onAddFindingToChat}
 							canNavigateToFinding={canNavigateToFinding}
 							reasoningTrace={reasoningTrace}
 							isFullscreen={isFullscreen}
@@ -210,11 +223,14 @@ export function ReviewAssistantPanel({
 						messages={chatMessages}
 						draft={chatDraft}
 						draftCodeContexts={draftCodeContexts}
+						draftFindingContexts={draftFindingContexts}
 						onDraftChange={onChatDraftChange}
 						onSendMessage={onSendChatMessage}
 						onCodeContextClick={onChatCodeContextClick}
+						onFindingContextClick={onChatFindingContextClick}
 						onAssistantReferenceClick={onAssistantReferenceClick}
 						onRemoveDraftCodeContext={onRemoveDraftCodeContext}
+						onRemoveDraftFindingContext={onRemoveDraftFindingContext}
 						isLoading={isChatLoading}
 						error={chatError}
 						isComposerDisabled={isChatComposerDisabled}

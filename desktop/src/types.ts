@@ -30,6 +30,8 @@ export type ReviewChatFinding = {
   old_start?: number | null;
 };
 
+export type ReviewChatFindingContext = ReviewChatFinding;
+
 export type ReviewChatContext = {
   runStatus?: string | null;
   summary?: string | null;
@@ -40,6 +42,7 @@ export type ReviewChatTranscriptMessage = {
   role: "user" | "assistant";
   content: string;
   codeContexts?: ReviewChatCodeContext[];
+  findingContexts?: ReviewChatFindingContext[];
 };
 
 export type ReviewChatRequestInput = {
@@ -47,6 +50,7 @@ export type ReviewChatRequestInput = {
   runId?: string | null;
   message: string;
   codeContexts: ReviewChatCodeContext[];
+  findingContexts: ReviewChatFindingContext[];
   messages: ReviewChatTranscriptMessage[];
   reviewContext?: ReviewChatContext | null;
 };

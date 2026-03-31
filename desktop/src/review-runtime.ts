@@ -23,6 +23,7 @@ import type {
   ReviewApprovalDecision,
   ReviewChatCodeContext,
   ReviewChatContext,
+  ReviewChatFindingContext,
   ReviewChatRequestInput,
   ReviewChatResponse,
   ReviewChatTranscriptMessage,
@@ -741,7 +742,7 @@ class ReviewRuntimeManager extends EventEmitter {
       "You are GitOdyssey's Codex review chat assistant.",
       `Only answer questions about the current review target: ${targetLabel}.`,
       "Ignore unrelated historical commits and repo-wide retrieval assumptions.",
-      "Use the current branch diff, any attached code context, and any provided persisted review findings.",
+      "Use the current branch diff, any attached code context, any explicitly attached findings, and any provided persisted review findings.",
       "Do not make edits and do not execute commands that change files.",
     ].join("\n");
   }
@@ -782,6 +783,9 @@ class ReviewRuntimeManager extends EventEmitter {
       "",
       "## Attached Code Context",
       this.#formatReviewChatCodeContexts(input.codeContexts || []),
+      "",
+      "## Attached Findings",
+      this.#formatReviewChatFindingContexts(input.findingContexts || []),
       "",
       "## User Message",
       String(input.message || "").trim() || "Focus on the attached code context.",
@@ -868,6 +872,29 @@ class ReviewRuntimeManager extends EventEmitter {
       .join("\n\n");
   }
 
+  #formatReviewChatFindingContexts(
+    findingContexts: ReviewChatFindingContext[]
+  ): string {
+    if (!findingContexts.length) {
+      return "No findings attached.";
+    }
+
+    return findingContexts
+      .map((finding, index) => {
+        const lineRef =
+          typeof finding.new_start === "number"
+            ? `:${finding.new_start}`
+            : typeof finding.old_start === "number"
+              ? `:${finding.old_start}`
+              : "";
+        return [
+          `Finding ${index + 1}: [${finding.severity}] ${finding.title} (${finding.file_path}${lineRef})`,
+          String(finding.body || "").trim() || "(no finding details provided)",
+        ].join("\n");
+      })
+      .join("\n\n");
+  }
+
   #formatReviewChatTranscript(messages: ReviewChatTranscriptMessage[]): string {
     if (!messages.length) {
       return "No previous transcript.";
@@ -883,6 +910,13 @@ class ReviewRuntimeManager extends EventEmitter {
           parts.push(
             `Attached code context:\n${this.#formatReviewChatCodeContexts(
               message.codeContexts
+            )}`
+          );
+        }
+        if (message.findingContexts?.length) {
+          parts.push(
+            `Attached findings:\n${this.#formatReviewChatFindingContexts(
+              message.findingContexts
             )}`
           );
         }

@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ReviewChatPanel } from "@/pages/review/components/ReviewChatPanel";
-import type { ChatCodeContext, ChatMessage } from "@/lib/definitions/chat";
+import type {
+	ChatCodeContext,
+	ChatFindingContext,
+	ChatMessage,
+} from "@/lib/definitions/chat";
 import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownRenderer";
 
 function buildCodeContext(
@@ -19,6 +23,20 @@ function buildCodeContext(
 		endColumn: 18,
 		selectedText: "const panel = createAssistantPanel();",
 		language: "typescript",
+		...overrides,
+	};
+}
+
+function buildFindingContext(
+	overrides: Partial<ChatFindingContext> = {},
+): ChatFindingContext {
+	return {
+		id: "finding-1",
+		severity: "medium",
+		title: "Rail state can collapse unexpectedly",
+		body: "This effect resets the panel whenever the active run clears.",
+		file_path: "frontend/src/pages/review/useReviewLayoutState.ts",
+		new_start: 28,
 		...overrides,
 	};
 }
@@ -124,6 +142,95 @@ describe("ReviewChatPanel", () => {
 
 		expect(onCodeContextClick).toHaveBeenCalledWith(context);
 		expect(screen.getByText(/please review this code path/i)).toBeInTheDocument();
+	});
+
+	it("renders attached finding chips in the draft area and lets users remove them", async () => {
+		const user = userEvent.setup();
+		const onRemoveDraftFindingContext = vi.fn();
+
+		render(
+			<ReviewChatPanel
+				messages={[]}
+				draft=""
+				draftCodeContexts={[]}
+				draftFindingContexts={[buildFindingContext()]}
+				onDraftChange={() => {}}
+				onSendMessage={() => {}}
+				onRemoveDraftFindingContext={onRemoveDraftFindingContext}
+			/>,
+		);
+
+		expect(
+			screen.getByText(/rail state can collapse unexpectedly/i),
+		).toBeInTheDocument();
+
+		await user.click(
+			screen.getByRole("button", {
+				name: /remove medium .* rail state can collapse unexpectedly/i,
+			}),
+		);
+
+		expect(onRemoveDraftFindingContext).toHaveBeenCalledWith("finding-1");
+	});
+
+	it("renders attached finding chips inside sent user messages", () => {
+		render(
+			<ReviewChatPanel
+				messages={[buildMessage({ findingContexts: [buildFindingContext()] })]}
+				draft=""
+				draftCodeContexts={[]}
+				onDraftChange={() => {}}
+				onSendMessage={() => {}}
+			/>,
+		);
+
+		expect(
+			screen.getByText(/rail state can collapse unexpectedly/i),
+		).toBeInTheDocument();
+	});
+
+	it("jumps to an attached finding when its chip is clicked", async () => {
+		const user = userEvent.setup();
+		const onFindingContextClick = vi.fn();
+
+		render(
+			<ReviewChatPanel
+				messages={[buildMessage({ findingContexts: [buildFindingContext()] })]}
+				draft=""
+				draftCodeContexts={[]}
+				onDraftChange={() => {}}
+				onSendMessage={() => {}}
+				onFindingContextClick={onFindingContextClick}
+			/>,
+		);
+
+		await user.click(
+			screen.getByRole("button", {
+				name: /jump to medium .* rail state can collapse unexpectedly/i,
+			}),
+		);
+
+		expect(onFindingContextClick).toHaveBeenCalledWith(buildFindingContext());
+	});
+
+	it("allows sending a finding-only draft", async () => {
+		const user = userEvent.setup();
+		const onSendMessage = vi.fn();
+
+		render(
+			<ReviewChatPanel
+				messages={[]}
+				draft=""
+				draftCodeContexts={[]}
+				draftFindingContexts={[buildFindingContext()]}
+				onDraftChange={() => {}}
+				onSendMessage={onSendMessage}
+			/>,
+		);
+
+		await user.click(screen.getByRole("button", { name: /send/i }));
+
+		expect(onSendMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not render cited commits for assistant messages", () => {

@@ -374,6 +374,7 @@ test("main process review handlers forward requests to the backend", async () =>
     runId: null,
     message: "Explain the review findings",
     codeContexts: [],
+    findingContexts: [],
     messages: [],
     reviewContext: {
       runStatus: "completed",
@@ -463,6 +464,7 @@ test("main process review handlers forward requests to the backend", async () =>
     runId: null,
     message: "Explain the review findings",
     codeContexts: [],
+    findingContexts: [],
     messages: [],
     reviewContext: {
       runStatus: "completed",

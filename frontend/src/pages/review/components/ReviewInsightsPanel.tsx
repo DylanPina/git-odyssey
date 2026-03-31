@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	ChevronDown,
 	ChevronRight,
 	Maximize2,
+	MessageCircle,
 	Minimize2,
 	PanelRightOpen,
 } from "lucide-react";
@@ -197,11 +198,13 @@ function ReviewFindingsList({
 	findings,
 	selectedFindingId,
 	onSelect,
+	onAddToChat,
 	canNavigateToFinding,
 }: {
 	findings: ReviewFinding[];
 	selectedFindingId: string | null;
 	onSelect: (finding: ReviewFinding) => void;
+	onAddToChat: (finding: ReviewFinding) => void;
 	canNavigateToFinding: (finding: ReviewFinding) => boolean;
 }) {
 	if (findings.length === 0) {
@@ -221,19 +224,35 @@ function ReviewFindingsList({
 				const content = (
 					<>
 						<div className="flex flex-wrap items-start justify-between gap-2">
-							<StatusPill tone={getSeverityTone(finding.severity)}>
-								{formatSeverityLabel(finding.severity)}
-							</StatusPill>
-							<span
-								className={cn(
-									"shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px]",
-									canNavigate
-										? "border-[rgba(122,162,255,0.28)] bg-[rgba(122,162,255,0.1)] text-text-primary"
-										: "border-border-subtle bg-[rgba(255,255,255,0.03)] text-text-tertiary",
-								)}
+							<div className="flex flex-wrap items-center gap-2">
+								<StatusPill tone={getSeverityTone(finding.severity)}>
+									{formatSeverityLabel(finding.severity)}
+								</StatusPill>
+								<span
+									className={cn(
+										"shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px]",
+										canNavigate
+											? "border-[rgba(122,162,255,0.28)] bg-[rgba(122,162,255,0.1)] text-text-primary"
+											: "border-border-subtle bg-[rgba(255,255,255,0.03)] text-text-tertiary",
+									)}
+								>
+									{label}
+								</span>
+							</div>
+							<Button
+								type="button"
+								variant="toolbar"
+								size="sm"
+								className="h-7 rounded-full px-2.5 text-[11px]"
+								onClick={(event) => {
+									event.stopPropagation();
+									onAddToChat(finding);
+								}}
+								aria-label={`Ask AI about ${finding.title}`}
 							>
-								{label}
-							</span>
+								<MessageCircle className="size-3.5" />
+								<span>Ask AI</span>
+							</Button>
 						</div>
 						<div className="mt-2 text-sm font-semibold leading-5 text-text-primary">
 							{finding.title}
@@ -254,6 +273,7 @@ function ReviewFindingsList({
 					return (
 						<div
 							key={finding.id}
+							data-review-finding-id={finding.id}
 							className={cn(
 								"rounded-[12px] border px-2.5 py-2",
 								isSelected
@@ -267,10 +287,13 @@ function ReviewFindingsList({
 				}
 
 				return (
-					<button
+					<div
 						key={finding.id}
-						type="button"
+						data-review-finding-id={finding.id}
+						role="button"
+						tabIndex={0}
 						aria-pressed={isSelected}
+						aria-label={`Open finding ${finding.title}`}
 						className={cn(
 							"w-full rounded-[12px] border px-2.5 py-2 text-left transition-[background-color,border-color,box-shadow] duration-150",
 							isSelected
@@ -278,9 +301,15 @@ function ReviewFindingsList({
 								: "border-border-subtle bg-[rgba(255,255,255,0.025)] hover:border-border-strong hover:bg-[rgba(255,255,255,0.045)]",
 						)}
 						onClick={() => onSelect(finding)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" || event.key === " ") {
+								event.preventDefault();
+								onSelect(finding);
+							}
+						}}
 					>
 						{content}
-					</button>
+					</div>
 				);
 			})}
 		</div>
@@ -293,6 +322,7 @@ type ReviewInsightsPanelProps = {
 	findingsLabel: string;
 	selectedFindingId: string | null;
 	onSelectFinding: (finding: ReviewFinding) => void;
+	onAddFindingToChat?: (finding: ReviewFinding) => void;
 	canNavigateToFinding: (finding: ReviewFinding) => boolean;
 	reasoningTrace: ReasoningTraceEntry[];
 	isFullscreen?: boolean;
@@ -308,6 +338,7 @@ export function ReviewInsightsPanel({
 	findingsLabel,
 	selectedFindingId,
 	onSelectFinding,
+	onAddFindingToChat = () => {},
 	canNavigateToFinding,
 	reasoningTrace,
 	isFullscreen = false,
@@ -316,6 +347,7 @@ export function ReviewInsightsPanel({
 	onToggleOpen,
 	onToggleFullscreen,
 }: ReviewInsightsPanelProps) {
+	const findingsSectionRef = useRef<HTMLDivElement | null>(null);
 	const summaryText = reviewResult?.summary?.trim() || null;
 	const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
 	const sectionPadding = isFullscreen ? "px-4 py-3 xl:px-5" : "px-2.5 py-2.5";
@@ -328,6 +360,25 @@ export function ReviewInsightsPanel({
 		reviewResult != null &&
 		reasoningTrace.length > 0;
 	const shouldClampSummary = Boolean(summaryText && summaryText.length > 320);
+
+	useEffect(() => {
+		if (!selectedFindingId) {
+			return;
+		}
+
+		const container = findingsSectionRef.current;
+		if (!container) {
+			return;
+		}
+
+		const target = container.querySelector<HTMLElement>(
+			`[data-review-finding-id="${selectedFindingId}"]`,
+		);
+		target?.scrollIntoView({
+			block: "nearest",
+			behavior: "smooth",
+		});
+	}, [selectedFindingId]);
 
 	return (
 		<div
@@ -451,12 +502,15 @@ export function ReviewInsightsPanel({
 					</div>
 					<div className="mt-2">
 						{reviewResult ? (
-							<ReviewFindingsList
-								findings={reviewResult.findings}
-								selectedFindingId={selectedFindingId}
-								onSelect={onSelectFinding}
-								canNavigateToFinding={canNavigateToFinding}
-							/>
+							<div ref={findingsSectionRef}>
+								<ReviewFindingsList
+									findings={reviewResult.findings}
+									selectedFindingId={selectedFindingId}
+									onSelect={onSelectFinding}
+									onAddToChat={onAddFindingToChat}
+									canNavigateToFinding={canNavigateToFinding}
+								/>
+							</div>
 						) : (
 							<div className="rounded-[16px] border border-dashed border-border-subtle px-3 py-4 text-sm text-text-secondary">
 								Structured findings will show up here when the run finishes.

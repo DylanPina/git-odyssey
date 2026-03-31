@@ -202,12 +202,15 @@ export function Review() {
 		draft: chatDraft,
 		setDraft: setChatDraft,
 		draftCodeContexts,
+		draftFindingContexts,
 		isChatLoading,
 		chatError,
 		isChatReady,
 		sendDraft,
 		injectSelection,
+		injectFinding,
 		removeDraftCodeContext,
+		removeDraftFindingContext,
 		clearChatError,
 	} = useReviewChatSession({
 		sessionId: displayedSession?.id,
@@ -334,6 +337,16 @@ export function Review() {
 		[injectSelection, setAssistantTab, setReviewPanelMode],
 	);
 
+	const handleInjectFinding = useCallback(
+		(finding: ReviewFinding) => {
+			injectFinding(finding);
+			setAssistantTab("chat");
+			setReviewPanelMode("rail");
+			setChatComposerFocusToken((current) => current + 1);
+		},
+		[injectFinding, setAssistantTab, setReviewPanelMode],
+	);
+
 	const toggleReviewRail = useCallback(() => {
 		if (!assistantEnabled) {
 			return;
@@ -381,6 +394,15 @@ export function Review() {
 			focusContext();
 		},
 		[reviewPanelMode, setReviewPanelMode],
+	);
+
+	const handleChatFindingContextClick = useCallback(
+		(finding: ReviewFinding) => {
+			setSelectedFindingId(finding.id);
+			setAssistantTab("review");
+			setReviewPanelMode("rail");
+		},
+		[setAssistantTab, setReviewPanelMode, setSelectedFindingId],
 	);
 
 	const handleAssistantReferenceClick = useCallback(
@@ -638,13 +660,17 @@ export function Review() {
 			chatMessages={chatMessages}
 			chatDraft={chatDraft}
 			draftCodeContexts={draftCodeContexts}
+			draftFindingContexts={draftFindingContexts}
 			onChatDraftChange={handleChatDraftChange}
 			onSendChatMessage={() => {
 				void sendDraft();
 			}}
+			onAddFindingToChat={handleInjectFinding}
 			onChatCodeContextClick={handleChatCodeContextClick}
+			onChatFindingContextClick={handleChatFindingContextClick}
 			onAssistantReferenceClick={handleAssistantReferenceClick}
 			onRemoveDraftCodeContext={removeDraftCodeContext}
+			onRemoveDraftFindingContext={removeDraftFindingContext}
 			reviewReferencePaths={reviewReferencePaths}
 			reviewReferenceRepoPath={repoPath}
 			isChatLoading={isChatLoading}
@@ -674,13 +700,17 @@ export function Review() {
 					chatMessages={chatMessages}
 					chatDraft={chatDraft}
 					draftCodeContexts={draftCodeContexts}
+					draftFindingContexts={draftFindingContexts}
 					onChatDraftChange={handleChatDraftChange}
 					onSendChatMessage={() => {
 						void sendDraft();
 					}}
+					onAddFindingToChat={handleInjectFinding}
 					onChatCodeContextClick={handleChatCodeContextClick}
+					onChatFindingContextClick={handleChatFindingContextClick}
 					onAssistantReferenceClick={handleAssistantReferenceClick}
 					onRemoveDraftCodeContext={removeDraftCodeContext}
+					onRemoveDraftFindingContext={removeDraftFindingContext}
 					reviewReferencePaths={reviewReferencePaths}
 					reviewReferenceRepoPath={repoPath}
 					isChatLoading={isChatLoading}

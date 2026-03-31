@@ -1,4 +1,4 @@
-import type { ChatCodeContext } from "./chat";
+import type { ChatCodeContext, ChatFindingContext } from "./chat";
 import type { FileChange } from "./repo";
 
 export type ReviewTargetMode = "compare" | "commit";
@@ -206,6 +206,7 @@ export interface ReviewChatTranscriptMessage {
 	role: "user" | "assistant";
 	content: string;
 	codeContexts?: ChatCodeContext[];
+	findingContexts?: ChatFindingContext[];
 }
 
 export interface ReviewChatRequest {
@@ -213,6 +214,7 @@ export interface ReviewChatRequest {
 	runId?: string | null;
 	message: string;
 	codeContexts: ChatCodeContext[];
+	findingContexts: ChatFindingContext[];
 	messages: ReviewChatTranscriptMessage[];
 	reviewContext?: ReviewChatContext | null;
 }
