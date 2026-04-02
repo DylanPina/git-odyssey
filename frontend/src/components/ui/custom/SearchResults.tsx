@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 import {
   SearchResultCodePreview,
   normalizeSemanticPreviewSnippet,
@@ -87,7 +88,12 @@ export default function SearchResults(props: {
   repoPath?: string | null;
   filteredCommits: Commit[];
   searchResults?: FilterSearchResult[];
+  searchMaxResults?: number;
+  totalRankedResults?: number;
+  totalRelevantResults?: number;
+  hasMoreRelevant?: boolean;
   isSearching?: boolean;
+  onLoadMore?: () => void | Promise<void>;
   onCommitClick: (sha: string) => void;
   query?: string;
 }) {
@@ -96,7 +102,12 @@ export default function SearchResults(props: {
     repoPath,
     filteredCommits,
     searchResults = [],
+    searchMaxResults = 0,
+    totalRankedResults = 0,
+    totalRelevantResults = 0,
+    hasMoreRelevant = false,
     isSearching = false,
+    onLoadMore,
     onCommitClick,
     query,
   } = props;
@@ -107,10 +118,17 @@ export default function SearchResults(props: {
     [filteredCommits],
   );
   const hasSearchResults = Boolean(query?.trim());
-  const visibleSearchResults = searchResults.slice(0, 25);
+  const visibleSearchResults = searchResults;
   const visibleCommits = filteredCommits.slice(0, 25);
   const displayedCount = hasSearchResults ? searchResults.length : filteredCommits.length;
   const totalCount = Math.max(allCommitsCount, displayedCount);
+  const relevantCount = Math.max(totalRelevantResults, displayedCount);
+  const resultLabel = relevantCount === 1 ? "commit" : "commits";
+  const countCopy = hasSearchResults
+    ? hasMoreRelevant && displayedCount < relevantCount
+      ? `Showing ${displayedCount} of ${relevantCount} relevant ${resultLabel}`
+      : `Showing ${displayedCount} relevant ${resultLabel}`
+    : `Showing ${displayedCount} of ${totalCount} commits`;
 
   return (
     <SidebarGroup className="relative min-h-0 min-w-0 flex-1 pt-4">
@@ -125,7 +143,7 @@ export default function SearchResults(props: {
 
       <div className="workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto pr-1">
         <div className="flex items-center gap-2 text-sm text-text-primary">
-          <span>Showing {displayedCount} of {totalCount} commits</span>
+          <span>{countCopy}</span>
           {isSearching ? (
             <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(122,162,255,0.18)] bg-[rgba(122,162,255,0.08)] px-2 py-0.5 text-[11px] font-medium text-[#d5e3ff]">
               <Loader2 className="size-3 animate-spin" />
@@ -218,6 +236,10 @@ export default function SearchResults(props: {
                         value={preview}
                         filePath={match?.file_path ?? ""}
                         onOpen={handleOpenResult}
+                        useMonaco={false}
+                        query={query}
+                        highlightStrategy={match?.highlight_strategy}
+                        matchedText={match?.matched_text}
                       />
                     ) : isDiffPreview ? (
                       <button
@@ -243,11 +265,30 @@ export default function SearchResults(props: {
               );
             })}
 
-            {displayedCount > 25 ? (
-              <div className="px-1 text-xs text-text-tertiary">
-                Showing the first 25 matches. {displayedCount - 25} more commit
-                {displayedCount - 25 === 1 ? "" : "s"} remain in the current
-                result set.
+            {hasMoreRelevant ? (
+              <div className="flex items-center justify-between gap-3 px-1 pt-1">
+                <div className="text-xs text-text-tertiary">
+                  Ranked {totalRankedResults} commit
+                  {totalRankedResults === 1 ? "" : "s"} and kept {relevantCount} relevant
+                  match{relevantCount === 1 ? "" : "es"}.
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 rounded-full px-3"
+                  disabled={isSearching}
+                  onClick={() => void onLoadMore?.()}
+                >
+                  {isSearching ? (
+                    <>
+                      <Loader2 className="mr-2 size-3 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    `Load more (${searchMaxResults + 20})`
+                  )}
+                </Button>
               </div>
             ) : null}
           </div>

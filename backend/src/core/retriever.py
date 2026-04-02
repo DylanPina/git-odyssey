@@ -51,6 +51,25 @@ class FilterCandidate:
     exact_match: bool = False
 
 
+@dataclass(frozen=True)
+class RankedFilterResult:
+    final_score: float
+    exact_bonus: float
+    semantic_score: float
+    recency_score: float
+    display_candidate: FilterCandidate
+    similarity: float | None = None
+
+
+@dataclass(frozen=True)
+class FilterExecutionResult:
+    results: list[dict[str, Any]]
+    total_ranked_results: int
+    total_relevant_results: int
+    has_more_relevant: bool
+    max_results: int
+
+
 def _escape_like_query(value: str) -> str:
     return (
         value.replace("\\", "\\\\")
@@ -200,6 +219,13 @@ class Retriever:
     }
     RECENCY_WINDOW_DAYS = 30.0
     RECENCY_WEIGHT = 0.18
+    MIN_RELEVANCE_SCORE = 0.18
+    MIN_EXACT_RELEVANCE_SCORE = 0.12
+    RELATIVE_RELEVANCE_RATIO = 0.55
+    MAX_ADAPTIVE_SCORE_DROP = 0.18
+    MIN_ADAPTIVE_SCORE_DROP = 0.08
+    ADAPTIVE_DROP_SPREAD_WEIGHT = 0.75
+    ADAPTIVE_DROP_SPREAD_CAP = 0.10
 
     EXCLUDED_FILE_PATTERNS = [
         ".gitignore",
@@ -565,6 +591,7 @@ class Retriever:
                 "new_start": candidate.new_start,
                 "old_start": candidate.old_start,
                 "preview": preview,
+                "matched_text": query if highlight_strategy == "exact_query" else None,
                 "preview_kind": candidate.preview_kind,
                 "highlight_strategy": highlight_strategy,
             },
@@ -620,13 +647,11 @@ class Retriever:
 
         return candidates
 
-    def _compile_ranked_results(
+    def _rank_candidates(
         self,
         candidates: list[FilterCandidate],
-        query: str,
-        max_results: int,
         exclude_shas: set[str] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[RankedFilterResult]:
         grouped: dict[str, list[FilterCandidate]] = {}
 
         for candidate in candidates:
@@ -635,9 +660,7 @@ class Retriever:
             grouped.setdefault(candidate.sha, []).append(candidate)
 
         now_ts = self._current_timestamp()
-        ranked_candidates: list[
-            tuple[float, float, float, float, FilterCandidate, float | None]
-        ] = []
+        ranked_candidates: list[RankedFilterResult] = []
         for group in grouped.values():
             if not group:
                 continue
@@ -679,37 +702,94 @@ class Retriever:
                 else None
             )
             ranked_candidates.append(
-                (
-                    final_score,
-                    exact_bonus,
-                    semantic_score,
-                    recency_score,
-                    display_candidate,
-                    similarity,
+                RankedFilterResult(
+                    final_score=final_score,
+                    exact_bonus=exact_bonus,
+                    semantic_score=semantic_score,
+                    recency_score=recency_score,
+                    display_candidate=display_candidate,
+                    similarity=similarity,
                 )
             )
 
         ranked_candidates.sort(
             key=lambda item: (
-                -item[0],
-                -item[1],
-                -item[2],
-                -item[3],
-                MATCH_TYPE_PRIORITY.get(item[4].match_type, 99),
-                -(item[4].commit_time or 0),
-                item[4].sha,
+                -item.final_score,
+                -item.exact_bonus,
+                -item.semantic_score,
+                -item.recency_score,
+                MATCH_TYPE_PRIORITY.get(item.display_candidate.match_type, 99),
+                -(item.display_candidate.commit_time or 0),
+                item.display_candidate.sha,
             )
         )
 
-        results: list[dict[str, Any]] = []
-        for _, _, _, _, display_candidate, similarity in ranked_candidates:
-            result = self._build_filter_result(display_candidate, query)
-            result["similarity"] = similarity
-            results.append(result)
-            if len(results) >= max_results:
-                break
+        return ranked_candidates
 
-        return results
+    def _adaptive_relevance_threshold(
+        self,
+        ranked_results: list[RankedFilterResult],
+        candidate: RankedFilterResult,
+    ) -> float:
+        top_score = ranked_results[0].final_score
+        second_score = ranked_results[1].final_score if len(ranked_results) > 1 else top_score
+        top_gap = max(0.0, top_score - second_score)
+        adaptive_drop = max(
+            self.MIN_ADAPTIVE_SCORE_DROP,
+            self.MAX_ADAPTIVE_SCORE_DROP
+            - min(
+                self.ADAPTIVE_DROP_SPREAD_CAP,
+                top_gap * self.ADAPTIVE_DROP_SPREAD_WEIGHT,
+            ),
+        )
+        candidate_floor = (
+            self.MIN_EXACT_RELEVANCE_SCORE
+            if candidate.display_candidate.exact_match
+            else self.MIN_RELEVANCE_SCORE
+        )
+        return max(
+            candidate_floor,
+            top_score * self.RELATIVE_RELEVANCE_RATIO,
+            top_score - adaptive_drop,
+        )
+
+    def _filter_relevant_ranked_results(
+        self, ranked_results: list[RankedFilterResult]
+    ) -> list[RankedFilterResult]:
+        if not ranked_results:
+            return []
+
+        return [
+            candidate
+            for candidate in ranked_results
+            if candidate.final_score
+            >= self._adaptive_relevance_threshold(ranked_results, candidate)
+        ]
+
+    def _build_ranked_response(
+        self,
+        ranked_results: list[RankedFilterResult],
+        query: str,
+        max_results: int,
+    ) -> FilterExecutionResult:
+        relevant_results = self._filter_relevant_ranked_results(ranked_results)
+        limited_results = relevant_results[:max_results]
+        results: list[dict[str, Any]] = []
+
+        for item in limited_results:
+            result = self._build_filter_result(item.display_candidate, query)
+            result["similarity"] = item.similarity
+            results.append(result)
+
+        total_ranked_results = len(ranked_results)
+        total_relevant_results = len(relevant_results)
+        return FilterExecutionResult(
+            results=results,
+            total_ranked_results=total_ranked_results,
+            total_relevant_results=total_relevant_results,
+            has_more_relevant=total_relevant_results > max_results,
+            max_results=max_results,
+        )
 
     def _fetch_exact_candidates(
         self, commit_shas: list[str], query: str
@@ -955,7 +1035,7 @@ class Retriever:
 
     def filter(
         self, query: str, filters: Dict[str, Any], repo_path: str, max_results: int
-    ) -> list[dict[str, Any]]:
+    ) -> FilterExecutionResult:
         logger.info("Filtering for query '%s' with filters %s", query, filters)
 
         normalized_query = query.strip()
@@ -988,18 +1068,30 @@ class Retriever:
         filtered_shas = self.session.execute(base_query).scalars().all()
         if not filtered_shas:
             logger.info("Found 0 relevant commits")
-            return []
+            return FilterExecutionResult(
+                results=[],
+                total_ranked_results=0,
+                total_relevant_results=0,
+                has_more_relevant=False,
+                max_results=max_results,
+            )
 
         if not normalized_query:
             ordered_shas = self._fetch_ordered_commit_shas(filtered_shas, max_results)
-            return [
-                {
-                    "sha": sha,
-                    "similarity": None,
-                    "display_match": None,
-                }
-                for sha in ordered_shas
-            ]
+            return FilterExecutionResult(
+                results=[
+                    {
+                        "sha": sha,
+                        "similarity": None,
+                        "display_match": None,
+                    }
+                    for sha in ordered_shas
+                ],
+                total_ranked_results=len(filtered_shas),
+                total_relevant_results=len(filtered_shas),
+                has_more_relevant=len(filtered_shas) > max_results,
+                max_results=max_results,
+            )
 
         exact_candidates = self._fetch_exact_candidates(filtered_shas, normalized_query)
         query_embedding = self._get_query_embedding(normalized_query)
@@ -1010,13 +1102,14 @@ class Retriever:
                 query_embedding,
             )
 
-        results = self._compile_ranked_results(
-            [*exact_candidates, *semantic_candidates],
+        ranked_results = self._rank_candidates([*exact_candidates, *semantic_candidates])
+        results = self._build_ranked_response(
+            ranked_results,
             normalized_query,
             max_results,
         )
 
-        logger.info("Found %s relevant commits", len(results))
+        logger.info("Found %s relevant commits", len(results.results))
         return results
 
     def _build_fallback_context(

@@ -10,12 +10,18 @@ vi.mock("@/components/ui/custom/SearchResultCodePreview", () => ({
   SearchResultCodePreview: (props: {
     value: string;
     filePath: string;
+    query?: string;
+    highlightStrategy?: string;
+    matchedText?: string | null;
     expandedValue?: string | null;
     expandedLine?: number | null;
   }) => (
     <div
       data-testid="mock-code-preview"
       data-file-path={props.filePath}
+      data-query={props.query ?? ""}
+      data-highlight-strategy={props.highlightStrategy ?? ""}
+      data-matched-text={props.matchedText ?? ""}
       data-expanded-line={props.expandedLine ?? ""}
       data-has-expanded-value={props.expandedValue ? "yes" : "no"}
     >
@@ -124,6 +130,7 @@ describe("SearchResults", () => {
               similarity: null,
               display_match: {
                 ...buildResult().display_match!,
+                matched_text: "auth",
                 highlight_strategy: "exact_query",
               },
             }),
@@ -136,6 +143,14 @@ describe("SearchResults", () => {
 
     expect(screen.getByTestId("mock-code-preview")).toBeInTheDocument();
     expect(screen.queryByTestId("mock-diff-preview")).not.toBeInTheDocument();
+    expect(screen.getByTestId("mock-code-preview")).toHaveAttribute(
+      "data-highlight-strategy",
+      "exact_query",
+    );
+    expect(screen.getByTestId("mock-code-preview")).toHaveAttribute(
+      "data-matched-text",
+      "auth",
+    );
   });
 
   it("falls back to the diff preview when a semantic result lacks a file path", () => {
@@ -196,6 +211,7 @@ describe("SearchResults", () => {
           repoPath="/tmp/repo"
           filteredCommits={[buildCommit()]}
           searchResults={[buildResult()]}
+          totalRelevantResults={1}
           isSearching
           onCommitClick={() => {}}
           query="auth"
@@ -204,7 +220,64 @@ describe("SearchResults", () => {
     );
 
     expect(screen.getByText("Refreshing search")).toBeInTheDocument();
-    expect(screen.getByText("Showing 1 of 1 commits")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 relevant commit")).toBeInTheDocument();
     expect(screen.getByText("Refine auth flow")).toBeInTheDocument();
+  });
+
+  it("renders all thresholded search results in backend order without a client-side cap", () => {
+    const commits = Array.from({ length: 26 }, (_, index) =>
+      buildCommit({
+        sha: `sha-${index}`,
+        message: `Commit ${index + 1}`,
+      }),
+    );
+    const results = Array.from({ length: 26 }, (_, index) =>
+      buildResult({
+        sha: `sha-${index}`,
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <SearchResults
+          allCommitsCount={26}
+          repoPath="/tmp/repo"
+          filteredCommits={commits}
+          searchResults={results}
+          totalRelevantResults={26}
+          onCommitClick={() => {}}
+          query="auth"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Showing 26 relevant commits")).toBeInTheDocument();
+    expect(screen.getByText("Commit 26")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Showing the first 25 matches/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows load more when additional relevant results are available", () => {
+    render(
+      <MemoryRouter>
+        <SearchResults
+          allCommitsCount={40}
+          repoPath="/tmp/repo"
+          filteredCommits={[buildCommit()]}
+          searchResults={[buildResult()]}
+          searchMaxResults={20}
+          totalRankedResults={40}
+          totalRelevantResults={31}
+          hasMoreRelevant
+          onLoadMore={() => {}}
+          onCommitClick={() => {}}
+          query="auth"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Showing 1 of 31 relevant commits")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more (40)" })).toBeInTheDocument();
   });
 });

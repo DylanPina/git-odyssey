@@ -44,6 +44,7 @@ export interface FilterDisplayMatch {
   new_start?: number | null;
   old_start?: number | null;
   preview?: string | null;
+  matched_text?: string | null;
   preview_kind: FilterPreviewKind;
   highlight_strategy: FilterHighlightStrategy;
 }
@@ -57,6 +58,10 @@ export interface FilterSearchResult {
 export interface FilterResponse {
   commit_shas: string[];
   results: FilterSearchResult[];
+  total_ranked_results: number;
+  total_relevant_results: number;
+  has_more_relevant: boolean;
+  max_results: number;
 }
 
 export interface ChatRequest {

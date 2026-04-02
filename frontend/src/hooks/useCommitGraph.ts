@@ -6,6 +6,7 @@ import {
   useState,
   type MutableRefObject,
 } from "react";
+import { filterCommits as searchRepoCommits } from "@/api/api";
 import type { Branch, Commit } from "@/lib/definitions/repo";
 import {
   type Connection,
@@ -20,7 +21,7 @@ import {
 } from "@xyflow/react";
 import {
   EMPTY_FILTERS,
-  filterCommits,
+  filterCommits as applyCommitFilters,
   hasActiveFilters as hasActiveFilterValues,
   type FilterFormData,
 } from "@/lib/filter-utils";
@@ -29,7 +30,7 @@ import {
   nodeDefaults,
   type LayoutDirection,
 } from "@/lib/graph/layout";
-import type { FilterSearchResult } from "@/lib/definitions/api";
+import type { FilterResponse, FilterSearchResult } from "@/lib/definitions/api";
 import { getRepoStableKey } from "@/lib/repoPaths";
 
 type UseCommitGraphArgs = {
@@ -48,7 +49,14 @@ type UseCommitGraph = {
   searchQuery: string;
   lastSearchQuery: string;
   searchResults: FilterSearchResult[];
+  searchMaxResults: number;
+  searchTotalRankedResults: number;
+  searchTotalRelevantResults: number;
+  hasMoreRelevantSearchResults: boolean;
+  isSearchLoading: boolean;
   setSearchQuery: (query: string) => void;
+  executeSearch: (query: string, maxResults?: number) => Promise<void>;
+  loadMoreSearchResults: () => Promise<void>;
   layoutDirection: LayoutDirection;
   toggleLayoutDirection: () => void;
   onNodesChange: (changes: NodeChange[]) => void;
@@ -57,7 +65,6 @@ type UseCommitGraph = {
   handleCommitClick: (commitSha: string) => void;
   handleCommitSummaryUpdate: (commitSha: string, summary: string) => void;
   handleFiltersChange: (filters: FilterFormData) => void;
-  handleSearchResults: (results: FilterSearchResult[], query?: string) => void;
   handleClearFilters: () => void;
   reactFlowInstanceRef: MutableRefObject<ReactFlowInstance | null>;
 };
@@ -67,9 +74,14 @@ type PersistedRepoSearchState = {
   lastSearchQuery: string;
   searchResults: FilterSearchResult[];
   searchResultCommitShas: string[] | null;
+  searchMaxResults: number;
+  searchTotalRankedResults: number;
+  searchTotalRelevantResults: number;
+  hasMoreRelevantSearchResults: boolean;
 };
 
 const REPO_SEARCH_STATE_STORAGE_PREFIX = "git-odyssey-repo-search:";
+const DEFAULT_SEARCH_MAX_RESULTS = 20;
 
 function getRepoSearchStorageKey(repoPath?: string | null): string | null {
   if (!repoPath) {
@@ -107,6 +119,29 @@ function loadRepoSearchState(
             (sha): sha is string => typeof sha === "string"
           )
         : null,
+      searchMaxResults:
+        typeof parsed.searchMaxResults === "number" &&
+        Number.isFinite(parsed.searchMaxResults)
+          ? parsed.searchMaxResults
+          : DEFAULT_SEARCH_MAX_RESULTS,
+      searchTotalRankedResults:
+        typeof parsed.searchTotalRankedResults === "number" &&
+        Number.isFinite(parsed.searchTotalRankedResults)
+          ? parsed.searchTotalRankedResults
+          : Array.isArray(parsed.searchResults)
+            ? parsed.searchResults.length
+            : 0,
+      searchTotalRelevantResults:
+        typeof parsed.searchTotalRelevantResults === "number" &&
+        Number.isFinite(parsed.searchTotalRelevantResults)
+          ? parsed.searchTotalRelevantResults
+          : Array.isArray(parsed.searchResults)
+            ? parsed.searchResults.length
+            : 0,
+      hasMoreRelevantSearchResults:
+        typeof parsed.hasMoreRelevantSearchResults === "boolean"
+          ? parsed.hasMoreRelevantSearchResults
+          : false,
     };
   } catch (error) {
     console.error("Failed to load repo search state from localStorage:", error);
@@ -215,6 +250,14 @@ export function useCommitGraph({
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [lastSearchQuery, setLastSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<FilterSearchResult[]>([]);
+  const [searchMaxResults, setSearchMaxResults] = useState<number>(
+    DEFAULT_SEARCH_MAX_RESULTS
+  );
+  const [searchTotalRankedResults, setSearchTotalRankedResults] = useState<number>(0);
+  const [searchTotalRelevantResults, setSearchTotalRelevantResults] = useState<number>(0);
+  const [hasMoreRelevantSearchResults, setHasMoreRelevantSearchResults] =
+    useState<boolean>(false);
+  const [isSearchLoading, setIsSearchLoading] = useState<boolean>(false);
   const [searchResultCommitShas, setSearchResultCommitShas] = useState<
     string[] | null
   >(null);
@@ -224,6 +267,7 @@ export function useCommitGraph({
     {}
   );
   const [searchStateHydrated, setSearchStateHydrated] = useState<boolean>(false);
+  const searchRequestIdRef = useRef(0);
 
   const commitsWithLocalSummary = useMemo(
     () =>
@@ -250,7 +294,7 @@ export function useCommitGraph({
       return commitsWithLocalSummary;
     }
 
-    return filterCommits(commitsWithLocalSummary, filters, branches);
+    return applyCommitFilters(commitsWithLocalSummary, filters, branches);
   }, [branches, commitsWithLocalSummary, filters, hasActiveFilters]);
 
   const visibleCommitShas = useMemo<string[] | null>(() => {
@@ -340,6 +384,8 @@ export function useCommitGraph({
   }, [commitsWithLocalSummary, handleCommitSummaryUpdate]);
 
   useEffect(() => {
+    searchRequestIdRef.current += 1;
+    setIsSearchLoading(false);
     setFilters({ ...EMPTY_FILTERS });
     setFocusedCommitSha(null);
     setHasAnimated(false);
@@ -348,6 +394,18 @@ export function useCommitGraph({
     setSearchQuery(persistedSearchState?.searchQuery ?? "");
     setLastSearchQuery(persistedSearchState?.lastSearchQuery ?? "");
     setSearchResults(persistedSearchState?.searchResults ?? []);
+    setSearchMaxResults(
+      persistedSearchState?.searchMaxResults ?? DEFAULT_SEARCH_MAX_RESULTS
+    );
+    setSearchTotalRankedResults(persistedSearchState?.searchTotalRankedResults ?? 0);
+    setSearchTotalRelevantResults(
+      persistedSearchState?.searchTotalRelevantResults ??
+        persistedSearchState?.searchResults.length ??
+        0
+    );
+    setHasMoreRelevantSearchResults(
+      persistedSearchState?.hasMoreRelevantSearchResults ?? false
+    );
     setSearchResultCommitShas(
       persistedSearchState?.searchResultCommitShas ?? null
     );
@@ -374,13 +432,21 @@ export function useCommitGraph({
       lastSearchQuery,
       searchResults,
       searchResultCommitShas,
+      searchMaxResults,
+      searchTotalRankedResults,
+      searchTotalRelevantResults,
+      hasMoreRelevantSearchResults,
     });
   }, [
+    hasMoreRelevantSearchResults,
     lastSearchQuery,
     repoPath,
+    searchMaxResults,
     searchQuery,
     searchResultCommitShas,
     searchResults,
+    searchTotalRankedResults,
+    searchTotalRelevantResults,
     searchStateHydrated,
   ]);
 
@@ -485,11 +551,17 @@ export function useCommitGraph({
   }, [focusedCommitSha, highlightedCommitShas]);
 
   const handleClearFilters = useCallback(() => {
+    searchRequestIdRef.current += 1;
+    setIsSearchLoading(false);
     setFilters({ ...EMPTY_FILTERS });
     setFocusedCommitSha(null);
     setSearchQuery("");
     setLastSearchQuery("");
     setSearchResults([]);
+    setSearchMaxResults(DEFAULT_SEARCH_MAX_RESULTS);
+    setSearchTotalRankedResults(0);
+    setSearchTotalRelevantResults(0);
+    setHasMoreRelevantSearchResults(false);
     setSearchResultCommitShas(null);
     setNodes((current) => clearSelectedNodes(current));
 
@@ -515,29 +587,86 @@ export function useCommitGraph({
 
   const handleFiltersChange = useCallback(
     (filters: FilterFormData) => {
+      searchRequestIdRef.current += 1;
+      setIsSearchLoading(false);
       setFilters(filters);
       setFocusedCommitSha(null);
       setSearchQuery("");
       setLastSearchQuery("");
       setSearchResults([]);
+      setSearchMaxResults(DEFAULT_SEARCH_MAX_RESULTS);
+      setSearchTotalRankedResults(0);
+      setSearchTotalRelevantResults(0);
+      setHasMoreRelevantSearchResults(false);
       setSearchResultCommitShas(null);
     },
     []
   );
 
-  const handleSearchResults = useCallback((results: FilterSearchResult[], query?: string) => {
-    const nextQuery = query ?? "";
-
-    setSearchResults(results);
-    setSearchResultCommitShas(results.map((result) => result.sha));
-    setFocusedCommitSha(null);
-    setSearchQuery(nextQuery);
-    setLastSearchQuery(nextQuery);
-  }, []);
-
   const handleSearchQueryChange = useCallback((query: string) => {
     setSearchQuery(query);
   }, []);
+
+  const applySearchResponse = useCallback(
+    (response: FilterResponse, nextQuery: string) => {
+      setSearchResults(response.results);
+      setSearchResultCommitShas(response.results.map((result) => result.sha));
+      setSearchMaxResults(response.max_results);
+      setSearchTotalRankedResults(response.total_ranked_results);
+      setSearchTotalRelevantResults(response.total_relevant_results);
+      setHasMoreRelevantSearchResults(response.has_more_relevant);
+      setFocusedCommitSha(null);
+      setSearchQuery(nextQuery);
+      setLastSearchQuery(nextQuery);
+    },
+    []
+  );
+
+  const executeSearch = useCallback(
+    async (query: string, maxResults = DEFAULT_SEARCH_MAX_RESULTS) => {
+      if (!repoPath) {
+        return;
+      }
+
+      const requestId = searchRequestIdRef.current + 1;
+      searchRequestIdRef.current = requestId;
+      setIsSearchLoading(true);
+
+      try {
+        const response = await searchRepoCommits(query, filters, repoPath, maxResults);
+        if (searchRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        applySearchResponse(response, query);
+      } finally {
+        if (searchRequestIdRef.current === requestId) {
+          setIsSearchLoading(false);
+        }
+      }
+    },
+    [applySearchResponse, filters, repoPath]
+  );
+
+  const loadMoreSearchResults = useCallback(async () => {
+    if (
+      isSearchLoading ||
+      !lastSearchQuery ||
+      !hasMoreRelevantSearchResults ||
+      !repoPath
+    ) {
+      return;
+    }
+
+    await executeSearch(lastSearchQuery, searchMaxResults + DEFAULT_SEARCH_MAX_RESULTS);
+  }, [
+    executeSearch,
+    hasMoreRelevantSearchResults,
+    isSearchLoading,
+    lastSearchQuery,
+    repoPath,
+    searchMaxResults,
+  ]);
 
   const handleCommitClick = useCallback(
     (commitSha: string) => {
@@ -594,7 +723,14 @@ export function useCommitGraph({
     searchQuery,
     lastSearchQuery,
     searchResults,
+    searchMaxResults,
+    searchTotalRankedResults,
+    searchTotalRelevantResults,
+    hasMoreRelevantSearchResults,
+    isSearchLoading,
     setSearchQuery: handleSearchQueryChange,
+    executeSearch,
+    loadMoreSearchResults,
     layoutDirection,
     toggleLayoutDirection,
     onNodesChange,
@@ -603,7 +739,6 @@ export function useCommitGraph({
     handleCommitClick,
     handleCommitSummaryUpdate,
     handleFiltersChange,
-    handleSearchResults,
     handleClearFilters,
     reactFlowInstanceRef,
   };

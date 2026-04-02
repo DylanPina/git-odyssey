@@ -18,7 +18,7 @@ class FilterRequest(BaseModel):
     query: str = ""
     filters: Dict[str, Any] = Field(default_factory=dict)
     repo_path: str = ""
-    max_results: int = 8
+    max_results: int = 20
 
 
 FilterMatchType = Literal["commit", "file_change", "hunk"]
@@ -39,6 +39,7 @@ class FilterDisplayMatch(BaseModel):
     new_start: int | None = None
     old_start: int | None = None
     preview: str | None = None
+    matched_text: str | None = None
     preview_kind: FilterPreviewKind = "text"
     highlight_strategy: FilterHighlightStrategy = "none"
 
@@ -52,6 +53,10 @@ class FilterSearchResult(BaseModel):
 class FilterResponse(BaseModel):
     commit_shas: List[str] = Field(default_factory=list)
     results: List[FilterSearchResult] = Field(default_factory=list)
+    total_ranked_results: int = 0
+    total_relevant_results: int = 0
+    has_more_relevant: bool = False
+    max_results: int = 20
 
 
 class ChatbotRequest(BaseModel):

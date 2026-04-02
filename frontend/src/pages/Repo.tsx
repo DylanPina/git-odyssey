@@ -101,7 +101,14 @@ function RepoWorkspace() {
 		searchQuery,
 		lastSearchQuery,
 		searchResults,
+		searchMaxResults,
+		searchTotalRankedResults,
+		searchTotalRelevantResults,
+		hasMoreRelevantSearchResults,
+		isSearchLoading,
 		setSearchQuery,
+		executeSearch,
+		loadMoreSearchResults,
 		layoutDirection,
 		toggleLayoutDirection,
 		onNodesChange,
@@ -110,7 +117,6 @@ function RepoWorkspace() {
 		handleCommitClick,
 		handleCommitSummaryUpdate,
 		handleFiltersChange,
-		handleSearchResults,
 		handleClearFilters,
 		reactFlowInstanceRef,
 	} = useCommitGraph({ repoPath, commits, branches });
@@ -259,12 +265,17 @@ function RepoWorkspace() {
 				allCommitsCount={commits.length}
 				filteredCommits={filteredCommits}
 				searchResults={searchResults}
+				searchMaxResults={searchMaxResults}
 				searchQuery={searchQuery}
-				searchFilters={filters}
 				lastSearchQuery={lastSearchQuery}
+				searchTotalRankedResults={searchTotalRankedResults}
+				searchTotalRelevantResults={searchTotalRelevantResults}
+				hasMoreRelevantSearchResults={hasMoreRelevantSearchResults}
 				onSearchQueryChange={setSearchQuery}
-				onSearchResults={handleSearchResults}
+				onSearch={executeSearch}
+				onLoadMoreSearchResults={loadMoreSearchResults}
 				searchInputId={REPO_SEARCH_INPUT_ID}
+				isSearchLoading={isSearchLoading}
 				onCommitClick={handleCommitClick}
 				chatMessages={chatMessages}
 				isChatLoading={isChatLoading}

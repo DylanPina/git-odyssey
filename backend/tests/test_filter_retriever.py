@@ -48,7 +48,7 @@ class FilterRetrieverHelperTests(unittest.TestCase):
             "@@ -10,2 +10,3 @@\n-const hidden = false;\n context line\n+const token = true;\n+return token;",
         )
 
-    def test_compile_ranked_results_prefers_recent_semantic_match_when_relevance_is_close(self) -> None:
+    def test_ranked_results_prefer_recent_semantic_match_when_relevance_is_close(self) -> None:
         candidates = [
             FilterCandidate(
                 match_type="hunk",
@@ -85,13 +85,15 @@ class FilterRetrieverHelperTests(unittest.TestCase):
         ]
         self.retriever._current_timestamp = lambda: 200 * 86400
 
-        results = self.retriever._compile_ranked_results(candidates, "token", 5)
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "token", 5)
+        results = response.results
 
         self.assertEqual([result["sha"] for result in results], ["newer-close", "older-stronger"])
         self.assertEqual(results[0]["similarity"], 0.12)
         self.assertEqual(results[0]["display_match"]["match_type"], "hunk")
 
-    def test_compile_ranked_results_uses_exact_bonus_for_display_and_ordering(self) -> None:
+    def test_ranked_results_use_exact_bonus_for_display_and_ordering(self) -> None:
         candidates = [
             FilterCandidate(
                 sha="commit-a",
@@ -136,18 +138,17 @@ class FilterRetrieverHelperTests(unittest.TestCase):
             ),
         ]
 
-        results = self.retriever._compile_ranked_results(candidates, "token", 5)
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "token", 5)
+        results = response.results
 
-        self.assertEqual(
-            [result["sha"] for result in results],
-            ["commit-a", "commit-b"],
-        )
+        self.assertEqual([result["sha"] for result in results], ["commit-a"])
         self.assertEqual(results[0]["display_match"]["highlight_strategy"], "exact_query")
         self.assertEqual(results[0]["display_match"]["match_type"], "hunk")
         self.assertEqual(results[0]["display_match"]["preview_kind"], "diff")
         self.assertEqual(results[0]["similarity"], 0.11)
 
-    def test_compile_ranked_results_exact_bonus_does_not_beat_clearly_better_recent_semantic_match(self) -> None:
+    def test_ranked_results_exact_bonus_does_not_beat_clearly_better_recent_semantic_match(self) -> None:
         candidates = [
             FilterCandidate(
                 sha="older-exact",
@@ -185,9 +186,11 @@ class FilterRetrieverHelperTests(unittest.TestCase):
         ]
         self.retriever._current_timestamp = lambda: 200 * 86400
 
-        results = self.retriever._compile_ranked_results(candidates, "token", 5)
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "token", 5)
+        results = response.results
 
-        self.assertEqual([result["sha"] for result in results], ["newer-semantic", "older-exact"])
+        self.assertEqual([result["sha"] for result in results], ["newer-semantic"])
 
     def test_fetch_exact_candidates_does_not_include_summary_fields(self) -> None:
         self.retriever.session = Mock()
@@ -227,7 +230,7 @@ class FilterRetrieverHelperTests(unittest.TestCase):
         self.assertEqual(result["display_match"]["highlight_strategy"], "file_header")
         self.assertEqual(result["display_match"]["preview"], "@@ -4,1 +4,1 @@\n-before\n+after")
 
-    def test_compile_ranked_results_can_lift_candidate_with_strong_ast_signal(self) -> None:
+    def test_ranked_results_can_lift_candidate_with_strong_ast_signal(self) -> None:
         blended_similarity, blended_score, _ = self.retriever._blend_similarity_signals(
             "hunk",
             0.30,
@@ -272,11 +275,13 @@ class FilterRetrieverHelperTests(unittest.TestCase):
             ),
         ]
 
-        results = self.retriever._compile_ranked_results(candidates, "query", 5)
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "query", 5)
+        results = response.results
 
         self.assertEqual([result["sha"] for result in results], ["ast-lifted", "text-only"])
 
-    def test_compile_ranked_results_groups_commit_by_ast_driven_child_match(self) -> None:
+    def test_ranked_results_group_commit_by_ast_driven_child_match(self) -> None:
         blended_similarity, blended_score, _ = self.retriever._blend_similarity_signals(
             "file_change",
             0.20,
@@ -327,10 +332,126 @@ class FilterRetrieverHelperTests(unittest.TestCase):
             ),
         ]
 
-        results = self.retriever._compile_ranked_results(candidates, "query", 5)
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "query", 5)
+        results = response.results
 
         self.assertEqual(results[0]["sha"], "commit-a")
         self.assertEqual(results[0]["display_match"]["match_type"], "file_change")
+
+    def test_ranked_response_filters_weak_semantic_tail_results(self) -> None:
+        candidates = [
+            FilterCandidate(
+                sha="strong",
+                match_type="hunk",
+                similarity=0.10,
+                commit_time=100,
+                preview_source="-before\n+strong match\n",
+                preview_kind="diff",
+                file_path="src/strong.ts",
+                hunk_id=1,
+                new_start=1,
+                old_start=1,
+                preview_old_start=1,
+                preview_old_lines=1,
+                preview_new_start=1,
+                preview_new_lines=1,
+            ),
+            FilterCandidate(
+                sha="weak-tail",
+                match_type="hunk",
+                similarity=0.55,
+                commit_time=100,
+                preview_source="-before\n+weak tail\n",
+                preview_kind="diff",
+                file_path="src/weak.ts",
+                hunk_id=2,
+                new_start=2,
+                old_start=2,
+                preview_old_start=2,
+                preview_old_lines=1,
+                preview_new_start=2,
+                preview_new_lines=1,
+            ),
+        ]
+
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "query", 20)
+
+        self.assertEqual(response.total_ranked_results, 2)
+        self.assertEqual(response.total_relevant_results, 1)
+        self.assertEqual([result["sha"] for result in response.results], ["strong"])
+
+    def test_ranked_response_can_return_zero_results_for_low_signal_queries(self) -> None:
+        candidates = [
+            FilterCandidate(
+                sha="low-signal-a",
+                match_type="hunk",
+                similarity=0.59,
+                commit_time=100,
+                preview_source="-before\n+low signal a\n",
+                preview_kind="diff",
+                file_path="src/a.ts",
+                hunk_id=1,
+                new_start=1,
+                old_start=1,
+                preview_old_start=1,
+                preview_old_lines=1,
+                preview_new_start=1,
+                preview_new_lines=1,
+            ),
+            FilterCandidate(
+                sha="low-signal-b",
+                match_type="hunk",
+                similarity=0.58,
+                commit_time=100,
+                preview_source="-before\n+low signal b\n",
+                preview_kind="diff",
+                file_path="src/b.ts",
+                hunk_id=2,
+                new_start=2,
+                old_start=2,
+                preview_old_start=2,
+                preview_old_lines=1,
+                preview_new_start=2,
+                preview_new_lines=1,
+            ),
+        ]
+
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "query", 20)
+
+        self.assertEqual(response.total_ranked_results, 2)
+        self.assertEqual(response.total_relevant_results, 0)
+        self.assertEqual(response.results, [])
+
+    def test_ranked_response_keeps_strong_exact_matches_without_semantic_signal(self) -> None:
+        candidates = [
+            FilterCandidate(
+                sha="exact-only",
+                match_type="hunk",
+                similarity=None,
+                commit_time=100,
+                preview_source="-const token = false;\n+const token = true;\n",
+                preview_kind="diff",
+                file_path="src/exact.ts",
+                hunk_id=7,
+                new_start=12,
+                old_start=11,
+                preview_old_start=11,
+                preview_old_lines=1,
+                preview_new_start=11,
+                preview_new_lines=1,
+                exact_match=True,
+            )
+        ]
+
+        ranked_results = self.retriever._rank_candidates(candidates)
+        response = self.retriever._build_ranked_response(ranked_results, "token", 20)
+
+        self.assertEqual(response.total_ranked_results, 1)
+        self.assertEqual(response.total_relevant_results, 1)
+        self.assertEqual([result["sha"] for result in response.results], ["exact-only"])
 
 
 if __name__ == "__main__":

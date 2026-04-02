@@ -953,6 +953,57 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
+.git-odyssey-search-code-shell--semantic {
+  border-color: rgba(122, 162, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 1px rgba(122, 162, 255, 0.08);
+}
+
+.git-odyssey-search-code-shell--file-match {
+  border-color: rgba(122, 162, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 1px rgba(122, 162, 255, 0.05);
+}
+
+.git-odyssey-search-code-shell--exact-match {
+  border-color: rgba(245, 196, 73, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 1px rgba(245, 196, 73, 0.08);
+}
+
+.git-odyssey-search-code-pre {
+  margin: 0;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.75rem 0.9rem;
+  background: transparent;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.git-odyssey-search-code-pre code {
+  display: block;
+  background: transparent !important;
+  color: #d5e2ff;
+  font-family: inherit;
+  white-space: inherit;
+}
+
+.git-odyssey-search-code-match-highlight {
+  display: inline;
+  border-radius: 3px;
+  background: rgba(245, 196, 73, 0.2);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(245, 196, 73, 0.3);
+  padding: 0 0.14rem;
+}
+
 .git-odyssey-search-code-shell .monaco-editor,
 .git-odyssey-search-code-shell .monaco-editor-background,
 .git-odyssey-search-code-shell .margin {

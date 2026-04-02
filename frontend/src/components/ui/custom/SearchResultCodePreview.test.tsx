@@ -106,4 +106,78 @@ describe("SearchResultCodePreview", () => {
 
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("can render a lightweight static preview instead of Monaco", () => {
+    render(
+      <SearchResultCodePreview
+        filePath="src/auth.ts"
+        useMonaco={false}
+        value={"@@ -1,1 +1,2 @@\n-const oldValue = false;\n+const authToken = true;\n"}
+      />,
+    );
+
+    expect(screen.getByTestId("search-result-code-preview-static")).toBeInTheDocument();
+    expect(screen.queryByTestId("mock-monaco-editor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("search-result-code-preview-static-code")).toHaveClass(
+      "hljs",
+      "language-typescript",
+    );
+    expect(screen.getByTestId("search-result-code-preview-static-code")).toHaveTextContent(
+      "const authToken = true;",
+    );
+  });
+
+  it("highlights exact query matches in the lightweight preview", () => {
+    render(
+      <SearchResultCodePreview
+        filePath="src/auth.ts"
+        useMonaco={false}
+        highlightStrategy="exact_query"
+        matchedText="authToken"
+        value={"@@ -1,1 +1,2 @@\n-const oldValue = false;\n+const authToken = true;\n"}
+      />,
+    );
+
+    const highlightedMatch = screen.getByText("authToken");
+    expect(highlightedMatch.tagName).toBe("MARK");
+    expect(highlightedMatch).toHaveClass("git-odyssey-search-code-match-highlight");
+  });
+
+  it("emphasizes semantic hunk previews without token-level code highlighting", () => {
+    render(
+      <SearchResultCodePreview
+        filePath="src/auth.ts"
+        useMonaco={false}
+        highlightStrategy="target_hunk"
+        query="auth"
+        value={"@@ -1,1 +1,2 @@\n-const oldValue = false;\n+const authToken = true;\n"}
+      />,
+    );
+
+    expect(screen.getByTestId("search-result-code-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("search-result-code-preview-static-code")).toHaveTextContent(
+      "const authToken = true;",
+    );
+    expect(
+      screen
+        .getByTestId("search-result-code-preview-static-code")
+        .querySelector(".git-odyssey-search-code-match-highlight"),
+    ).toBeNull();
+  });
+
+  it("preserves syntax-highlight spans in the lightweight preview", () => {
+    render(
+      <SearchResultCodePreview
+        filePath="src/auth.ts"
+        useMonaco={false}
+        value={"@@ -1,1 +1,2 @@\n-const oldValue = false;\n+const authToken = true;\n"}
+      />,
+    );
+
+    expect(
+      screen
+        .getByTestId("search-result-code-preview-static-code")
+        .querySelector(".hljs-keyword"),
+    ).not.toBeNull();
+  });
 });

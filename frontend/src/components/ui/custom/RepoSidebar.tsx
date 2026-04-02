@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -23,7 +22,6 @@ import Chat from "@/components/ui/custom/Chat";
 import RepoSearch from "@/components/ui/custom/Search";
 import SearchResults from "@/components/ui/custom/SearchResults";
 import type { FilterSearchResult } from "@/lib/definitions/api";
-import { EMPTY_FILTERS, type FilterFormData } from "@/lib/filter-utils";
 import type { ChatMessage } from "@/lib/definitions/chat";
 import type { Commit } from "@/lib/definitions/repo";
 import { useSidebarTab, type SidebarTab } from "@/hooks/useSidebarTab";
@@ -48,12 +46,17 @@ interface RepoSidebarProps {
   allCommitsCount?: number;
   filteredCommits?: Commit[];
   searchResults?: FilterSearchResult[];
+  searchMaxResults?: number;
   searchQuery?: string;
-  searchFilters?: FilterFormData;
   lastSearchQuery?: string;
+  searchTotalRankedResults?: number;
+  searchTotalRelevantResults?: number;
+  hasMoreRelevantSearchResults?: boolean;
   onSearchQueryChange?: (query: string) => void;
-  onSearchResults?: (results: FilterSearchResult[], query?: string) => void;
+  onSearch?: (query: string) => void | Promise<void>;
+  onLoadMoreSearchResults?: () => void | Promise<void>;
   searchInputId?: string;
+  isSearchLoading?: boolean;
   onCommitClick?: (commitSha: string) => void;
   chatMessages?: ChatMessage[];
   isChatLoading?: boolean;
@@ -66,19 +69,23 @@ export function RepoSidebar({
   allCommitsCount = 0,
   filteredCommits = [],
   searchResults = [],
+  searchMaxResults = 0,
   searchQuery = "",
-  searchFilters = EMPTY_FILTERS,
   lastSearchQuery = "",
+  searchTotalRankedResults = 0,
+  searchTotalRelevantResults = 0,
+  hasMoreRelevantSearchResults = false,
   onSearchQueryChange,
-  onSearchResults,
+  onSearch,
+  onLoadMoreSearchResults,
   searchInputId,
+  isSearchLoading = false,
   onCommitClick,
   chatMessages = [],
   isChatLoading = false,
   chatError = null,
   onSendChatMessage,
 }: RepoSidebarProps) {
-  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const navigate = useNavigate();
   const { selectedTab, setSelectedTab } = useSidebarTab();
   const { isMobile, setOpen, setOpenMobile, state } = useSidebar();
@@ -178,11 +185,10 @@ export function RepoSidebar({
                   <RepoSearch
                     inputId={searchInputId}
                     repoPath={repoPath}
-                    filters={searchFilters}
                     query={searchQuery}
                     onQueryChange={onSearchQueryChange}
-                    onSearchResults={onSearchResults}
-                    onLoadingChange={setIsSearchLoading}
+                    onSearch={onSearch}
+                    isSearching={isSearchLoading}
                   />
                 </div>
 
@@ -191,7 +197,12 @@ export function RepoSidebar({
                   repoPath={repoPath}
                   filteredCommits={filteredCommits}
                   searchResults={searchResults}
+                  searchMaxResults={searchMaxResults}
+                  totalRankedResults={searchTotalRankedResults}
+                  totalRelevantResults={searchTotalRelevantResults}
+                  hasMoreRelevant={hasMoreRelevantSearchResults}
                   isSearching={isSearchLoading}
+                  onLoadMore={onLoadMoreSearchResults}
                   query={lastSearchQuery}
                   onCommitClick={onCommitClick ?? (() => {})}
                 />
