@@ -13,6 +13,7 @@ import { BackendManager } from "./backend-manager";
 import { DesktopConfigStore } from "./config-store";
 import { findGitProjectRoot } from "./git-projects";
 import { MacKeychainStore } from "./keychain";
+import { RepoSyncWatcher } from "./repo-sync-watcher";
 import { ReviewRuntimeManager } from "./review-runtime";
 import type { DesktopRepoSettings } from "./types";
 import { buildMainWindowOptions } from "./window-frame";
@@ -34,6 +35,7 @@ let configStore: DesktopConfigStore | null = null;
 let keychain: MacKeychainStore | null = null;
 let backendManager: BackendManager | null = null;
 let reviewRuntimeManager: ReviewRuntimeManager | null = null;
+let repoSyncWatcher: RepoSyncWatcher | null = null;
 
 function requireConfigStore(): DesktopConfigStore {
   if (!configStore) {
@@ -65,6 +67,13 @@ function requireReviewRuntimeManager(): ReviewRuntimeManager {
   }
 
   return reviewRuntimeManager;
+}
+
+function ensureRepoSyncWatcher(repoPath: string): void {
+  if (!repoSyncWatcher) {
+    return;
+  }
+  repoSyncWatcher.ensureWatching(repoPath);
 }
 
 function getRendererEntry(): RendererEntry {
@@ -175,7 +184,9 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("git-odyssey:settings:save-repo-settings", async (_event, input) => {
-    return requireConfigStore().saveRepoSettings(input);
+    const settings = requireConfigStore().saveRepoSettings(input);
+    repoSyncWatcher?.triggerSync(input.repoPath);
+    return settings;
   });
 
   ipcMain.handle("git-odyssey:health:get-status", async () => {
@@ -210,12 +221,14 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("git-odyssey:api:get-repo", async (_event, repoPath, repoSettings) => {
     const project = requireConfigStore().recordRecentProject(repoPath);
+    ensureRepoSyncWatcher(project.path);
     const params = buildRepoQueryParams(project.path, repoSettings);
     return requireBackendManager().request(`/api/repo?${params.toString()}`);
   });
 
   ipcMain.handle("git-odyssey:api:ingest-repo", async (_event, input) => {
     const project = requireConfigStore().recordRecentProject(input.repoPath);
+    ensureRepoSyncWatcher(project.path);
     return requireBackendManager().request("/api/ingest", {
       method: "POST",
       body: {
@@ -285,6 +298,7 @@ function registerIpcHandlers(): void {
     "git-odyssey:api:get-commit",
     async (_event, repoPath, commitSha, repoSettings) => {
       const project = requireConfigStore().recordRecentProject(repoPath);
+      ensureRepoSyncWatcher(project.path);
       const params = buildRepoQueryParams(project.path, repoSettings);
       return requireBackendManager().request(
         `/api/repo/commit/${commitSha}?${params.toString()}`
@@ -294,6 +308,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("git-odyssey:api:get-commits", async (_event, repoPath, repoSettings) => {
     const project = requireConfigStore().recordRecentProject(repoPath);
+    ensureRepoSyncWatcher(project.path);
     const params = buildRepoQueryParams(project.path, repoSettings);
     return requireBackendManager().request(`/api/repo/commits?${params.toString()}`);
   });
@@ -417,6 +432,10 @@ app.whenReady().then(async () => {
     configStore,
     keychain,
   });
+  repoSyncWatcher = new RepoSyncWatcher({
+    backendManager,
+    configStore,
+  });
   reviewRuntimeManager = new ReviewRuntimeManager({
     app,
     backendManager,
@@ -457,6 +476,7 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    repoSyncWatcher?.closeAll();
     void reviewRuntimeManager?.dispose();
     void backendManager?.stop();
     app.quit();
@@ -464,6 +484,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  repoSyncWatcher?.closeAll();
   void reviewRuntimeManager?.dispose();
   void backendManager?.stop();
 });

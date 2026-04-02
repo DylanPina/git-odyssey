@@ -1022,6 +1022,105 @@ def _review_session_target_mode_migration(connection, settings: Settings) -> Non
     )
 
 
+def _incremental_repo_sync_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            ALTER TABLE repos
+            ADD COLUMN IF NOT EXISTS indexed_max_commits INTEGER
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE repos
+            ADD COLUMN IF NOT EXISTS indexed_context_lines INTEGER
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE repos
+            ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE repos
+            ADD COLUMN IF NOT EXISTS last_sync_status VARCHAR(32)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE repos
+            ADD COLUMN IF NOT EXISTS last_sync_summary JSONB
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_repo_name
+            ON branches (repo_path, name)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_branches_repo_head
+            ON branches (repo_path, head_commit_sha)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_commits_repo_path
+            ON commits (repo_path)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_file_changes_commit_sha
+            ON file_changes (commit_sha)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_diff_hunks_commit_sha
+            ON diff_hunks (commit_sha)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_commits_branches_branch_commit
+            ON commits_branches (branch_id, commit_sha)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_commits_branches_commit_branch
+            ON commits_branches (commit_sha, branch_id)
+            """
+        )
+    )
+
+
 MIGRATIONS = [
     Migration(
         version="20260321_ai_runtime_embeddings",
@@ -1046,6 +1145,10 @@ MIGRATIONS = [
     Migration(
         version="20260402_ast_aware_embeddings",
         run=_ast_aware_embeddings_schema_migration,
+    ),
+    Migration(
+        version="20260402_incremental_repo_sync",
+        run=_incremental_repo_sync_migration,
     ),
 ]
 

@@ -31,7 +31,11 @@ async def ensure_fresh_repo_index(
             ),
             current_user.id,
         )
-    elif ingest_service.should_reindex(normalized_repo_path):
+    elif ingest_service.should_reindex(
+        normalized_repo_path,
+        max_commits=max_commits,
+        context_lines=context_lines,
+    ):
         await ingest_service.ingest_repo(
             IngestRequest(
                 repo_path=normalized_repo_path,

@@ -1,8 +1,10 @@
 import os
+from dataclasses import dataclass
 
 import pygit2
 
 from core.branch import Branch
+from data.data_model import Commit, DiffHunk, FileChange, FileSnapshot
 from data.schema import (
     FileChangeStatus,
     SQLBranch,
@@ -15,6 +17,14 @@ from data.schema import (
 from utils.logger import logger
 
 DETACHED_HEAD_BRANCH_NAME = "HEAD (detached)"
+
+
+@dataclass(frozen=True)
+class BranchState:
+    name: str
+    repo_path: str
+    head_commit_sha: str | None
+    commits: list[str]
 
 
 def normalize_repo_path(repo_path: str) -> str:
@@ -57,6 +67,56 @@ class Repo:
         return resolved_path, branch_heads
 
     @classmethod
+    def get_branch_states(
+        cls,
+        repo_path: str,
+        *,
+        max_commits: int | None = None,
+    ) -> tuple[str, dict[str, BranchState]]:
+        pygit_repo, resolved_path = cls.open_repo(repo_path)
+        branch_states: dict[str, BranchState] = {}
+
+        for branch_spec in cls._build_branch_specs(pygit_repo):
+            branch_name = str(branch_spec["name"])
+            target_oid = branch_spec["target_oid"]
+            branch_states[branch_name] = BranchState(
+                name=branch_name,
+                repo_path=resolved_path,
+                head_commit_sha=str(target_oid) if target_oid is not None else None,
+                commits=cls._walk_commit_shas(
+                    pygit_repo,
+                    target_oid=target_oid,
+                    reference_name=branch_spec["reference_name"],
+                    branch_name=branch_name,
+                    max_commits=max_commits,
+                ),
+            )
+
+        return resolved_path, branch_states
+
+    @classmethod
+    def load_commits(
+        cls,
+        repo_path: str,
+        commit_shas: list[str],
+        *,
+        context_lines: int = 0,
+    ) -> tuple[str, dict[str, Commit]]:
+        pygit_repo, resolved_path = cls.open_repo(repo_path)
+        commits: dict[str, Commit] = {}
+        for commit_sha in commit_shas:
+            commit = pygit_repo.revparse_single(commit_sha)
+            if not isinstance(commit, pygit2.Commit):
+                continue
+            commits[commit_sha] = cls._build_commit_model(
+                pygit_repo,
+                resolved_path,
+                commit,
+                context_lines=context_lines,
+            )
+        return resolved_path, commits
+
+    @classmethod
     def open_repo(cls, repo_path: str) -> tuple[pygit2.Repository, str]:
         normalized_input = normalize_repo_path(repo_path)
         discovered_path = pygit2.discover_repository(normalized_input)
@@ -79,6 +139,182 @@ class Repo:
 
         logger.info("Opened local repository at %s", resolved_path)
         return pygit_repo, resolved_path
+
+    @staticmethod
+    def _walk_commit_shas(
+        pygit_repo: pygit2.Repository,
+        *,
+        target_oid: pygit2.Oid | None,
+        reference_name: str | None,
+        branch_name: str,
+        max_commits: int | None,
+    ) -> list[str]:
+        tip = Repo._resolve_tip(
+            pygit_repo,
+            target_oid=target_oid,
+            reference_name=reference_name,
+            branch_name=branch_name,
+        )
+        if tip is None:
+            return []
+
+        walker = pygit_repo.walk(
+            tip.id,
+            pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
+        )
+        commits: list[str] = []
+        for commit in walker:
+            if max_commits is not None and len(commits) >= max_commits:
+                break
+            commits.append(str(commit.id))
+        return commits
+
+    @staticmethod
+    def _resolve_tip(
+        pygit_repo: pygit2.Repository,
+        *,
+        target_oid: pygit2.Oid | None,
+        reference_name: str | None,
+        branch_name: str,
+    ) -> pygit2.Commit | None:
+        try:
+            if target_oid is not None:
+                resolved = pygit_repo[target_oid]
+            elif reference_name:
+                resolved = pygit_repo.revparse_single(reference_name)
+            else:
+                resolved = pygit_repo.revparse_single(branch_name)
+        except Exception:
+            return None
+
+        return resolved if isinstance(resolved, pygit2.Commit) else None
+
+    @staticmethod
+    def _build_commit_model(
+        pygit_repo: pygit2.Repository,
+        repo_path: str,
+        commit: pygit2.Commit,
+        *,
+        context_lines: int,
+    ) -> Commit:
+        if commit.parents:
+            diff = pygit_repo.diff(
+                commit.parents[0], commit, context_lines=context_lines
+            )
+        else:
+            diff = commit.tree.diff_to_tree(context_lines=context_lines)
+
+        file_changes: list[FileChange] = []
+        commit_sha = str(commit.id)
+        for patch in diff:
+            delta = patch.delta
+            hunks: list[DiffHunk] = []
+
+            for hunk in patch.hunks:
+                hunk_lines = []
+                for line in hunk.lines:
+                    content = (
+                        line.content.decode("utf-8", "replace")
+                        if isinstance(line.content, (bytes, bytearray))
+                        else line.content
+                    )
+                    hunk_lines.append(f"{line.origin}{content}")
+
+                hunks.append(
+                    DiffHunk(
+                        old_start=hunk.old_start,
+                        old_lines=hunk.old_lines,
+                        new_start=hunk.new_start,
+                        new_lines=hunk.new_lines,
+                        content="".join(hunk_lines),
+                        commit_sha=commit_sha,
+                    )
+                )
+
+            status_enum = Repo._get_file_change_status(delta.status)
+            if status_enum == FileChangeStatus.DELETED and commit.parents:
+                snapshot_text = Repo._get_snapshot(
+                    pygit_repo,
+                    commit.parents[0].tree,
+                    delta.old_file.path,
+                )
+            elif status_enum == FileChangeStatus.DELETED:
+                snapshot_text = None
+            else:
+                snapshot_text = Repo._get_snapshot(
+                    pygit_repo,
+                    commit.tree,
+                    delta.new_file.path,
+                )
+
+            snapshot_path = (
+                delta.old_file.path
+                if status_enum == FileChangeStatus.DELETED
+                else delta.new_file.path
+            )
+            file_changes.append(
+                FileChange(
+                    old_path=delta.old_file.path,
+                    new_path=delta.new_file.path,
+                    status=status_enum,
+                    hunks=hunks,
+                    snapshot=FileSnapshot(
+                        path=snapshot_path,
+                        content=snapshot_text or "",
+                        commit_sha=commit_sha,
+                    ),
+                    commit_sha=commit_sha,
+                )
+            )
+
+        return Commit(
+            sha=commit_sha,
+            repo_path=repo_path,
+            parents=[str(parent.id) for parent in commit.parents],
+            author=commit.author.name if commit.author else None,
+            email=commit.author.email if commit.author else None,
+            time=commit.commit_time,
+            message=commit.message.strip() if commit.message else "",
+            file_changes=file_changes,
+        )
+
+    @staticmethod
+    def _get_snapshot(
+        pygit_repo: pygit2.Repository,
+        tree: pygit2.Tree,
+        path: str,
+    ) -> str | None:
+        try:
+            parts = [part for part in path.split("/") if part]
+            current = tree
+            for index, part in enumerate(parts):
+                entry = current[part]
+                obj = pygit_repo[entry.id]
+                if index < len(parts) - 1:
+                    if isinstance(obj, pygit2.Tree):
+                        current = obj
+                        continue
+                    return None
+                if hasattr(obj, "data"):
+                    text = obj.data.decode("utf-8", "replace")
+                    return text.replace("\x00", "")
+                return None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _get_file_change_status(status: int) -> FileChangeStatus:
+        if status == 1:
+            return FileChangeStatus.ADDED
+        if status == 2:
+            return FileChangeStatus.DELETED
+        if status == 3:
+            return FileChangeStatus.MODIFIED
+        if status == 4:
+            return FileChangeStatus.RENAMED
+        if status == 5:
+            return FileChangeStatus.COPIED
+        raise ValueError(f"Invalid status: {status}")
 
     @staticmethod
     def _build_branch_specs(pygit_repo: pygit2.Repository) -> list[dict[str, object]]:

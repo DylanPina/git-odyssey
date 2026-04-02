@@ -219,6 +219,11 @@ class SQLRepo(Base):
         ForeignKey("embedding_profiles.id")
     )
     reindex_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    indexed_max_commits: Mapped[Optional[int]] = mapped_column(Integer)
+    indexed_context_lines: Mapped[Optional[int]] = mapped_column(Integer)
+    last_synced_at: Mapped[Optional[datetime]]
+    last_sync_status: Mapped[Optional[str]] = mapped_column(String(32))
+    last_sync_summary: Mapped[Optional[dict]] = mapped_column(JSON)
 
     # Foreign Keys
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))

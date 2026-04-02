@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from core.repo import DETACHED_HEAD_BRANCH_NAME, Repo
+from core.repo import BranchState, DETACHED_HEAD_BRANCH_NAME, Repo
 from services.ingest_service import IngestService
 
 
@@ -66,26 +66,130 @@ class LocalRepoIngestTests(unittest.TestCase):
 
     def test_should_reindex_is_false_when_branch_heads_are_unchanged(self) -> None:
         service = self.build_service()
-        _, branch_heads = Repo.get_branch_heads(self.repo_dir)
+        _, branch_states = Repo.get_branch_states(self.repo_dir, max_commits=50)
         service._get_repo_row = Mock(
-            return_value=SimpleNamespace(embedding_profile=None, reindex_required=False)
+            return_value=SimpleNamespace(
+                embedding_profile=None,
+                reindex_required=False,
+                indexed_context_lines=3,
+                indexed_max_commits=50,
+            )
         )
-        service._get_stored_branch_heads = Mock(return_value=branch_heads)
+        service._get_stored_branch_states = Mock(
+            return_value={
+                name: SimpleNamespace(
+                    name=name,
+                    head_commit_sha=state.head_commit_sha,
+                    commit_shas=set(state.commits),
+                )
+                for name, state in branch_states.items()
+            }
+        )
+        service._get_stored_commit_shas = Mock(
+            return_value={
+                commit_sha
+                for state in branch_states.values()
+                for commit_sha in state.commits
+            }
+        )
 
-        should_reindex = service.should_reindex(self.repo_dir)
+        should_reindex = service.should_reindex(
+            self.repo_dir,
+            max_commits=50,
+            context_lines=3,
+        )
 
         self.assertFalse(should_reindex)
 
     def test_should_reindex_is_true_when_branch_heads_change(self) -> None:
         service = self.build_service()
-        _, stored_branch_heads = Repo.get_branch_heads(self.repo_dir)
+        _, stored_branch_states = Repo.get_branch_states(self.repo_dir, max_commits=50)
         create_commit(self.repo_dir, "README.md", "hello again\n", "Update readme")
         service._get_repo_row = Mock(
-            return_value=SimpleNamespace(embedding_profile=None, reindex_required=False)
+            return_value=SimpleNamespace(
+                embedding_profile=None,
+                reindex_required=False,
+                indexed_context_lines=3,
+                indexed_max_commits=50,
+            )
         )
-        service._get_stored_branch_heads = Mock(return_value=stored_branch_heads)
+        service._get_stored_branch_states = Mock(
+            return_value={
+                name: SimpleNamespace(
+                    name=name,
+                    head_commit_sha=state.head_commit_sha,
+                    commit_shas=set(state.commits),
+                )
+                for name, state in stored_branch_states.items()
+            }
+        )
+        service._get_stored_commit_shas = Mock(
+            return_value={
+                commit_sha
+                for state in stored_branch_states.values()
+                for commit_sha in state.commits
+            }
+        )
 
-        should_reindex = service.should_reindex(self.repo_dir)
+        should_reindex = service.should_reindex(
+            self.repo_dir,
+            max_commits=50,
+            context_lines=3,
+        )
+
+        self.assertTrue(should_reindex)
+
+    def test_should_reindex_is_true_when_max_commit_window_changes(self) -> None:
+        service = self.build_service()
+        _, stored_branch_states = Repo.get_branch_states(self.repo_dir, max_commits=1)
+        create_commit(self.repo_dir, "README.md", "hello again\n", "Update readme")
+        current_states = {
+            "main": BranchState(
+                name="main",
+                repo_path=self.repo_dir,
+                head_commit_sha=run_git(self.repo_dir, "rev-parse", "HEAD"),
+                commits=[
+                    run_git(self.repo_dir, "rev-parse", "HEAD"),
+                    run_git(self.repo_dir, "rev-parse", "HEAD~1"),
+                ],
+            )
+        }
+
+        service._get_repo_row = Mock(
+            return_value=SimpleNamespace(
+                embedding_profile=None,
+                reindex_required=False,
+                indexed_context_lines=3,
+                indexed_max_commits=1,
+            )
+        )
+        service._get_stored_branch_states = Mock(
+            return_value={
+                name: SimpleNamespace(
+                    name=name,
+                    head_commit_sha=state.head_commit_sha,
+                    commit_shas=set(state.commits),
+                )
+                for name, state in stored_branch_states.items()
+            }
+        )
+        service._get_stored_commit_shas = Mock(
+            return_value={
+                commit_sha
+                for state in stored_branch_states.values()
+                for commit_sha in state.commits
+            }
+        )
+        original_get_branch_states = Repo.get_branch_states
+        Repo.get_branch_states = Mock(return_value=(self.repo_dir, current_states))
+        try:
+            should_reindex = service.should_reindex(
+                self.repo_dir,
+                max_commits=2,
+                context_lines=3,
+            )
+        finally:
+            Repo.get_branch_states = original_get_branch_states
 
         self.assertTrue(should_reindex)
 
@@ -105,6 +209,22 @@ class LocalRepoIngestTests(unittest.TestCase):
         )
 
         self.assertTrue(service._is_embedding_profile_mismatch(repo))
+
+    def test_context_line_changes_require_full_rebuild(self) -> None:
+        service = self.build_service()
+        repo = SimpleNamespace(
+            embedding_profile=None,
+            reindex_required=False,
+            indexed_context_lines=3,
+            indexed_max_commits=50,
+        )
+
+        reason = service._get_full_rebuild_reason(
+            repo,
+            SimpleNamespace(context_lines=7, max_commits=50),
+        )
+
+        self.assertEqual(reason, "context_lines_changed")
 
 
 if __name__ == "__main__":
