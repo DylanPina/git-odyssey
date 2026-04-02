@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import json
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
@@ -10,6 +12,7 @@ from infrastructure.errors import (
     AIConfigurationError,
     AIConnectionError,
     AIModelError,
+    AIRateLimitError,
     AIRequestError,
     AIUnsupportedCapabilityError,
 )
@@ -108,6 +111,31 @@ def _parse_sse_payload(body_text: str) -> dict[str, Any] | None:
     return last_payload
 
 
+def _parse_retry_after(headers: httpx.Headers) -> float | None:
+    raw_value = headers.get("retry-after")
+    if not raw_value:
+        return None
+
+    stripped = raw_value.strip()
+    if not stripped:
+        return None
+
+    try:
+        return max(0.0, float(stripped))
+    except ValueError:
+        pass
+
+    try:
+        parsed = parsedate_to_datetime(stripped)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return max(0.0, (parsed - datetime.now(timezone.utc)).total_seconds())
+
+
 class OpenAIWireTransport:
     def __init__(
         self,
@@ -155,7 +183,12 @@ class OpenAIWireTransport:
                     body = None
 
         if response.status_code >= 400:
-            self._raise_response_error(path, response.status_code, body)
+            self._raise_response_error(
+                path,
+                response.status_code,
+                body,
+                response.headers,
+            )
 
         if not isinstance(body, dict):
             raise AIRequestError(
@@ -165,7 +198,11 @@ class OpenAIWireTransport:
         return body
 
     def _raise_response_error(
-        self, path: str, status_code: int, body: Any
+        self,
+        path: str,
+        status_code: int,
+        body: Any,
+        headers: httpx.Headers | None = None,
     ) -> None:
         message = _extract_error_message(
             body,
@@ -174,6 +211,13 @@ class OpenAIWireTransport:
 
         if status_code in {401, 403}:
             raise AIAuthenticationError(message)
+        if status_code == 429:
+            raise AIRateLimitError(
+                message,
+                provider_label=self.profile.label,
+                status_code=status_code,
+                retry_after_seconds=_parse_retry_after(headers or httpx.Headers()),
+            )
         if _is_model_error(status_code, message):
             raise AIModelError(message)
         if status_code == 404 and path in {"/v1/responses", "/v1/embeddings"}:

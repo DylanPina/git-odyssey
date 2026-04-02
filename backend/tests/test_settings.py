@@ -88,6 +88,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.database_sslmode, "disable")
         self.assertEqual(settings.ai_runtime_config_json, BASE_ENV["AI_RUNTIME_CONFIG_JSON"])
         self.assertEqual(settings.ai_secret_values_json, BASE_ENV["AI_SECRET_VALUES_JSON"])
+        self.assertEqual(settings.ingest_flush_size, 100)
         self.assertEqual(settings.desktop_user_username, "local-user")
         self.assertEqual(settings.desktop_user_email, "local@gitodyssey.app")
         self.assertEqual(runtime.capabilities.text_generation.model_id, "gpt-5.4-mini")
@@ -105,6 +106,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(ai_engine.model, "gpt-5.4-mini")
         self.assertIsNotNone(embedder)
         self.assertEqual(embedder.model, "text-embedding-3-small")
+        self.assertEqual(embedder.max_concurrency, 4)
 
     def test_missing_ai_runtime_config_fails_when_text_client_is_requested(self) -> None:
         with patch.dict(

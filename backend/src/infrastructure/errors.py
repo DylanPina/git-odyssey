@@ -26,5 +26,22 @@ class AIRequestError(AIError):
     """Raised when a provider request fails for non-auth/model reasons."""
 
 
+class AIRateLimitError(AIRequestError):
+    """Raised when a provider request is rate limited."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider_label: str,
+        status_code: int = 429,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider_label = provider_label
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+
+
 class AIUnsupportedCapabilityError(AIError):
     """Raised when a provider does not implement a required endpoint."""

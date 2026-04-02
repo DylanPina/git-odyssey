@@ -220,8 +220,9 @@ def get_summarize_service(
 def get_ingest_service(
     session: Session = Depends(get_session),
     embedder: EmbeddingEngine | None = Depends(get_embedding_engine),
+    settings: Settings = Depends(get_settings),
 ) -> IngestService:
-    return IngestService(session, embedder)
+    return IngestService(session, embedder, flush_size=settings.ingest_flush_size)
 
 
 def get_repo_service(

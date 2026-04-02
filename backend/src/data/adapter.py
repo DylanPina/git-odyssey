@@ -22,8 +22,6 @@ class DatabaseAdapter:
             ),
             semantic_embedding=sql_hunk.semantic_embedding if not compressed else None,
             ast_embedding=sql_hunk.ast_embedding if not compressed else None,
-            embedding=sql_hunk.embedding if not compressed else None,
-            diff_embedding=sql_hunk.diff_embedding if not compressed else None,
         )
 
     def parse_sql_user(self, sql_user: SQLUser) -> User:
@@ -82,7 +80,6 @@ class DatabaseAdapter:
                 sql_file_change.semantic_embedding if not compressed else None
             ),
             ast_embedding=sql_file_change.ast_embedding if not compressed else None,
-            embedding=sql_file_change.embedding if not compressed else None,
         )
 
     def parse_sql_commit(
@@ -107,7 +104,6 @@ class DatabaseAdapter:
             semantic_embedding=(
                 sql_commit.semantic_embedding if not compressed else None
             ),
-            embedding=sql_commit.embedding if not compressed else None,
         )
 
     def parse_sql_branch(self, sql_branch: SQLBranch) -> Branch:

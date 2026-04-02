@@ -36,6 +36,19 @@ def _ensure_schema_migrations_table(connection) -> None:
 
 def _detect_legacy_dimension(connection) -> int | None:
     for table_name in ("commits", "file_changes", "diff_hunks"):
+        columns = connection.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = :table_name
+                  AND column_name = 'embedding'
+                """
+            ),
+            {"table_name": table_name},
+        ).first()
+        if columns is None:
+            continue
         row = connection.execute(
             text(
                 f"""
@@ -1121,6 +1134,42 @@ def _incremental_repo_sync_migration(connection, settings: Settings) -> None:
     )
 
 
+def _drop_legacy_embedding_columns_migration(connection, settings: Settings) -> None:
+    _backfill_legacy_embeddings(connection, settings)
+    connection.execute(
+        text(
+            """
+            ALTER TABLE commits
+            DROP COLUMN IF EXISTS embedding
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE file_changes
+            DROP COLUMN IF EXISTS embedding
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE diff_hunks
+            DROP COLUMN IF EXISTS embedding
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE diff_hunks
+            DROP COLUMN IF EXISTS diff_embedding
+            """
+        )
+    )
+
+
 MIGRATIONS = [
     Migration(
         version="20260321_ai_runtime_embeddings",
@@ -1149,6 +1198,10 @@ MIGRATIONS = [
     Migration(
         version="20260402_incremental_repo_sync",
         run=_incremental_repo_sync_migration,
+    ),
+    Migration(
+        version="20260402_drop_legacy_embedding_columns",
+        run=_drop_legacy_embedding_columns_migration,
     ),
 ]
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from types import SimpleNamespace
+from time import perf_counter
 from typing import Literal
 
 from sqlalchemy import delete
@@ -72,11 +72,69 @@ class RepoSyncResult:
         }
 
 
+@dataclass
+class IngestMetrics:
+    repo_scan_seconds: float = 0.0
+    commit_load_seconds: float = 0.0
+    ast_extraction_seconds: float = 0.0
+    semantic_payload_build_seconds: float = 0.0
+    ast_payload_build_seconds: float = 0.0
+    embedding_http_seconds: float = 0.0
+    db_insert_seconds: float = 0.0
+    total_seconds: float = 0.0
+    commit_count: int = 0
+    file_change_count: int = 0
+    hunk_count: int = 0
+    semantic_work_items: int = 0
+    ast_work_items: int = 0
+    semantic_tokens: int = 0
+    ast_tokens: int = 0
+    embedding_http_requests: int = 0
+    rate_limit_retries: int = 0
+    rate_limit_failures: int = 0
+    rate_limit_sleep_seconds: float = 0.0
+    semantic_batches: int = 0
+    ast_batches: int = 0
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "repo_scan_seconds": round(self.repo_scan_seconds, 6),
+            "commit_load_seconds": round(self.commit_load_seconds, 6),
+            "ast_extraction_seconds": round(self.ast_extraction_seconds, 6),
+            "semantic_payload_build_seconds": round(
+                self.semantic_payload_build_seconds, 6
+            ),
+            "ast_payload_build_seconds": round(self.ast_payload_build_seconds, 6),
+            "embedding_http_seconds": round(self.embedding_http_seconds, 6),
+            "db_insert_seconds": round(self.db_insert_seconds, 6),
+            "total_seconds": round(self.total_seconds, 6),
+            "commit_count": self.commit_count,
+            "file_change_count": self.file_change_count,
+            "hunk_count": self.hunk_count,
+            "semantic_work_items": self.semantic_work_items,
+            "ast_work_items": self.ast_work_items,
+            "semantic_tokens": self.semantic_tokens,
+            "ast_tokens": self.ast_tokens,
+            "embedding_http_requests": self.embedding_http_requests,
+            "rate_limit_retries": self.rate_limit_retries,
+            "rate_limit_failures": self.rate_limit_failures,
+            "rate_limit_sleep_seconds": round(self.rate_limit_sleep_seconds, 6),
+            "semantic_batches": self.semantic_batches,
+            "ast_batches": self.ast_batches,
+        }
+
+
 class IngestService:
-    def __init__(self, session: Session, embedder: EmbeddingEngine | None):
+    def __init__(
+        self,
+        session: Session,
+        embedder: EmbeddingEngine | None,
+        flush_size: int = 100,
+    ):
         self.session = session
         self.embedder = embedder
         self.ast_extractor = ASTSummaryExtractor()
+        self.flush_size = max(1, flush_size)
 
     def resolve_repo_path(self, repo_path: str) -> str:
         return Repo.discover_repo_path(repo_path)
@@ -109,6 +167,7 @@ class IngestService:
         normalized_repo_path: str | None = None,
         repo: SQLRepo | None = None,
     ) -> RepoSyncPlan:
+        scan_started_at = perf_counter()
         normalized_repo_path = normalized_repo_path or self.resolve_repo_path(
             request.repo_path
         )
@@ -123,6 +182,11 @@ class IngestService:
 
         rebuild_reason = self._get_full_rebuild_reason(repo, request)
         if rebuild_reason is not None:
+            logger.info(
+                "Planned full repo rebuild for %s in %.3fs",
+                normalized_repo_path,
+                perf_counter() - scan_started_at,
+            )
             return RepoSyncPlan(
                 mode="full_rebuild",
                 normalized_repo_path=normalized_repo_path,
@@ -139,6 +203,11 @@ class IngestService:
 
         if repo is None:
             target_commit_shas = self._collect_target_commit_shas(current_branch_states)
+            logger.info(
+                "Planned initial repo sync for %s in %.3fs",
+                normalized_repo_path,
+                perf_counter() - scan_started_at,
+            )
             return RepoSyncPlan(
                 mode="incremental",
                 normalized_repo_path=normalized_repo_path,
@@ -171,6 +240,11 @@ class IngestService:
             and not removed_commit_shas
             and not request.force
         ):
+            logger.info(
+                "Planned noop repo sync for %s in %.3fs",
+                normalized_repo_path,
+                perf_counter() - scan_started_at,
+            )
             return RepoSyncPlan(
                 mode="noop",
                 normalized_repo_path=normalized_repo_path,
@@ -185,6 +259,11 @@ class IngestService:
                 removed_commit_shas=set(),
             )
 
+        logger.info(
+            "Planned incremental repo sync for %s in %.3fs",
+            normalized_repo_path,
+            perf_counter() - scan_started_at,
+        )
         return RepoSyncPlan(
             mode="incremental",
             normalized_repo_path=normalized_repo_path,
@@ -421,68 +500,114 @@ class IngestService:
         self.session.flush()
         return repo
 
-    def _populate_commit_features(self, commits: dict[str, Commit]) -> None:
+    def _populate_commit_features(
+        self, commits: dict[str, Commit], metrics: IngestMetrics
+    ) -> None:
+        ast_started_at = perf_counter()
         for commit in commits.values():
+            metrics.commit_count += 1
+            metrics.file_change_count += len(commit.file_changes)
             for file_change in commit.file_changes:
+                metrics.hunk_count += len(file_change.hunks)
                 self.ast_extractor.populate_file_change(file_change)
+        metrics.ast_extraction_seconds += perf_counter() - ast_started_at
 
         if self.embedder is None or not commits:
             if self.embedder is None and commits:
                 logger.info("Semantic embeddings are disabled; indexing without vectors")
             return
 
-        self.embedder.embed_repo(SimpleNamespace(commits=commits))
+        embedding_stats = self.embedder.embed_repo(type("RepoView", (), {"commits": commits})())
+        metrics.semantic_payload_build_seconds += (
+            embedding_stats.semantic_payload_build_seconds
+        )
+        metrics.ast_payload_build_seconds += embedding_stats.ast_payload_build_seconds
+        metrics.embedding_http_seconds += embedding_stats.http_seconds
+        metrics.semantic_work_items += embedding_stats.semantic_work_items
+        metrics.ast_work_items += embedding_stats.ast_work_items
+        metrics.semantic_tokens += embedding_stats.semantic_tokens
+        metrics.ast_tokens += embedding_stats.ast_tokens
+        metrics.embedding_http_requests += embedding_stats.http_requests
+        metrics.rate_limit_retries += embedding_stats.rate_limit_retries
+        metrics.rate_limit_failures += embedding_stats.rate_limit_failures
+        metrics.rate_limit_sleep_seconds += embedding_stats.rate_limit_sleep_seconds
+        metrics.semantic_batches += embedding_stats.semantic_batches
+        metrics.ast_batches += embedding_stats.ast_batches
 
     def _order_missing_commits(self, commits: dict[str, Commit]) -> list[str]:
-        pending = set(commits)
+        child_map: dict[str, list[str]] = {}
+        pending_count: dict[str, int] = {}
+        ready: list[str] = []
+        for commit_sha, commit in commits.items():
+            first_parent = commit.parents[0] if commit.parents else None
+            if first_parent and first_parent in commits:
+                pending_count[commit_sha] = 1
+                child_map.setdefault(first_parent, []).append(commit_sha)
+            else:
+                pending_count[commit_sha] = 0
+                ready.append(commit_sha)
+
         ordered: list[str] = []
-        resolved: set[str] = set()
+        ready.sort(key=lambda sha: (commits[sha].time, sha))
+        while ready:
+            commit_sha = ready.pop(0)
+            ordered.append(commit_sha)
+            children = child_map.get(commit_sha, [])
+            if not children:
+                continue
+            for child_sha in sorted(children, key=lambda sha: (commits[sha].time, sha)):
+                pending_count[child_sha] -= 1
+                if pending_count[child_sha] == 0:
+                    ready.append(child_sha)
+            ready.sort(key=lambda sha: (commits[sha].time, sha))
 
-        while pending:
-            progressed = False
-            for commit_sha in sorted(
-                pending,
-                key=lambda sha: (commits[sha].time, sha),
-            ):
-                parents = commits[commit_sha].parents
-                first_parent = parents[0] if parents else None
-                if first_parent is None or first_parent not in pending or first_parent in resolved:
-                    ordered.append(commit_sha)
-                    pending.remove(commit_sha)
-                    resolved.add(commit_sha)
-                    progressed = True
-                    break
-            if not progressed:
-                ordered.extend(sorted(pending, key=lambda sha: (commits[sha].time, sha)))
-                break
-
+        if len(ordered) != len(commits):
+            unresolved = [sha for sha in commits if sha not in set(ordered)]
+            ordered.extend(sorted(unresolved, key=lambda sha: (commits[sha].time, sha)))
         return ordered
 
-    def _get_parent_snapshot_lookup(
+    def _preload_parent_snapshots(
         self,
-        parent_sha: str,
+        parent_shas: set[str],
+        *,
+        inserted_snapshots: dict[str, dict[str, SQLFileSnapshot]],
+        cached_snapshots: dict[str, dict[str, SQLFileSnapshot]],
+    ) -> None:
+        pending_parent_shas = {
+            parent_sha
+            for parent_sha in parent_shas
+            if parent_sha not in inserted_snapshots and parent_sha not in cached_snapshots
+        }
+        if not pending_parent_shas:
+            return
+
+        file_changes = (
+            self.session.query(SQLFileChange)
+            .filter(SQLFileChange.commit_sha.in_(pending_parent_shas))
+            .options(selectinload(SQLFileChange.snapshot))
+            .all()
+        )
+        for parent_sha in pending_parent_shas:
+            cached_snapshots[parent_sha] = {}
+        for file_change in file_changes:
+            if file_change.snapshot is None or file_change.commit_sha is None:
+                continue
+            cached_snapshots.setdefault(file_change.commit_sha, {})[
+                file_change.snapshot.path
+            ] = file_change.snapshot
+
+    def _resolve_parent_snapshot_lookup(
+        self,
+        parent_sha: str | None,
         *,
         inserted_snapshots: dict[str, dict[str, SQLFileSnapshot]],
         cached_snapshots: dict[str, dict[str, SQLFileSnapshot]],
     ) -> dict[str, SQLFileSnapshot]:
+        if parent_sha is None:
+            return {}
         if parent_sha in inserted_snapshots:
             return inserted_snapshots[parent_sha]
-        if parent_sha in cached_snapshots:
-            return cached_snapshots[parent_sha]
-
-        file_changes = (
-            self.session.query(SQLFileChange)
-            .filter(SQLFileChange.commit_sha == parent_sha)
-            .options(selectinload(SQLFileChange.snapshot))
-            .all()
-        )
-        snapshot_lookup = {
-            file_change.snapshot.path: file_change.snapshot
-            for file_change in file_changes
-            if file_change.snapshot is not None
-        }
-        cached_snapshots[parent_sha] = snapshot_lookup
-        return snapshot_lookup
+        return cached_snapshots.get(parent_sha, {})
 
     def _build_sql_commit(
         self,
@@ -560,6 +685,7 @@ class IngestService:
         *,
         request: IngestRequest,
         result: RepoSyncResult,
+        metrics: IngestMetrics,
     ) -> None:
         repo.embedding_profile = self._ensure_active_embedding_profile()
         repo.reindex_required = False
@@ -567,86 +693,57 @@ class IngestService:
         repo.indexed_context_lines = request.context_lines
         repo.last_synced_at = datetime.utcnow()
         repo.last_sync_status = result.mode
-        repo.last_sync_summary = result.as_payload()
+        repo.last_sync_summary = {
+            **result.as_payload(),
+            "metrics": metrics.as_payload(),
+        }
 
-    def _rebuild_repo(
+    def _persist_commits_and_branches(
         self,
         *,
         normalized_repo_path: str,
+        repo_row: SQLRepo,
         request: IngestRequest,
-        user_id: str | int,
         plan: RepoSyncPlan,
+        mode: SyncMode,
+        reason: str | None,
+        metrics: IngestMetrics,
     ) -> RepoSyncResult:
-        logger.info(
-            "Performing full repo rebuild for %s (%s)",
-            normalized_repo_path,
-            plan.reason or "unknown_reason",
-        )
-        repo = Repo(
-            repo_path=normalized_repo_path,
-            context_lines=request.context_lines,
-            max_commits=request.max_commits,
-        )
-        self.ast_extractor.populate_repo(repo)
-        if self.embedder is not None:
-            self.embedder.embed_repo(repo)
-        else:
-            logger.info(
-                "Semantic embeddings are disabled; indexing repo %s without vectors",
-                normalized_repo_path,
-            )
-
-        sql_repo = repo.to_sql()
-        sql_repo.user_id = int(user_id)
-        result = RepoSyncResult(
-            mode="full_rebuild",
-            changed_branches=len(repo.branches),
-            inserted_commits=len(repo.commits),
-            reused_commits=0,
-            removed_commits=len(plan.repo.commits) if plan.repo is not None else 0,
-            reason=plan.reason,
-        )
-        self._apply_sync_metadata(sql_repo, request=request, result=result)
-
-        if plan.repo is not None:
-            self._delete_repo_rows(normalized_repo_path)
-
-        self.session.add(sql_repo)
-        return result
-
-    def _sync_incremental(
-        self,
-        *,
-        normalized_repo_path: str,
-        request: IngestRequest,
-        user_id: str | int,
-        plan: RepoSyncPlan,
-    ) -> RepoSyncResult:
-        repo_row = self._get_or_create_repo_row(normalized_repo_path, user_id)
-
         inserted_snapshots: dict[str, dict[str, SQLFileSnapshot]] = {}
         cached_snapshots: dict[str, dict[str, SQLFileSnapshot]] = {}
         missing_commit_models: dict[str, Commit] = {}
 
+        load_started_at = perf_counter()
         if plan.missing_commit_shas:
             _, missing_commit_models = Repo.load_commits(
                 normalized_repo_path,
                 sorted(plan.missing_commit_shas),
                 context_lines=request.context_lines,
             )
-            self._populate_commit_features(missing_commit_models)
+        metrics.commit_load_seconds += perf_counter() - load_started_at
 
+        if missing_commit_models:
+            self._populate_commit_features(missing_commit_models, metrics)
+            parent_shas = {
+                commit.parents[0]
+                for commit in missing_commit_models.values()
+                if commit.parents and commit.parents[0] not in missing_commit_models
+            }
+            self._preload_parent_snapshots(
+                parent_shas,
+                inserted_snapshots=inserted_snapshots,
+                cached_snapshots=cached_snapshots,
+            )
+
+            db_started_at = perf_counter()
+            pending_since_flush = 0
             for commit_sha in self._order_missing_commits(missing_commit_models):
                 commit = missing_commit_models[commit_sha]
                 first_parent = commit.parents[0] if commit.parents else None
-                parent_snapshot_lookup = (
-                    self._get_parent_snapshot_lookup(
-                        first_parent,
-                        inserted_snapshots=inserted_snapshots,
-                        cached_snapshots=cached_snapshots,
-                    )
-                    if first_parent
-                    else {}
+                parent_snapshot_lookup = self._resolve_parent_snapshot_lookup(
+                    first_parent,
+                    inserted_snapshots=inserted_snapshots,
+                    cached_snapshots=cached_snapshots,
                 )
                 sql_commit, snapshot_lookup = self._build_sql_commit(
                     commit,
@@ -655,8 +752,13 @@ class IngestService:
                 )
                 inserted_snapshots[commit.sha] = snapshot_lookup
                 self.session.add(sql_commit)
+                pending_since_flush += 1
+                if pending_since_flush >= self.flush_size:
+                    self.session.flush()
+                    pending_since_flush = 0
 
             self.session.flush()
+            metrics.db_insert_seconds += perf_counter() - db_started_at
 
         commit_row_map: dict[str, SQLCommit] = {}
         if plan.target_commit_shas:
@@ -717,33 +819,109 @@ class IngestService:
         if plan.removed_commit_shas:
             removed_commit_list = sorted(plan.removed_commit_shas)
             self._delete_branch_links(commit_shas=removed_commit_list)
+            db_started_at = perf_counter()
             self._delete_commits(normalized_repo_path, removed_commit_list)
+            metrics.db_insert_seconds += perf_counter() - db_started_at
 
         reused_commits = len(plan.target_commit_shas - plan.missing_commit_shas)
         result = RepoSyncResult(
-            mode="incremental",
+            mode=mode,
             changed_branches=len(plan.changed_branch_names),
             inserted_commits=len(plan.missing_commit_shas),
             reused_commits=reused_commits,
             removed_commits=len(plan.removed_commit_shas),
+            reason=reason,
+        )
+        self._apply_sync_metadata(repo_row, request=request, result=result, metrics=metrics)
+        return result
+
+    def _sync_incremental(
+        self,
+        *,
+        normalized_repo_path: str,
+        request: IngestRequest,
+        user_id: str | int,
+        plan: RepoSyncPlan,
+        metrics: IngestMetrics,
+    ) -> RepoSyncResult:
+        repo_row = self._get_or_create_repo_row(normalized_repo_path, user_id)
+        return self._persist_commits_and_branches(
+            normalized_repo_path=normalized_repo_path,
+            repo_row=repo_row,
+            request=request,
+            plan=plan,
+            mode="incremental",
+            reason=plan.reason,
+            metrics=metrics,
+        )
+
+    def _rebuild_repo(
+        self,
+        *,
+        normalized_repo_path: str,
+        request: IngestRequest,
+        user_id: str | int,
+        plan: RepoSyncPlan,
+        metrics: IngestMetrics,
+    ) -> RepoSyncResult:
+        logger.info(
+            "Performing full repo rebuild for %s (%s)",
+            normalized_repo_path,
+            plan.reason or "unknown_reason",
+        )
+        db_started_at = perf_counter()
+        if plan.repo is not None:
+            self._delete_repo_rows(normalized_repo_path)
+        repo_row = self._get_or_create_repo_row(normalized_repo_path, user_id)
+        metrics.db_insert_seconds += perf_counter() - db_started_at
+        rebuild_plan = RepoSyncPlan(
+            mode="full_rebuild",
+            normalized_repo_path=plan.normalized_repo_path,
+            repo=None,
+            reason=plan.reason,
+            current_branch_states=plan.current_branch_states,
+            stored_branch_states={},
+            changed_branch_names=set(plan.current_branch_states),
+            removed_branch_names=set(),
+            target_commit_shas=plan.target_commit_shas,
+            missing_commit_shas=plan.target_commit_shas,
+            removed_commit_shas=set(),
+        )
+        result = self._persist_commits_and_branches(
+            normalized_repo_path=normalized_repo_path,
+            repo_row=repo_row,
+            request=request,
+            plan=rebuild_plan,
+            mode="full_rebuild",
+            reason=plan.reason,
+            metrics=metrics,
+        )
+        return RepoSyncResult(
+            mode="full_rebuild",
+            changed_branches=result.changed_branches,
+            inserted_commits=result.inserted_commits,
+            reused_commits=0,
+            removed_commits=len(plan.repo.commits) if plan.repo is not None else 0,
             reason=plan.reason,
         )
-        self._apply_sync_metadata(repo_row, request=request, result=result)
-        return result
 
     # TODO: Make async (this is bottleneck) - store ingestion jobs and use Celery or Arq
     async def ingest_repo(self, request: IngestRequest, user_id: str) -> str:
+        total_started_at = perf_counter()
+        metrics = IngestMetrics()
         user = self.session.query(SQLUser).filter(SQLUser.id == user_id).first()
         if not user:
             raise Exception(f"Cannot ingest: User {user_id} not found")
 
         normalized_repo_path = self.resolve_repo_path(request.repo_path)
         repo = self._get_repo_row(normalized_repo_path)
+        plan_started_at = perf_counter()
         plan = self.plan_repo_sync(
             request,
             normalized_repo_path=normalized_repo_path,
             repo=repo,
         )
+        metrics.repo_scan_seconds += perf_counter() - plan_started_at
 
         try:
             if plan.mode == "noop":
@@ -755,7 +933,10 @@ class IngestService:
                         reused_commits=len(plan.target_commit_shas),
                         removed_commits=0,
                     )
-                    self._apply_sync_metadata(repo, request=request, result=result)
+                    metrics.total_seconds = perf_counter() - total_started_at
+                    self._apply_sync_metadata(
+                        repo, request=request, result=result, metrics=metrics
+                    )
                     self.session.commit()
                 logger.info("Skipping ingest for unchanged repo at %s", normalized_repo_path)
                 return normalized_repo_path
@@ -766,6 +947,7 @@ class IngestService:
                     request=request,
                     user_id=user_id,
                     plan=plan,
+                    metrics=metrics,
                 )
             else:
                 result = self._sync_incremental(
@@ -773,16 +955,27 @@ class IngestService:
                     request=request,
                     user_id=user_id,
                     plan=plan,
+                    metrics=metrics,
                 )
 
             self.session.flush()
+            metrics.total_seconds = perf_counter() - total_started_at
+            repo_row = self._get_repo_row(normalized_repo_path)
+            if repo_row is not None:
+                self._apply_sync_metadata(
+                    repo_row,
+                    request=request,
+                    result=result,
+                    metrics=metrics,
+                )
             self.session.commit()
             logger.info(
-                "Indexed repo at %s using %s sync (%s inserted, %s removed)",
+                "Indexed repo at %s using %s sync (%s inserted, %s removed) metrics=%s",
                 normalized_repo_path,
                 result.mode,
                 result.inserted_commits,
                 result.removed_commits,
+                metrics.as_payload(),
             )
         except Exception:
             self.session.rollback()

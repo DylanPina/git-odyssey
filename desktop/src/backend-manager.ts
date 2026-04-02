@@ -234,6 +234,21 @@ class BackendManager {
     }
   }
 
+  #buildPgvectorStartupFailure(messageOverride?: {
+    backendMessage?: string;
+    postgresMessage?: string;
+  }): StartupFailure {
+    return {
+      kind: "postgres",
+      backendMessage:
+        messageOverride?.backendMessage ??
+        "The FastAPI desktop sidecar connected to PostgreSQL, but it could not enable the required pgvector extension. Use the provided `pgvector/pgvector:pg16` development database or install and enable pgvector in your custom instance.",
+      postgresMessage:
+        messageOverride?.postgresMessage ??
+        "PostgreSQL is running, but GitOdyssey could not enable the required pgvector extension. Use the provided `pgvector/pgvector:pg16` development database or install and enable pgvector in your custom instance.",
+    };
+  }
+
   #summarizeStartupFailure(): StartupFailure | null {
     const logText = this.#readRecentBackendLog();
     if (!logText) {
@@ -283,23 +298,29 @@ class BackendManager {
     }
 
     if (/extension "vector" is not available/i.test(logText)) {
-      return {
-        kind: "postgres",
+      return this.#buildPgvectorStartupFailure({
         backendMessage:
           "The FastAPI desktop sidecar connected to PostgreSQL, but the pgvector extension is unavailable. Use the provided `pgvector/pgvector:pg16` development database or install the extension in your custom instance.",
         postgresMessage:
           "PostgreSQL is running, but pgvector is not installed. Use the provided `pgvector/pgvector:pg16` development database or install the extension in your custom instance.",
-      };
+      });
     }
 
     if (/permission denied to create extension "vector"/i.test(logText)) {
-      return {
-        kind: "postgres",
+      return this.#buildPgvectorStartupFailure({
         backendMessage:
           "The FastAPI desktop sidecar connected to PostgreSQL, but the configured user cannot create the pgvector extension. Grant the required privileges or use the local development database container.",
         postgresMessage:
           "PostgreSQL is running, but the configured user cannot create the pgvector extension. Grant the required privileges or use the local development database container.",
-      };
+      });
+    }
+
+    if (
+      /\[SQL:\s*CREATE EXTENSION IF NOT EXISTS vector\]/i.test(logText) ||
+      /could not open extension control file .*vector\.control/i.test(logText) ||
+      /type "vector" does not exist/i.test(logText)
+    ) {
+      return this.#buildPgvectorStartupFailure();
     }
 
     const lastRelevantLine = this.#getLastRelevantLogLine(logText);

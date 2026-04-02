@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 import json
 import unittest
 from unittest.mock import Mock
@@ -13,6 +14,7 @@ from infrastructure.ai_runtime import ProviderProfileConfig
 from infrastructure.errors import (
     AIAuthenticationError,
     AIModelError,
+    AIRateLimitError,
     AIUnsupportedCapabilityError,
 )
 
@@ -37,6 +39,13 @@ def build_profile(
 def build_response(status_code: int, payload: dict) -> httpx.Response:
     request = httpx.Request("POST", "https://api.example.test")
     return httpx.Response(status_code, request=request, json=payload)
+
+
+def build_response_with_headers(
+    status_code: int, payload: dict, headers: dict[str, str]
+) -> httpx.Response:
+    request = httpx.Request("POST", "https://api.example.test")
+    return httpx.Response(status_code, request=request, json=payload, headers=headers)
 
 
 def build_sse_response(status_code: int, payload: dict) -> httpx.Response:
@@ -201,6 +210,83 @@ class OpenAIWireResponsesClientTests(unittest.TestCase):
 
         with self.assertRaises(AIUnsupportedCapabilityError):
             transport.post_json("/v1/responses", {"model": "compatible-model"})
+
+    def test_transport_maps_rate_limit_errors_with_numeric_retry_after(self) -> None:
+        mock_client = Mock()
+        mock_client.post.return_value = build_response_with_headers(
+            429,
+            {"error": {"message": "Rate limit exceeded"}},
+            {"retry-after": "3"},
+        )
+        transport = OpenAIWireTransport(
+            profile=build_profile(),
+            api_key="sk-test",
+            client_factory=lambda: mock_client,
+        )
+
+        with self.assertRaises(AIRateLimitError) as context:
+            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
+
+        self.assertEqual(context.exception.provider_label, "Provider 1")
+        self.assertEqual(context.exception.status_code, 429)
+        self.assertEqual(context.exception.retry_after_seconds, 3.0)
+
+    def test_transport_maps_rate_limit_errors_with_http_date_retry_after(self) -> None:
+        retry_after = (datetime.now(timezone.utc) + timedelta(seconds=4)).strftime(
+            "%a, %d %b %Y %H:%M:%S GMT"
+        )
+        mock_client = Mock()
+        mock_client.post.return_value = build_response_with_headers(
+            429,
+            {"error": {"message": "Rate limit exceeded"}},
+            {"retry-after": retry_after},
+        )
+        transport = OpenAIWireTransport(
+            profile=build_profile(),
+            api_key="sk-test",
+            client_factory=lambda: mock_client,
+        )
+
+        with self.assertRaises(AIRateLimitError) as context:
+            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
+
+        self.assertIsNotNone(context.exception.retry_after_seconds)
+        self.assertGreaterEqual(context.exception.retry_after_seconds, 0.0)
+
+    def test_transport_maps_rate_limit_errors_without_retry_after(self) -> None:
+        mock_client = Mock()
+        mock_client.post.return_value = build_response(
+            429,
+            {"error": {"message": "Rate limit exceeded"}},
+        )
+        transport = OpenAIWireTransport(
+            profile=build_profile(),
+            api_key="sk-test",
+            client_factory=lambda: mock_client,
+        )
+
+        with self.assertRaises(AIRateLimitError) as context:
+            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
+
+        self.assertIsNone(context.exception.retry_after_seconds)
+
+    def test_transport_ignores_invalid_retry_after_headers(self) -> None:
+        mock_client = Mock()
+        mock_client.post.return_value = build_response_with_headers(
+            429,
+            {"error": {"message": "Rate limit exceeded"}},
+            {"retry-after": "not-a-date"},
+        )
+        transport = OpenAIWireTransport(
+            profile=build_profile(),
+            api_key="sk-test",
+            client_factory=lambda: mock_client,
+        )
+
+        with self.assertRaises(AIRateLimitError) as context:
+            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
+
+        self.assertIsNone(context.exception.retry_after_seconds)
 
 
 class OpenAIWireEmbeddingClientTests(unittest.TestCase):

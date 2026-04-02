@@ -85,13 +85,6 @@ class SQLDiffHunk(Base):
     semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
     ast_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
 
-    embedding: Mapped[Optional[List[float]]] = mapped_column(
-        Vector(1536)
-    )  # OpenAI embedding size
-    diff_embedding: Mapped[Optional[List[float]]] = mapped_column(
-        Vector(1536)
-    )  # Vector embedding of the actual diff content
-
     # Foreign Keys
     file_change_id: Mapped[int] = mapped_column(ForeignKey("file_changes.id"))
     commit_sha: Mapped[Optional[str]] = mapped_column(ForeignKey("commits.sha"))
@@ -136,9 +129,6 @@ class SQLFileChange(Base):
     ast_summary: Mapped[Optional[str]] = mapped_column(Text)
     semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
     ast_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
-    embedding: Mapped[Optional[List[float]]] = mapped_column(
-        Vector(1536)
-    )  # OpenAI embedding size
 
     # Foreign Keys
     commit_sha: Mapped[Optional[str]] = mapped_column(ForeignKey("commits.sha"))
@@ -190,9 +180,6 @@ class SQLCommit(Base):
     message: Mapped[str] = mapped_column(Text)
     summary: Mapped[Optional[str]] = mapped_column(Text)
     semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
-    embedding: Mapped[Optional[List[float]]] = mapped_column(
-        Vector(1536)
-    )  # OpenAI embedding size
 
     # Foreign Keys
     repo_path: Mapped[str] = mapped_column(ForeignKey("repos.path"))

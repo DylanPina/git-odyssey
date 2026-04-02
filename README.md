@@ -63,6 +63,13 @@ Development currently uses a local PostgreSQL + pgvector container:
 docker compose up -d db
 ```
 
+The local container now runs an init script that enables the `vector` extension on first database creation. If you already have an older `postgres_data` volume from before this setup, recreate it once so the init script can run:
+
+```bash
+docker compose down -v
+docker compose up -d db
+```
+
 ### 4. Launch the desktop app
 
 ```bash

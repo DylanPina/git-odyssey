@@ -44,12 +44,6 @@ class DiffHunk(BaseModel):
     ast_embedding: Optional[List[float]] = Field(
         None, description="Embedding of the AST-aware hunk summary"
     )
-    embedding: Optional[List[float]] = Field(
-        None, description="Embedding of the hunk summary"
-    )
-    diff_embedding: Optional[List[float]] = Field(
-        None, description="Embedding of the diff of the hunk"
-    )
 
     # FKs
     file_change_id: int = Field(
@@ -116,10 +110,6 @@ class FileChange(BaseModel):
     commit_sha: str = Field(
         None, description="SHA of the commit this file change belongs to"
     )
-    embedding: Optional[List[float]] = Field(
-        None, description="Embedding of the file change summary"
-    )
-
 
 class Commit(BaseModel):
     """Represents a commit."""
@@ -142,9 +132,6 @@ class Commit(BaseModel):
     )
     semantic_embedding: Optional[List[float]] = Field(
         None, description="Semantic embedding of the commit summary"
-    )
-    embedding: Optional[List[float]] = Field(
-        None, description="Embedding of the commit summary"
     )
 
 

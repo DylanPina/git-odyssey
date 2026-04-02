@@ -36,8 +36,23 @@ class Writer:
         for update, embedding in zip(valid_updates, embeddings):
             valid_embedding_map[update["id"]] = embedding
 
+        updates_by_type: dict[type, dict[object, object]] = {}
+        for sql_type in (SQLCommit, SQLFileChange, SQLDiffHunk):
+            target_ids = [update["id"] for update in updates if update["type"] is sql_type]
+            if not target_ids:
+                continue
+            rows = (
+                self.session.query(sql_type)
+                .filter(sql_type.id.in_(target_ids) if sql_type is not SQLCommit else sql_type.sha.in_(target_ids))
+                .all()
+            )
+            row_map = {
+                (row.sha if sql_type is SQLCommit else row.id): row for row in rows
+            }
+            updates_by_type[sql_type] = row_map
+
         for update in updates:
-            db_object = self.session.get(update["type"], update["id"])
+            db_object = updates_by_type[update["type"]][update["id"]]
             db_object.summary = update["summary"]
             if (
                 update["id"] in valid_embedding_map
