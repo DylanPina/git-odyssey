@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -86,6 +87,7 @@ export default function SearchResults(props: {
   repoPath?: string | null;
   filteredCommits: Commit[];
   searchResults?: FilterSearchResult[];
+  isSearching?: boolean;
   onCommitClick: (sha: string) => void;
   query?: string;
 }) {
@@ -94,6 +96,7 @@ export default function SearchResults(props: {
     repoPath,
     filteredCommits,
     searchResults = [],
+    isSearching = false,
     onCommitClick,
     query,
   } = props;
@@ -110,10 +113,25 @@ export default function SearchResults(props: {
   const totalCount = Math.max(allCommitsCount, displayedCount);
 
   return (
-    <SidebarGroup className="min-h-0 min-w-0 flex-1 pt-4">
+    <SidebarGroup className="relative min-h-0 min-w-0 flex-1 pt-4">
+      {isSearching ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden"
+        >
+          <div className="h-full w-full animate-pulse rounded-full bg-[linear-gradient(90deg,transparent,rgba(122,162,255,0.95),transparent)] shadow-[0_0_10px_rgba(122,162,255,0.55)]" />
+        </div>
+      ) : null}
+
       <div className="workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto pr-1">
-        <div className="text-sm text-text-primary">
-          Showing {displayedCount} of {totalCount} commits
+        <div className="flex items-center gap-2 text-sm text-text-primary">
+          <span>Showing {displayedCount} of {totalCount} commits</span>
+          {isSearching ? (
+            <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(122,162,255,0.18)] bg-[rgba(122,162,255,0.08)] px-2 py-0.5 text-[11px] font-medium text-[#d5e3ff]">
+              <Loader2 className="size-3 animate-spin" />
+              Refreshing search
+            </span>
+          ) : null}
         </div>
 
         {displayedCount === 0 ? (
@@ -266,6 +284,7 @@ export default function SearchResults(props: {
           </div>
         )}
       </div>
+
     </SidebarGroup>
   );
 }

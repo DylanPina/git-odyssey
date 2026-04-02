@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -77,6 +78,7 @@ export function RepoSidebar({
   chatError = null,
   onSendChatMessage,
 }: RepoSidebarProps) {
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const navigate = useNavigate();
   const { selectedTab, setSelectedTab } = useSidebarTab();
   const { isMobile, setOpen, setOpenMobile, state } = useSidebar();
@@ -180,6 +182,7 @@ export function RepoSidebar({
                     query={searchQuery}
                     onQueryChange={onSearchQueryChange}
                     onSearchResults={onSearchResults}
+                    onLoadingChange={setIsSearchLoading}
                   />
                 </div>
 
@@ -188,6 +191,7 @@ export function RepoSidebar({
                   repoPath={repoPath}
                   filteredCommits={filteredCommits}
                   searchResults={searchResults}
+                  isSearching={isSearchLoading}
                   query={lastSearchQuery}
                   onCommitClick={onCommitClick ?? (() => {})}
                 />

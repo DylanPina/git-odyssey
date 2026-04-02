@@ -187,4 +187,24 @@ describe("SearchResults", () => {
     expect(screen.getByTestId("mock-diff-preview")).toBeInTheDocument();
     expect(screen.queryByTestId("mock-code-preview")).not.toBeInTheDocument();
   });
+
+  it("renders the searching overlay while a repo search is in flight", () => {
+    render(
+      <MemoryRouter>
+        <SearchResults
+          allCommitsCount={1}
+          repoPath="/tmp/repo"
+          filteredCommits={[buildCommit()]}
+          searchResults={[buildResult()]}
+          isSearching
+          onCommitClick={() => {}}
+          query="auth"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Refreshing search")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 1 commits")).toBeInTheDocument();
+    expect(screen.getByText("Refine auth flow")).toBeInTheDocument();
+  });
 });

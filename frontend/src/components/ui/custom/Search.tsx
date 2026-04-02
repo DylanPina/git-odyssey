@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search as SearchIcon } from "lucide-react";
+import { Loader2, Search as SearchIcon } from "lucide-react";
 import { toast } from "react-toastify";
 
 import {
@@ -17,6 +17,7 @@ interface SearchProps {
   query?: string;
   onQueryChange?: (query: string) => void;
   onSearchResults?: (results: FilterSearchResult[], query?: string) => void;
+  onLoadingChange?: (isLoading: boolean) => void;
   inputId?: string;
 }
 
@@ -26,6 +27,7 @@ export default function Search({
   query = "",
   onQueryChange,
   onSearchResults,
+  onLoadingChange,
   inputId,
 }: SearchProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -44,6 +46,7 @@ export default function Search({
     }
 
     setIsLoading(true);
+    onLoadingChange?.(true);
     try {
       const response = await filterCommits(trimmedQuery, filters, repoPath);
 
@@ -55,6 +58,7 @@ export default function Search({
       });
     } finally {
       setIsLoading(false);
+      onLoadingChange?.(false);
     }
   };
 
@@ -65,17 +69,31 @@ export default function Search({
   };
 
   return (
-    <InputGroup className="min-h-11 rounded-[16px] border-border-strong bg-[rgba(11,13,16,0.78)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <InputGroup
+      className={`min-h-11 rounded-[16px] border-border-strong bg-[rgba(11,13,16,0.78)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-[border-color,box-shadow] duration-200 ${
+        isLoading
+          ? "border-[rgba(122,162,255,0.55)] shadow-[0_0_0_1px_rgba(122,162,255,0.22),0_0_28px_rgba(73,118,255,0.18),inset_0_1px_0_rgba(255,255,255,0.05)]"
+          : ""
+      }`}
+    >
       <InputGroupAddon
         align="inline-start"
         className="pl-3 pr-1 text-text-secondary"
       >
-        <SearchIcon className="size-4" />
+        {isLoading ? (
+          <Loader2
+            aria-hidden="true"
+            className="size-4 animate-spin text-[#9ebcff]"
+          />
+        ) : (
+          <SearchIcon className="size-4" />
+        )}
       </InputGroupAddon>
       <InputGroupInput
         id={inputId}
         placeholder="Search commits, files, paths, or diffs"
         aria-keyshortcuts="Meta+K Control+K"
+        aria-busy={isLoading}
         className="px-1.5 py-3 pr-3 text-sm placeholder:text-text-tertiary"
         value={query}
         onChange={(event) => onQueryChange?.(event.target.value)}
