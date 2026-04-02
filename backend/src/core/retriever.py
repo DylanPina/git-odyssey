@@ -33,6 +33,10 @@ class FilterCandidate:
     match_type: MatchType
     similarity: float | None
     commit_time: int | None
+    text_similarity: float | None = None
+    ast_similarity: float | None = None
+    used_ast_signal: bool = False
+    semantic_score_override: float | None = None
     preview_source: str | None = None
     preview_kind: PreviewKind = "text"
     file_change_id: int | None = None
@@ -184,6 +188,11 @@ class Retriever:
         "file_change": 0.6,
         "hunk": 0.6,
     }
+    AST_BLEND_WEIGHTS = {
+        "commit": (1.0, 0.0),
+        "file_change": (0.7, 0.3),
+        "hunk": (0.65, 0.35),
+    }
     EXACT_MATCH_BONUSES = {
         "commit": 0.14,
         "file_change": 0.18,
@@ -285,6 +294,8 @@ class Retriever:
         return int(time.time())
 
     def _candidate_semantic_score(self, candidate: FilterCandidate) -> float:
+        if candidate.semantic_score_override is not None:
+            return candidate.semantic_score_override
         if candidate.similarity is None:
             return 0.0
 
@@ -294,6 +305,97 @@ class Retriever:
 
         clipped_similarity = min(max(candidate.similarity, 0.0), threshold)
         return max(0.0, 1.0 - (clipped_similarity / threshold))
+
+    def _distance_to_score(
+        self, match_type: MatchType, distance: float | None
+    ) -> float | None:
+        if distance is None:
+            return None
+        threshold = self.SIMILARITY_THRESHOLDS.get(match_type)
+        if threshold is None or threshold <= 0:
+            return None
+        clipped_distance = min(max(distance, 0.0), threshold)
+        return max(0.0, 1.0 - (clipped_distance / threshold))
+
+    def _score_to_distance(
+        self, match_type: MatchType, score: float | None
+    ) -> float | None:
+        if score is None:
+            return None
+        threshold = self.SIMILARITY_THRESHOLDS.get(match_type)
+        if threshold is None or threshold <= 0:
+            return None
+        bounded_score = min(max(score, 0.0), 1.0)
+        return threshold * (1.0 - bounded_score)
+
+    def _blend_similarity_signals(
+        self,
+        match_type: MatchType,
+        text_similarity: float | None,
+        ast_similarity: float | None,
+    ) -> tuple[float | None, float | None, bool]:
+        text_score = self._distance_to_score(match_type, text_similarity)
+        ast_score = self._distance_to_score(match_type, ast_similarity)
+        text_weight, ast_weight = self.AST_BLEND_WEIGHTS.get(match_type, (1.0, 0.0))
+
+        weighted_scores = []
+        if text_score is not None:
+            weighted_scores.append((text_weight, text_score))
+        if ast_score is not None:
+            weighted_scores.append((ast_weight, ast_score))
+
+        if not weighted_scores:
+            return None, None, False
+
+        total_weight = sum(weight for weight, _ in weighted_scores)
+        if total_weight <= 0:
+            return None, None, False
+
+        blended_score = sum(weight * score for weight, score in weighted_scores) / total_weight
+        return (
+            self._score_to_distance(match_type, blended_score),
+            blended_score,
+            ast_score is not None,
+        )
+
+    def _apply_semantic_blend_to_row(
+        self, row: dict[str, Any], match_type: MatchType
+    ) -> dict[str, Any] | None:
+        blended_similarity, semantic_score, used_ast_signal = (
+            self._blend_similarity_signals(
+                match_type,
+                (
+                    float(row["text_similarity"])
+                    if row.get("text_similarity") is not None
+                    else (
+                        float(row["similarity"])
+                        if row.get("similarity") is not None
+                        else None
+                    )
+                ),
+                (
+                    float(row["ast_similarity"])
+                    if row.get("ast_similarity") is not None
+                    else None
+                ),
+            )
+        )
+        if blended_similarity is None or semantic_score is None or semantic_score <= 0.0:
+            return None
+
+        row["similarity"] = blended_similarity
+        row["semantic_score"] = semantic_score
+        row["used_ast_signal"] = used_ast_signal
+        if used_ast_signal:
+            logger.debug(
+                "AST similarity blended for %s candidate %s (text=%s ast=%s blended=%s)",
+                match_type,
+                row.get("sha"),
+                row.get("text_similarity"),
+                row.get("ast_similarity"),
+                row.get("similarity"),
+            )
+        return row
 
     def _candidate_recency_score(
         self,
@@ -485,6 +587,22 @@ class Retriever:
                     match_type=match_type,  # type: ignore[arg-type]
                     similarity=float(similarity) if similarity is not None else None,
                     commit_time=row.get("commit_time"),
+                    text_similarity=(
+                        float(row["text_similarity"])
+                        if row.get("text_similarity") is not None
+                        else None
+                    ),
+                    ast_similarity=(
+                        float(row["ast_similarity"])
+                        if row.get("ast_similarity") is not None
+                        else None
+                    ),
+                    used_ast_signal=bool(row.get("used_ast_signal", False)),
+                    semantic_score_override=(
+                        float(row["semantic_score"])
+                        if row.get("semantic_score") is not None
+                        else None
+                    ),
                     preview_source=row.get("preview_source"),
                     preview_kind=row.get("preview_kind", "text"),
                     file_change_id=row.get("file_change_id"),
@@ -705,6 +823,10 @@ class Retriever:
                 SQLCommit.sha.label("sha"),
                 literal("commit").label("match_type"),
                 commit_similarity.label("similarity"),
+                commit_similarity.label("text_similarity"),
+                literal(None).label("ast_similarity"),
+                literal(False).label("used_ast_signal"),
+                literal(None).label("semantic_score"),
                 SQLCommit.time.label("commit_time"),
                 SQLCommit.message.label("preview_source"),
                 literal("text").label("preview_kind"),
@@ -725,11 +847,16 @@ class Retriever:
         ).mappings().all()
 
         fc_similarity = SQLFileChange.semantic_embedding.cosine_distance(query_embedding)
+        fc_ast_similarity = SQLFileChange.ast_embedding.cosine_distance(query_embedding)
         file_rows = self.session.execute(
             select(
                 SQLFileChange.commit_sha.label("sha"),
                 literal("file_change").label("match_type"),
-                fc_similarity.label("similarity"),
+                literal(None).label("similarity"),
+                fc_similarity.label("text_similarity"),
+                fc_ast_similarity.label("ast_similarity"),
+                literal(None).label("used_ast_signal"),
+                literal(None).label("semantic_score"),
                 SQLCommit.time.label("commit_time"),
                 file_path_expr.label("preview_source"),
                 literal("text").label("preview_kind"),
@@ -746,18 +873,25 @@ class Retriever:
             .join(SQLCommit, SQLCommit.sha == SQLFileChange.commit_sha)
             .where(
                 SQLFileChange.commit_sha.in_(commit_shas),
-                SQLFileChange.semantic_embedding.isnot(None),
+                or_(
+                    SQLFileChange.semantic_embedding.isnot(None),
+                    SQLFileChange.ast_embedding.isnot(None),
+                ),
                 file_exclusion_filter,
-                fc_similarity <= self.SIMILARITY_THRESHOLDS["file_change"],
             )
         ).mappings().all()
 
         hunk_similarity = SQLDiffHunk.semantic_embedding.cosine_distance(query_embedding)
+        hunk_ast_similarity = SQLDiffHunk.ast_embedding.cosine_distance(query_embedding)
         hunk_rows = self.session.execute(
             select(
                 SQLDiffHunk.commit_sha.label("sha"),
                 literal("hunk").label("match_type"),
-                hunk_similarity.label("similarity"),
+                literal(None).label("similarity"),
+                hunk_similarity.label("text_similarity"),
+                hunk_ast_similarity.label("ast_similarity"),
+                literal(None).label("used_ast_signal"),
+                literal(None).label("semantic_score"),
                 SQLCommit.time.label("commit_time"),
                 SQLDiffHunk.content.label("preview_source"),
                 literal("diff").label("preview_kind"),
@@ -775,15 +909,30 @@ class Retriever:
             .join(SQLCommit, SQLCommit.sha == SQLDiffHunk.commit_sha)
             .where(
                 SQLDiffHunk.commit_sha.in_(commit_shas),
-                SQLDiffHunk.semantic_embedding.isnot(None),
+                or_(
+                    SQLDiffHunk.semantic_embedding.isnot(None),
+                    SQLDiffHunk.ast_embedding.isnot(None),
+                ),
                 file_exclusion_filter,
-                hunk_similarity <= self.SIMILARITY_THRESHOLDS["hunk"],
             )
         ).mappings().all()
 
-        file_rows = self._attach_file_change_diff_previews(
-            [dict(row) for row in file_rows]
-        )
+        file_rows = [
+            row
+            for row in (
+                self._apply_semantic_blend_to_row(dict(row), "file_change")
+                for row in self._attach_file_change_diff_previews([dict(row) for row in file_rows])
+            )
+            if row is not None
+        ]
+        hunk_rows = [
+            row
+            for row in (
+                self._apply_semantic_blend_to_row(dict(row), "hunk")
+                for row in hunk_rows
+            )
+            if row is not None
+        ]
 
         return self._create_candidates(
             [*hunk_rows, *file_rows, *commit_rows],
@@ -1007,19 +1156,28 @@ class Retriever:
                 SQLCommit.author.label("commit_author"),
                 SQLCommit.time.label("commit_time"),
                 SQLFileChange.semantic_embedding.cosine_distance(query_embedding).label(
-                    "similarity"
+                    "text_similarity"
+                ),
+                SQLFileChange.ast_embedding.cosine_distance(query_embedding).label(
+                    "ast_similarity"
                 ),
             )
             .join(SQLCommit, SQLFileChange.commit_sha == SQLCommit.sha)
             .where(
                 SQLCommit.repo_path == repo_path,
                 SQLFileChange.commit_sha.in_(context_shas),
-                SQLFileChange.semantic_embedding.isnot(None),
+                or_(
+                    SQLFileChange.semantic_embedding.isnot(None),
+                    SQLFileChange.ast_embedding.isnot(None),
+                ),
             )
             .filter(file_exclusion_filter)
         )
         fc_results = self.session.execute(fc_query).mappings().all()
         for row in fc_results:
+            blended_row = self._apply_semantic_blend_to_row(dict(row), "file_change")
+            if blended_row is None:
+                continue
             path_info = row["new_path"] or row["old_path"]
             status = self._format_status(row["status"])
             context_items.append(
@@ -1027,7 +1185,7 @@ class Retriever:
                     "type": "file_change",
                     "sha": row["commit_sha"],
                     "message": row["commit_message"] or "",
-                    "similarity": float(row["similarity"]),
+                    "similarity": float(blended_row["similarity"]),
                     "content": (
                         f"{status} {path_info} in commit {row['commit_sha'][:8]} by "
                         f"{row['commit_author']} on {row['commit_time']}\n"
@@ -1049,7 +1207,10 @@ class Retriever:
                 SQLCommit.author.label("commit_author"),
                 SQLCommit.time.label("commit_time"),
                 SQLDiffHunk.semantic_embedding.cosine_distance(query_embedding).label(
-                    "similarity"
+                    "text_similarity"
+                ),
+                SQLDiffHunk.ast_embedding.cosine_distance(query_embedding).label(
+                    "ast_similarity"
                 ),
             )
             .join(SQLCommit, SQLDiffHunk.commit_sha == SQLCommit.sha)
@@ -1057,12 +1218,18 @@ class Retriever:
             .where(
                 SQLCommit.repo_path == repo_path,
                 SQLDiffHunk.commit_sha.in_(context_shas),
-                SQLDiffHunk.semantic_embedding.isnot(None),
+                or_(
+                    SQLDiffHunk.semantic_embedding.isnot(None),
+                    SQLDiffHunk.ast_embedding.isnot(None),
+                ),
             )
             .filter(file_exclusion_filter)
         )
         hunk_results = self.session.execute(hunk_query).mappings().all()
         for row in hunk_results:
+            blended_row = self._apply_semantic_blend_to_row(dict(row), "hunk")
+            if blended_row is None:
+                continue
             file_path = row["new_path"] or row["old_path"]
             lines_info = f"{row['old_lines']}/{row['new_lines']} lines"
             preview = (row["content"] or "")[:200]
@@ -1071,7 +1238,7 @@ class Retriever:
                     "type": "diff_hunk",
                     "sha": row["commit_sha"],
                     "message": row["commit_message"] or "",
-                    "similarity": float(row["similarity"]),
+                    "similarity": float(blended_row["similarity"]),
                     "content": (
                         f"{lines_info} in {file_path} (commit {row['commit_sha'][:8]} by "
                         f"{row['commit_author']} on {row['commit_time']}):\n"

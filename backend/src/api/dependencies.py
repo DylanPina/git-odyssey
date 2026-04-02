@@ -22,6 +22,9 @@ from infrastructure.ai_clients import (
 )
 from infrastructure.ai_runtime import (
     AIRuntimeConfig,
+    AST_ENABLED_LANGUAGES,
+    AST_SCHEMA_VERSION,
+    DOCUMENT_SCHEMA_VERSION,
     OPENAI_DEFAULT_BASE_URL,
     compute_embedding_fingerprint,
     load_ai_runtime_config,
@@ -184,6 +187,9 @@ def get_embedding_engine() -> EmbeddingEngine | None:
             provider_type=profile.provider_type,
             base_url=profile.base_url or OPENAI_DEFAULT_BASE_URL,
             model_id=binding.model_id,
+            document_schema_version=DOCUMENT_SCHEMA_VERSION,
+            ast_schema_version=AST_SCHEMA_VERSION,
+            ast_enabled_languages=AST_ENABLED_LANGUAGES,
         ),
     )
 

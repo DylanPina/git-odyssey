@@ -182,6 +182,61 @@ class BaseEmbeddingEngine(ABC):
             self.embed_batch(repo_objects)
             total_repo_objects += len(repo_objects)
 
+        ast_repo_objects: list[tuple[Any, str, str]] = []
+        ast_total_repo_objects = 0
+        ast_num_tokens = 0
+
+        for commit in repo.commits.values():
+            for file_change in commit.file_changes:
+                ast_summary = getattr(file_change, "ast_summary", None)
+                ast_embedding = getattr(file_change, "ast_embedding", None)
+                if ast_summary and ast_embedding is None:
+                    ast_payload = self._build_embedding_payload(
+                        file_change,
+                        ast_summary,
+                        "ast_embedding",
+                    )
+                    if ast_payload is not None:
+                        repo_object, file_change_tokens = ast_payload
+                        if (
+                            ast_repo_objects
+                            and file_change_tokens + ast_num_tokens > self.token_limit
+                        ):
+                            self.embed_batch(ast_repo_objects)
+                            ast_total_repo_objects += len(ast_repo_objects)
+                            ast_repo_objects = []
+                            ast_num_tokens = 0
+                        ast_repo_objects.append(repo_object)
+                        ast_num_tokens += file_change_tokens
+
+                for hunk in file_change.hunks:
+                    ast_summary = getattr(hunk, "ast_summary", None)
+                    ast_embedding = getattr(hunk, "ast_embedding", None)
+                    if not ast_summary or ast_embedding is not None:
+                        continue
+                    ast_payload = self._build_embedding_payload(
+                        hunk,
+                        ast_summary,
+                        "ast_embedding",
+                    )
+                    if ast_payload is None:
+                        continue
+                    repo_object, hunk_tokens = ast_payload
+                    if ast_repo_objects and hunk_tokens + ast_num_tokens > self.token_limit:
+                        self.embed_batch(ast_repo_objects)
+                        ast_total_repo_objects += len(ast_repo_objects)
+                        ast_repo_objects = []
+                        ast_num_tokens = 0
+                    ast_repo_objects.append(repo_object)
+                    ast_num_tokens += hunk_tokens
+
+        if ast_repo_objects:
+            self.embed_batch(ast_repo_objects)
+            ast_total_repo_objects += len(ast_repo_objects)
+
+        if ast_total_repo_objects:
+            print(f"Successfully embedded {ast_total_repo_objects} AST summaries!")
+
         print(f"Successfully embedded {total_repo_objects} summaries!")
 
 

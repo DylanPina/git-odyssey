@@ -137,7 +137,9 @@ class Repo:
                     new_path=file_change.new_path,
                     status=file_change.status.value,
                     summary=file_change.summary,
+                    ast_summary=file_change.ast_summary,
                     semantic_embedding=file_change.semantic_embedding,
+                    ast_embedding=file_change.ast_embedding,
                     commit_sha=commit.sha,
                 )
 
@@ -166,7 +168,9 @@ class Repo:
                         new_lines=hunk.new_lines,
                         content=hunk.content,
                         summary=hunk.summary,
+                        ast_summary=hunk.ast_summary,
                         semantic_embedding=hunk.semantic_embedding,
+                        ast_embedding=hunk.ast_embedding,
                         commit_sha=commit.sha,
                     )
                     sql_hunks.append(sql_hunk)

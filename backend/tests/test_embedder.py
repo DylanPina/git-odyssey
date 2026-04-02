@@ -276,6 +276,39 @@ class EmbeddingEngineTests(unittest.TestCase):
 
         self.assertEqual(embedder.observed_dimension, 3)
 
+    def test_embed_repo_populates_ast_embeddings_separately_from_search_docs(self) -> None:
+        embedder = RecordingEmbeddingEngine(token_limit=1000)
+        hunk = SimpleNamespace(
+            content="+ return handler(token)\n",
+            semantic_embedding=None,
+            ast_summary="Language: python\nPath: backend/src/service.py\nSymbol: Service.handle\nKind: method\nChanges: added call handler",
+            ast_embedding=None,
+        )
+        file_change = SimpleNamespace(
+            hunks=[hunk],
+            old_path="backend/src/service.py",
+            new_path="backend/src/service.py",
+            status=SimpleNamespace(value="modified"),
+            semantic_embedding=None,
+            ast_summary="Language: python\nPath: backend/src/service.py\nTop Symbols: Service.handle",
+            ast_embedding=None,
+        )
+        commit = SimpleNamespace(
+            author="Casey",
+            message="Refine service logic",
+            semantic_embedding=None,
+            file_changes=[file_change],
+        )
+        repo = SimpleNamespace(commits={"abc123": commit})
+
+        embedder.embed_repo(repo)
+
+        flattened_batches = [text for batch in embedder.batches for text in batch]
+        self.assertIsNotNone(file_change.ast_embedding)
+        self.assertIsNotNone(hunk.ast_embedding)
+        self.assertTrue(any("Top Symbols: Service.handle" in text for text in flattened_batches))
+        self.assertTrue(any("Symbol: Service.handle" in text for text in flattened_batches))
+
 
 if __name__ == "__main__":
     unittest.main()

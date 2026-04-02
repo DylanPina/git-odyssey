@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import delete
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from core.ast_extractor import ASTSummaryExtractor
 from api.api_model import IngestRequest
 from core.embedder import EmbeddingEngine
 from core.repo import Repo
@@ -24,6 +25,7 @@ class IngestService:
     def __init__(self, session: Session, embedder: EmbeddingEngine | None):
         self.session = session
         self.embedder = embedder
+        self.ast_extractor = ASTSummaryExtractor()
 
     def resolve_repo_path(self, repo_path: str) -> str:
         return Repo.discover_repo_path(repo_path)
@@ -206,6 +208,7 @@ class IngestService:
             context_lines=request.context_lines,
             max_commits=request.max_commits,
         )
+        self.ast_extractor.populate_repo(repo)
 
         if self.embedder is not None:
             logger.info("Embedding repo at %s", normalized_repo_path)

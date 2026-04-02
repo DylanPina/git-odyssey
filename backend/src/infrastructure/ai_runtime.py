@@ -15,6 +15,9 @@ SCHEMA_VERSION = 1
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
 DEFAULT_TEXT_MODEL = "gpt-5.4-mini"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+DOCUMENT_SCHEMA_VERSION = 2
+AST_SCHEMA_VERSION = 1
+AST_ENABLED_LANGUAGES = ("python", "typescript", "tsx")
 
 
 def normalize_base_url(base_url: str | None, provider_type: ProviderType) -> str:
@@ -223,13 +226,22 @@ def load_ai_secret_values(settings: Any) -> dict[str, str]:
 
 
 def compute_embedding_fingerprint(
-    provider_type: str, base_url: str, model_id: str
+    provider_type: str,
+    base_url: str,
+    model_id: str,
+    *,
+    document_schema_version: int = DOCUMENT_SCHEMA_VERSION,
+    ast_schema_version: int = AST_SCHEMA_VERSION,
+    ast_enabled_languages: tuple[str, ...] = AST_ENABLED_LANGUAGES,
 ) -> str:
     payload = json.dumps(
         {
             "provider_type": provider_type,
             "base_url": normalize_base_url(base_url, provider_type),
             "model_id": model_id,
+            "document_schema_version": document_schema_version,
+            "ast_schema_version": ast_schema_version,
+            "ast_enabled_languages": list(ast_enabled_languages),
         },
         sort_keys=True,
     ).encode("utf-8")

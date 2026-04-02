@@ -31,3 +31,7 @@ pydantic-settings
 
 # HTTP client + test support
 httpx
+
+# AST extraction
+tree-sitter
+tree-sitter-typescript

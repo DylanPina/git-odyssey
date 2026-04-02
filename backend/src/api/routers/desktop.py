@@ -6,6 +6,9 @@ from api.api_model import AIRuntimeValidationRequest
 from api.dependencies import get_session, get_settings
 from infrastructure.ai_clients import HTTPProviderRegistry
 from infrastructure.ai_runtime import (
+    AST_ENABLED_LANGUAGES,
+    AST_SCHEMA_VERSION,
+    DOCUMENT_SCHEMA_VERSION,
     compute_embedding_fingerprint,
     describe_capability,
     load_ai_runtime_config,
@@ -28,6 +31,9 @@ def _get_active_embedding_fingerprint(config) -> str | None:
         provider_type=profile.provider_type,
         base_url=profile.base_url or "",
         model_id=binding.model_id,
+        document_schema_version=DOCUMENT_SCHEMA_VERSION,
+        ast_schema_version=AST_SCHEMA_VERSION,
+        ast_enabled_languages=AST_ENABLED_LANGUAGES,
     )
 
 

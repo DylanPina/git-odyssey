@@ -13,6 +13,12 @@ from api.dependencies import (
     get_settings,
     get_text_client,
 )
+from infrastructure.ai_runtime import (
+    AST_ENABLED_LANGUAGES,
+    AST_SCHEMA_VERSION,
+    DOCUMENT_SCHEMA_VERSION,
+    compute_embedding_fingerprint,
+)
 from infrastructure.errors import AIConfigurationError
 from infrastructure.errors import MissingConfigurationError
 
@@ -124,6 +130,26 @@ class SettingsTests(unittest.TestCase):
         ):
             with self.assertRaises(MissingConfigurationError):
                 get_text_client()
+
+    def test_embedding_fingerprint_changes_when_ast_versions_change(self) -> None:
+        current = compute_embedding_fingerprint(
+            provider_type="openai",
+            base_url="https://api.openai.com",
+            model_id="text-embedding-3-small",
+            document_schema_version=DOCUMENT_SCHEMA_VERSION,
+            ast_schema_version=AST_SCHEMA_VERSION,
+            ast_enabled_languages=AST_ENABLED_LANGUAGES,
+        )
+        old_ast_version = compute_embedding_fingerprint(
+            provider_type="openai",
+            base_url="https://api.openai.com",
+            model_id="text-embedding-3-small",
+            document_schema_version=DOCUMENT_SCHEMA_VERSION,
+            ast_schema_version=0,
+            ast_enabled_languages=(),
+        )
+
+        self.assertNotEqual(current, old_ast_version)
 
 
 if __name__ == "__main__":

@@ -16,10 +16,12 @@ class DatabaseAdapter:
             new_lines=sql_hunk.new_lines,
             content=sql_hunk.content,
             summary=sql_hunk.summary,
+            ast_summary=sql_hunk.ast_summary,
             commit_sha=(
                 sql_hunk.file_change.commit_sha if sql_hunk.file_change else None
             ),
             semantic_embedding=sql_hunk.semantic_embedding if not compressed else None,
+            ast_embedding=sql_hunk.ast_embedding if not compressed else None,
             embedding=sql_hunk.embedding if not compressed else None,
             diff_embedding=sql_hunk.diff_embedding if not compressed else None,
         )
@@ -74,10 +76,12 @@ class DatabaseAdapter:
             hunks=hunks,
             snapshot=snapshot,
             summary=sql_file_change.summary,
+            ast_summary=sql_file_change.ast_summary,
             commit_sha=sql_file_change.commit_sha,
             semantic_embedding=(
                 sql_file_change.semantic_embedding if not compressed else None
             ),
+            ast_embedding=sql_file_change.ast_embedding if not compressed else None,
             embedding=sql_file_change.embedding if not compressed else None,
         )
 

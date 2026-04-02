@@ -97,6 +97,15 @@ class LocalRepoIngestTests(unittest.TestCase):
 
         self.assertEqual(branch_heads, {DETACHED_HEAD_BRANCH_NAME: head_sha})
 
+    def test_embedding_profile_mismatch_triggers_reindex(self) -> None:
+        service = self.build_service()
+        service.embedder = SimpleNamespace(profile_fingerprint="new-fingerprint")
+        repo = SimpleNamespace(
+            embedding_profile=SimpleNamespace(fingerprint="old-fingerprint")
+        )
+
+        self.assertTrue(service._is_embedding_profile_mismatch(repo))
+
 
 if __name__ == "__main__":
     unittest.main()

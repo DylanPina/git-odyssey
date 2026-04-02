@@ -35,8 +35,14 @@ class DiffHunk(BaseModel):
     summary: Optional[str] = Field(
         None, description="Summary of the changes in the hunk (AI Generated)"
     )
+    ast_summary: Optional[str] = Field(
+        None, description="AST-aware structural summary of the hunk"
+    )
     semantic_embedding: Optional[List[float]] = Field(
         None, description="Semantic embedding of the hunk summary or content"
+    )
+    ast_embedding: Optional[List[float]] = Field(
+        None, description="Embedding of the AST-aware hunk summary"
     )
     embedding: Optional[List[float]] = Field(
         None, description="Embedding of the hunk summary"
@@ -98,8 +104,14 @@ class FileChange(BaseModel):
     summary: Optional[str] = Field(
         None, description="Summary of the changes made to the file (AI Generated)"
     )
+    ast_summary: Optional[str] = Field(
+        None, description="AST-aware structural summary of the file change"
+    )
     semantic_embedding: Optional[List[float]] = Field(
         None, description="Semantic embedding of the file change summary"
+    )
+    ast_embedding: Optional[List[float]] = Field(
+        None, description="Embedding of the AST-aware file change summary"
     )
     commit_sha: str = Field(
         None, description="SHA of the commit this file change belongs to"

@@ -44,3 +44,6 @@ dependencies:
   - libmpdec
   - pcre2
   - tzdata
+  - pip:
+      - tree-sitter
+      - tree-sitter-typescript

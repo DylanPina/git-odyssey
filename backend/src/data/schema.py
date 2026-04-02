@@ -60,6 +60,7 @@ class SQLEmbeddingProfile(Base):
     base_url: Mapped[str] = mapped_column(Text)
     model_id: Mapped[str] = mapped_column(Text)
     observed_dimension: Mapped[Optional[int]]
+    ast_schema_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 
@@ -80,7 +81,9 @@ class SQLDiffHunk(Base):
     new_lines: Mapped[int]
     content: Mapped[str] = mapped_column(Text)
     summary: Mapped[Optional[str]] = mapped_column(Text)
+    ast_summary: Mapped[Optional[str]] = mapped_column(Text)
     semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
+    ast_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
 
     embedding: Mapped[Optional[List[float]]] = mapped_column(
         Vector(1536)
@@ -130,7 +133,9 @@ class SQLFileChange(Base):
     new_path: Mapped[str]
     status: Mapped[FileChangeStatus] = mapped_column(SQLEnum(FileChangeStatus))
     summary: Mapped[Optional[str]] = mapped_column(Text)
+    ast_summary: Mapped[Optional[str]] = mapped_column(Text)
     semantic_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
+    ast_embedding: Mapped[Optional[List[float]]] = mapped_column(Vector())
     embedding: Mapped[Optional[List[float]]] = mapped_column(
         Vector(1536)
     )  # OpenAI embedding size

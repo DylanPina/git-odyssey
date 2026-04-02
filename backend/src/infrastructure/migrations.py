@@ -65,6 +65,9 @@ def _upsert_legacy_embedding_profile(
         provider_type="openai",
         base_url=OPENAI_DEFAULT_BASE_URL,
         model_id=model_id,
+        document_schema_version=1,
+        ast_schema_version=0,
+        ast_enabled_languages=(),
     )
     return connection.execute(
         text(
@@ -74,14 +77,16 @@ def _upsert_legacy_embedding_profile(
                 provider_type,
                 base_url,
                 model_id,
-                observed_dimension
+                observed_dimension,
+                ast_schema_version
             )
             VALUES (
                 :fingerprint,
                 'openai',
                 :base_url,
                 :model_id,
-                :observed_dimension
+                :observed_dimension,
+                :ast_schema_version
             )
             ON CONFLICT (fingerprint)
             DO UPDATE SET
@@ -98,6 +103,7 @@ def _upsert_legacy_embedding_profile(
             "base_url": OPENAI_DEFAULT_BASE_URL,
             "model_id": model_id,
             "observed_dimension": observed_dimension,
+            "ast_schema_version": 0,
         },
     ).scalar_one()
 
@@ -193,6 +199,7 @@ def _ai_runtime_schema_migration(connection, settings: Settings) -> None:
                 base_url TEXT NOT NULL,
                 model_id TEXT NOT NULL,
                 observed_dimension INTEGER,
+                ast_schema_version INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
@@ -248,6 +255,58 @@ def _ai_runtime_schema_migration(connection, settings: Settings) -> None:
         )
     )
     _backfill_legacy_embeddings(connection, settings)
+
+
+def _ast_aware_embeddings_schema_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            ALTER TABLE embedding_profiles
+            ADD COLUMN IF NOT EXISTS ast_schema_version INTEGER NOT NULL DEFAULT 0
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE file_changes
+            ADD COLUMN IF NOT EXISTS ast_summary TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE file_changes
+            ADD COLUMN IF NOT EXISTS ast_embedding vector
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE diff_hunks
+            ADD COLUMN IF NOT EXISTS ast_summary TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE diff_hunks
+            ADD COLUMN IF NOT EXISTS ast_embedding vector
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE embedding_profiles
+            SET ast_schema_version = 0
+            WHERE ast_schema_version IS NULL
+            """
+        )
+    )
 
 
 def _review_sessions_schema_migration(connection, settings: Settings) -> None:
@@ -983,6 +1042,10 @@ MIGRATIONS = [
     Migration(
         version="20260331_review_session_target_mode",
         run=_review_session_target_mode_migration,
+    ),
+    Migration(
+        version="20260402_ast_aware_embeddings",
+        run=_ast_aware_embeddings_schema_migration,
     ),
 ]
 

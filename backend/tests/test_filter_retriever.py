@@ -227,6 +227,111 @@ class FilterRetrieverHelperTests(unittest.TestCase):
         self.assertEqual(result["display_match"]["highlight_strategy"], "file_header")
         self.assertEqual(result["display_match"]["preview"], "@@ -4,1 +4,1 @@\n-before\n+after")
 
+    def test_compile_ranked_results_can_lift_candidate_with_strong_ast_signal(self) -> None:
+        blended_similarity, blended_score, _ = self.retriever._blend_similarity_signals(
+            "hunk",
+            0.30,
+            0.01,
+        )
+        candidates = [
+            FilterCandidate(
+                sha="ast-lifted",
+                match_type="hunk",
+                similarity=blended_similarity,
+                text_similarity=0.30,
+                ast_similarity=0.01,
+                used_ast_signal=True,
+                semantic_score_override=blended_score,
+                commit_time=100,
+                preview_source="-before\n+ast lifted\n",
+                preview_kind="diff",
+                file_path="src/a.ts",
+                hunk_id=21,
+                new_start=10,
+                old_start=9,
+                preview_old_start=9,
+                preview_old_lines=1,
+                preview_new_start=9,
+                preview_new_lines=1,
+            ),
+            FilterCandidate(
+                sha="text-only",
+                match_type="hunk",
+                similarity=0.22,
+                commit_time=100,
+                preview_source="-before\n+text only\n",
+                preview_kind="diff",
+                file_path="src/b.ts",
+                hunk_id=22,
+                new_start=3,
+                old_start=2,
+                preview_old_start=2,
+                preview_old_lines=1,
+                preview_new_start=2,
+                preview_new_lines=1,
+            ),
+        ]
+
+        results = self.retriever._compile_ranked_results(candidates, "query", 5)
+
+        self.assertEqual([result["sha"] for result in results], ["ast-lifted", "text-only"])
+
+    def test_compile_ranked_results_groups_commit_by_ast_driven_child_match(self) -> None:
+        blended_similarity, blended_score, _ = self.retriever._blend_similarity_signals(
+            "file_change",
+            0.20,
+            0.0,
+        )
+        candidates = [
+            FilterCandidate(
+                sha="commit-a",
+                match_type="commit",
+                similarity=0.40,
+                commit_time=100,
+                preview_source="weaker commit text",
+                preview_kind="text",
+            ),
+            FilterCandidate(
+                sha="commit-a",
+                match_type="file_change",
+                similarity=blended_similarity,
+                text_similarity=0.20,
+                ast_similarity=0.0,
+                used_ast_signal=True,
+                semantic_score_override=blended_score,
+                commit_time=100,
+                preview_source="-old\n+new\n",
+                preview_kind="diff",
+                file_path="src/ast.ts",
+                file_change_id=7,
+                preview_old_start=1,
+                preview_old_lines=1,
+                preview_new_start=1,
+                preview_new_lines=1,
+            ),
+            FilterCandidate(
+                sha="commit-b",
+                match_type="hunk",
+                similarity=0.18,
+                commit_time=100,
+                preview_source="-old\n+plain semantic\n",
+                preview_kind="diff",
+                file_path="src/plain.ts",
+                hunk_id=8,
+                new_start=2,
+                old_start=1,
+                preview_old_start=1,
+                preview_old_lines=1,
+                preview_new_start=1,
+                preview_new_lines=1,
+            ),
+        ]
+
+        results = self.retriever._compile_ranked_results(candidates, "query", 5)
+
+        self.assertEqual(results[0]["sha"], "commit-a")
+        self.assertEqual(results[0]["display_match"]["match_type"], "file_change")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,7 +39,10 @@ class Writer:
         for update in updates:
             db_object = self.session.get(update["type"], update["id"])
             db_object.summary = update["summary"]
-            if update["id"] in valid_embedding_map:
+            if (
+                update["id"] in valid_embedding_map
+                and db_object.semantic_embedding is None
+            ):
                 db_object.semantic_embedding = valid_embedding_map[update["id"]]
 
         self.session.commit()
