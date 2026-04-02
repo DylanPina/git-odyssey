@@ -30,6 +30,11 @@ type GraphViewProps = {
   isLoading: boolean;
   isIngesting: boolean;
   ingestStatus: string;
+  ingestProgressPercent?: number | null;
+  ingestProgressPhase?: string | null;
+  ingestProgressLabel?: string | null;
+  ingestProgressCompletedUnits?: number | null;
+  ingestProgressTotalUnits?: number | null;
   layoutDirection: LayoutDirection;
   toggleLayoutDirection: () => void;
 };
@@ -46,6 +51,11 @@ export function GraphView({
   isLoading,
   isIngesting,
   ingestStatus,
+  ingestProgressPercent,
+  ingestProgressPhase,
+  ingestProgressLabel,
+  ingestProgressCompletedUnits,
+  ingestProgressTotalUnits,
   layoutDirection,
   toggleLayoutDirection,
 }: GraphViewProps) {
@@ -77,6 +87,11 @@ export function GraphView({
         isVisible={isLoading || isIngesting}
         isIngesting={isIngesting}
         ingestStatus={ingestStatus}
+        progressPercent={ingestProgressPercent}
+        progressPhase={ingestProgressPhase}
+        progressLabel={ingestProgressLabel}
+        progressCompletedUnits={ingestProgressCompletedUnits}
+        progressTotalUnits={ingestProgressTotalUnits}
       />
 
       <Controls

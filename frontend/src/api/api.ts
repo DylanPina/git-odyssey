@@ -5,6 +5,7 @@ import type {
   DatabaseResponse,
   CommitResponse,
   CommitsResponse,
+  RepoDeleteResponse,
 } from "../lib/definitions/api";
 import type {
   ReviewHistoryResponse,
@@ -25,6 +26,7 @@ import type {
   DesktopHealthStatus,
   DesktopSettingsStatus,
   GitOdysseyDesktopBridge,
+  RepoSyncProgressEvent,
 } from "@/lib/definitions/desktop";
 import type { FilterFormData } from "@/lib/filter-utils";
 
@@ -79,6 +81,16 @@ export const pickGitProject = async (): Promise<GitProjectSummary | null> => {
 
 export const getRecentProjects = async (): Promise<GitProjectSummary[]> => {
   return getDesktopBridge().api.getRecentProjects();
+};
+
+export const getRepoSyncProgress = async (
+  repoPath: string
+): Promise<RepoSyncProgressEvent | null> => {
+  return getDesktopBridge().api.getRepoSyncProgress(repoPath);
+};
+
+export const deleteRepo = async (repoPath: string): Promise<RepoDeleteResponse> => {
+  return getDesktopBridge().api.deleteRepo(repoPath);
 };
 
 export const summarizeCommit = async (sha: string): Promise<string> => {
@@ -255,4 +267,10 @@ export const saveDesktopRepoSettings = async (
 
 export const getDesktopHealth = async (): Promise<DesktopHealthStatus> => {
   return getDesktopBridge().health.getStatus();
+};
+
+export const onRepoSyncEvent = (
+  listener: (event: RepoSyncProgressEvent) => void
+): (() => void) => {
+  return getDesktopBridge().repoSync.onEvent(listener);
 };

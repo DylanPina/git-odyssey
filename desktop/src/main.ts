@@ -1,4 +1,6 @@
+import os = require("node:os");
 import path = require("node:path");
+import { randomUUID } from "node:crypto";
 
 import {
   app,
@@ -11,14 +13,15 @@ import {
 
 import { BackendManager } from "./backend-manager";
 import { DesktopConfigStore } from "./config-store";
-import { findGitProjectRoot } from "./git-projects";
+import { findGitProjectRoot, normalizePath } from "./git-projects";
 import { MacKeychainStore } from "./keychain";
 import { RepoSyncWatcher } from "./repo-sync-watcher";
 import { ReviewRuntimeManager } from "./review-runtime";
-import type { DesktopRepoSettings } from "./types";
+import type { DesktopRepoSettings, RepoSyncProgressEvent } from "./types";
 import { buildMainWindowOptions } from "./window-frame";
 
 const APP_NAME = "GitOdyssey";
+const DESKTOP_STATE_DIRNAME = ".git-odyssey";
 
 type RendererEntry =
   | {
@@ -36,6 +39,7 @@ let keychain: MacKeychainStore | null = null;
 let backendManager: BackendManager | null = null;
 let reviewRuntimeManager: ReviewRuntimeManager | null = null;
 let repoSyncWatcher: RepoSyncWatcher | null = null;
+const latestRepoSyncProgress = new Map<string, RepoSyncProgressEvent>();
 
 function requireConfigStore(): DesktopConfigStore {
   if (!configStore) {
@@ -108,7 +112,8 @@ async function getSettingsStatus() {
 
 function buildRepoQueryParams(
   repoPath: string,
-  repoSettings: DesktopRepoSettings | null | undefined = null
+  repoSettings: DesktopRepoSettings | null | undefined = null,
+  progressId?: string
 ): URLSearchParams {
   const params = new URLSearchParams({ repo_path: repoPath });
 
@@ -118,6 +123,10 @@ function buildRepoQueryParams(
 
   if (repoSettings?.contextLines != null) {
     params.set("context_lines", String(repoSettings.contextLines));
+  }
+
+  if (progressId) {
+    params.set("progress_id", progressId);
   }
 
   return params;
@@ -147,6 +156,97 @@ function createWindow(): void {
 function broadcastReviewRuntimeEvent(payload: Record<string, unknown>): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("git-odyssey:review:event", payload);
+  }
+}
+
+function broadcastRepoSyncEvent(payload: RepoSyncProgressEvent): void {
+  const normalizedRepoPath = normalizePath(payload.repoPath);
+  if (normalizedRepoPath) {
+    latestRepoSyncProgress.set(normalizedRepoPath, payload);
+  }
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("git-odyssey:repo-sync:event", payload);
+  }
+}
+
+function mapRepoSyncPayload(payload: Record<string, unknown>): RepoSyncProgressEvent {
+  return {
+    progressId: String(payload.progress_id ?? ""),
+    repoPath: String(payload.repo_path ?? ""),
+    phase: String(payload.phase ?? "planning") as RepoSyncProgressEvent["phase"],
+    label: String(payload.label ?? "Syncing repository"),
+    percent: Number(payload.percent ?? 0),
+    stagePercent: Number(payload.stage_percent ?? 0),
+    completedUnits: Number(payload.completed_units ?? 0),
+    totalUnits: Number(payload.total_units ?? 0),
+    commitCount:
+      payload.commit_count == null ? null : Number(payload.commit_count),
+    fileChangeCount:
+      payload.file_change_count == null ? null : Number(payload.file_change_count),
+    hunkCount: payload.hunk_count == null ? null : Number(payload.hunk_count),
+    embeddingBatches:
+      payload.embedding_batches == null ? null : Number(payload.embedding_batches),
+    insertedCommits:
+      payload.inserted_commits == null ? null : Number(payload.inserted_commits),
+    error: payload.error == null ? null : String(payload.error),
+    startedAt: String(payload.started_at ?? new Date().toISOString()),
+    updatedAt: String(payload.updated_at ?? new Date().toISOString()),
+  };
+}
+
+async function requestWithRepoSyncProgress(
+  path: string,
+  repoPath: string,
+  options?: { method?: string; body?: unknown; progressId?: string }
+): Promise<unknown> {
+  const progressId = options?.progressId ?? randomUUID();
+  let polling = true;
+
+  const emitProgress = async () => {
+    try {
+      const payload = await requireBackendManager().request(
+        `/api/ingest/progress/${progressId}`
+      );
+      broadcastRepoSyncEvent(mapRepoSyncPayload(payload as Record<string, unknown>));
+    } catch (_error) {
+      // Ignore missing progress snapshots while no ingest is active yet.
+    }
+  };
+
+  const pollingPromise = (async () => {
+    while (polling) {
+      await emitProgress();
+      if (!polling) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  })();
+
+  try {
+    const result = await requireBackendManager().request(path, options);
+    polling = false;
+    await pollingPromise;
+    await emitProgress();
+    return result;
+  } catch (error) {
+    polling = false;
+    await pollingPromise;
+    await emitProgress();
+    broadcastRepoSyncEvent({
+      progressId,
+      repoPath,
+      phase: "failed",
+      label: "Repository sync failed",
+      percent: 0,
+      stagePercent: 0,
+      completedUnits: 0,
+      totalUnits: 0,
+      error: error instanceof Error ? error.message : "Repository sync failed",
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    throw error;
   }
 }
 
@@ -219,23 +319,53 @@ function registerIpcHandlers(): void {
     return requireConfigStore().getRecentProjects();
   });
 
+  ipcMain.handle("git-odyssey:api:get-repo-sync-progress", async (_event, repoPath) => {
+    const normalizedRepoPath = normalizePath(repoPath);
+    if (!normalizedRepoPath) {
+      return null;
+    }
+    return latestRepoSyncProgress.get(normalizedRepoPath) ?? null;
+  });
+
+  ipcMain.handle("git-odyssey:api:delete-repo", async (_event, repoPath) => {
+    const project = requireConfigStore().recordRecentProject(repoPath);
+    repoSyncWatcher?.close(project.path);
+    latestRepoSyncProgress.delete(project.path);
+    const result = await requireBackendManager().request(
+      `/api/repo?${new URLSearchParams({ repo_path: project.path }).toString()}`,
+      {
+        method: "DELETE",
+      }
+    );
+    requireConfigStore().removeRecentProject(project.path);
+    return result;
+  });
+
   ipcMain.handle("git-odyssey:api:get-repo", async (_event, repoPath, repoSettings) => {
     const project = requireConfigStore().recordRecentProject(repoPath);
     ensureRepoSyncWatcher(project.path);
-    const params = buildRepoQueryParams(project.path, repoSettings);
-    return requireBackendManager().request(`/api/repo?${params.toString()}`);
+    const progressId = randomUUID();
+    const params = buildRepoQueryParams(project.path, repoSettings, progressId);
+    return requestWithRepoSyncProgress(
+      `/api/repo?${params.toString()}`,
+      project.path,
+      { progressId }
+    );
   });
 
   ipcMain.handle("git-odyssey:api:ingest-repo", async (_event, input) => {
     const project = requireConfigStore().recordRecentProject(input.repoPath);
     ensureRepoSyncWatcher(project.path);
-    return requireBackendManager().request("/api/ingest", {
+    const progressId = randomUUID();
+    return requestWithRepoSyncProgress("/api/ingest", project.path, {
       method: "POST",
+      progressId,
       body: {
         repo_path: project.path,
         max_commits: input.maxCommits,
         context_lines: input.contextLines,
         force: input.force ?? false,
+        progress_id: progressId,
       },
     });
   });
@@ -299,9 +429,12 @@ function registerIpcHandlers(): void {
     async (_event, repoPath, commitSha, repoSettings) => {
       const project = requireConfigStore().recordRecentProject(repoPath);
       ensureRepoSyncWatcher(project.path);
-      const params = buildRepoQueryParams(project.path, repoSettings);
-      return requireBackendManager().request(
-        `/api/repo/commit/${commitSha}?${params.toString()}`
+      const progressId = randomUUID();
+      const params = buildRepoQueryParams(project.path, repoSettings, progressId);
+      return requestWithRepoSyncProgress(
+        `/api/repo/commit/${commitSha}?${params.toString()}`,
+        project.path,
+        { progressId }
       );
     }
   );
@@ -309,8 +442,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle("git-odyssey:api:get-commits", async (_event, repoPath, repoSettings) => {
     const project = requireConfigStore().recordRecentProject(repoPath);
     ensureRepoSyncWatcher(project.path);
-    const params = buildRepoQueryParams(project.path, repoSettings);
-    return requireBackendManager().request(`/api/repo/commits?${params.toString()}`);
+    const progressId = randomUUID();
+    const params = buildRepoQueryParams(project.path, repoSettings, progressId);
+    return requestWithRepoSyncProgress(
+      `/api/repo/commits?${params.toString()}`,
+      project.path,
+      { progressId }
+    );
   });
 
   ipcMain.handle("git-odyssey:api:compare-review-target", async (_event, input) => {
@@ -416,7 +554,7 @@ app.whenReady().then(async () => {
   app.setName(APP_NAME);
 
   configStore = new DesktopConfigStore({
-    userDataPath: app.getPath("userData"),
+    rootPath: path.join(os.homedir(), DESKTOP_STATE_DIRNAME),
   });
   keychain = new MacKeychainStore({ serviceName: APP_NAME });
   try {
@@ -435,6 +573,7 @@ app.whenReady().then(async () => {
   repoSyncWatcher = new RepoSyncWatcher({
     backendManager,
     configStore,
+    emitRepoSyncEvent: broadcastRepoSyncEvent,
   });
   reviewRuntimeManager = new ReviewRuntimeManager({
     app,

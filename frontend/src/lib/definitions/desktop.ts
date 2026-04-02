@@ -5,6 +5,7 @@ import type {
   CommitsResponse,
   DatabaseResponse,
   FilterResponse,
+  RepoDeleteResponse,
   RepoResponse,
 } from "@/lib/definitions/api";
 import type {
@@ -164,6 +165,34 @@ export interface GitProjectSummary {
   lastOpenedAt: string;
 }
 
+export type RepoSyncPhase =
+  | "planning"
+  | "loading_commits"
+  | "extracting_ast"
+  | "embedding"
+  | "writing_db"
+  | "completed"
+  | "failed";
+
+export interface RepoSyncProgressEvent {
+  progressId: string;
+  repoPath: string;
+  phase: RepoSyncPhase;
+  label: string;
+  percent: number;
+  stagePercent: number;
+  completedUnits: number;
+  totalUnits: number;
+  commitCount?: number | null;
+  fileChangeCount?: number | null;
+  hunkCount?: number | null;
+  embeddingBatches?: number | null;
+  insertedCommits?: number | null;
+  error?: string | null;
+  startedAt: string;
+  updatedAt: string;
+}
+
 export interface GitOdysseyDesktopApi {
   getRepo(
     repoPath: string,
@@ -183,6 +212,8 @@ export interface GitOdysseyDesktopApi {
   }): Promise<FilterResponse>;
   pickGitProject(): Promise<GitProjectSummary | null>;
   getRecentProjects(): Promise<GitProjectSummary[]>;
+  getRepoSyncProgress(repoPath: string): Promise<RepoSyncProgressEvent | null>;
+  deleteRepo(repoPath: string): Promise<RepoDeleteResponse>;
   summarizeCommit(sha: string): Promise<string>;
   summarizeFileChange(id: number): Promise<string>;
   summarizeHunk(id: number): Promise<string>;
@@ -273,6 +304,9 @@ export interface GitOdysseyDesktopBridge {
   };
   review: {
     onEvent(listener: (event: ReviewRuntimeEvent) => void): () => void;
+  };
+  repoSync: {
+    onEvent(listener: (event: RepoSyncProgressEvent) => void): () => void;
   };
 }
 

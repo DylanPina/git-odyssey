@@ -1,8 +1,13 @@
 import fs = require("node:fs");
 import path = require("node:path");
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
-import type { DesktopConfigState, DesktopRepoSettings } from "./types";
+import type {
+  DesktopConfigState,
+  DesktopRepoSettings,
+  RepoSyncProgressEvent,
+} from "./types";
 
 type WatcherHandle = {
   close(): void;
@@ -53,6 +58,7 @@ class RepoSyncWatcher {
   #watchFactory: WatchFactory;
   #resolveGitDir: (repoPath: string) => string;
   #logger: LoggerLike;
+  #emitRepoSyncEvent?: (payload: RepoSyncProgressEvent) => void;
   #states = new Map<string, RepoWatchState>();
   #debounceMs: number;
 
@@ -62,6 +68,7 @@ class RepoSyncWatcher {
     watchFactory = (targetPath, listener) => fs.watch(targetPath, listener),
     resolveGitDir = defaultResolveGitDir,
     logger = console,
+    emitRepoSyncEvent,
     debounceMs = 600,
   }: {
     backendManager: BackendManagerLike;
@@ -69,6 +76,7 @@ class RepoSyncWatcher {
     watchFactory?: WatchFactory;
     resolveGitDir?: (repoPath: string) => string;
     logger?: LoggerLike;
+    emitRepoSyncEvent?: (payload: RepoSyncProgressEvent) => void;
     debounceMs?: number;
   }) {
     this.#backendManager = backendManager;
@@ -76,6 +84,7 @@ class RepoSyncWatcher {
     this.#watchFactory = watchFactory;
     this.#resolveGitDir = resolveGitDir;
     this.#logger = logger;
+    this.#emitRepoSyncEvent = emitRepoSyncEvent;
     this.#debounceMs = debounceMs;
   }
 
@@ -206,15 +215,50 @@ class RepoSyncWatcher {
       do {
         state.rerunRequested = false;
         const repoSettings = this.#configStore.getRepoSettings(repoPath);
-        await this.#backendManager.request("/api/ingest", {
-          method: "POST",
-          body: {
-            repo_path: repoPath,
-            max_commits: repoSettings.maxCommits,
-            context_lines: repoSettings.contextLines,
-            force: false,
-          },
-        });
+        const progressId = randomUUID();
+        let polling = true;
+
+        const emitProgress = async () => {
+          if (!this.#emitRepoSyncEvent) {
+            return;
+          }
+
+          try {
+            const payload = await this.#backendManager.request(
+              `/api/ingest/progress/${progressId}`
+            );
+            this.#emitRepoSyncEvent(this.#mapRepoSyncPayload(payload as Record<string, unknown>));
+          } catch (_error) {
+            // Ignore missing progress snapshots until the ingest initializes them.
+          }
+        };
+
+        const pollingPromise = (async () => {
+          while (polling) {
+            await emitProgress();
+            if (!polling) {
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        })();
+
+        try {
+          await this.#backendManager.request("/api/ingest", {
+            method: "POST",
+            body: {
+              repo_path: repoPath,
+              max_commits: repoSettings.maxCommits,
+              context_lines: repoSettings.contextLines,
+              force: false,
+              progress_id: progressId,
+            },
+          });
+        } finally {
+          polling = false;
+          await pollingPromise;
+          await emitProgress();
+        }
       } while (state.rerunRequested);
     } catch (error) {
       this.#logger.error(
@@ -225,6 +269,31 @@ class RepoSyncWatcher {
     } finally {
       state.inFlight = false;
     }
+  }
+
+  #mapRepoSyncPayload(payload: Record<string, unknown>): RepoSyncProgressEvent {
+    return {
+      progressId: String(payload.progress_id ?? ""),
+      repoPath: String(payload.repo_path ?? ""),
+      phase: String(payload.phase ?? "planning") as RepoSyncProgressEvent["phase"],
+      label: String(payload.label ?? "Syncing repository"),
+      percent: Number(payload.percent ?? 0),
+      stagePercent: Number(payload.stage_percent ?? 0),
+      completedUnits: Number(payload.completed_units ?? 0),
+      totalUnits: Number(payload.total_units ?? 0),
+      commitCount:
+        payload.commit_count == null ? null : Number(payload.commit_count),
+      fileChangeCount:
+        payload.file_change_count == null ? null : Number(payload.file_change_count),
+      hunkCount: payload.hunk_count == null ? null : Number(payload.hunk_count),
+      embeddingBatches:
+        payload.embedding_batches == null ? null : Number(payload.embedding_batches),
+      insertedCommits:
+        payload.inserted_commits == null ? null : Number(payload.inserted_commits),
+      error: payload.error == null ? null : String(payload.error),
+      startedAt: String(payload.started_at ?? new Date().toISOString()),
+      updatedAt: String(payload.updated_at ?? new Date().toISOString()),
+    };
   }
 }
 

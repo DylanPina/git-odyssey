@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from api.api_model import IngestRequest, RepoResponse
+from api.api_model import IngestProgressResponse, IngestRequest, RepoResponse
 from services.ingest_service import IngestService
 from services.repo_service import RepoService
 from api.dependencies import (
@@ -46,3 +46,17 @@ async def ingest(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+
+@router.get("/progress/{progress_id}", response_model=IngestProgressResponse)
+async def get_ingest_progress(
+    progress_id: str,
+    ingest_service: IngestService = Depends(get_ingest_service),
+):
+    snapshot = ingest_service.get_progress(progress_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingest progress not found",
+        )
+    return IngestProgressResponse.model_validate(snapshot.as_payload())

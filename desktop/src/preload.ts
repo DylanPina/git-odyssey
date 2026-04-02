@@ -45,6 +45,10 @@ const bridge = {
     }) => invoke("git-odyssey:api:filter-commits", input),
     pickGitProject: () => invoke("git-odyssey:api:pick-git-project"),
     getRecentProjects: () => invoke("git-odyssey:api:get-recent-projects"),
+    getRepoSyncProgress: (repoPath: string) =>
+      invoke("git-odyssey:api:get-repo-sync-progress", repoPath),
+    deleteRepo: (repoPath: string) =>
+      invoke("git-odyssey:api:delete-repo", repoPath),
     summarizeCommit: (sha: string) => invoke("git-odyssey:api:summarize-commit", sha),
     summarizeFileChange: (id: number) =>
       invoke("git-odyssey:api:summarize-file-change", id),
@@ -132,6 +136,10 @@ const bridge = {
   review: {
     onEvent: (listener: (event: ReviewEventPayload) => void) =>
       subscribe("git-odyssey:review:event", listener),
+  },
+  repoSync: {
+    onEvent: (listener: (event: ReviewEventPayload) => void) =>
+      subscribe("git-odyssey:repo-sync:event", listener),
   },
 };
 

@@ -257,7 +257,11 @@ class BaseEmbeddingEngine(ABC):
                         stats.ast_tokens += ast_item.token_count
         return work_items, stats
 
-    def embed_repo(self, repo: Repo) -> EmbeddingExecutionStats:
+    def embed_repo(
+        self,
+        repo: Repo,
+        on_batch_completed=None,
+    ) -> EmbeddingExecutionStats:
         started_at = perf_counter()
         print(
             f"Starting embedding generation for repository with {len(repo.commits)} commits..."
@@ -267,7 +271,10 @@ class BaseEmbeddingEngine(ABC):
         ast_items = [item for item in work_items if item.category == "ast"]
         stats.semantic_batches = len(self._chunk_work_items(semantic_items))
         stats.ast_batches = len(self._chunk_work_items(ast_items))
-        self.embed_work_items(work_items, stats=stats)
+        total_batches = stats.semantic_batches + stats.ast_batches
+        if on_batch_completed is not None:
+            on_batch_completed(0, total_batches, stats)
+        self.embed_work_items(work_items, stats=stats, on_batch_completed=on_batch_completed)
         stats.total_seconds = perf_counter() - started_at
         if stats.ast_work_items:
             print(f"Successfully embedded {stats.ast_work_items} AST summaries!")
@@ -569,10 +576,13 @@ class EmbeddingEngine(BaseEmbeddingEngine):
         work_items: list[EmbeddingWorkItem],
         *,
         stats: EmbeddingExecutionStats | None = None,
+        on_batch_completed=None,
     ) -> None:
         if not work_items:
             return
         batches = self._chunk_work_items(work_items)
+        completed_batches = 0
+        total_batches = len(batches)
         if len(batches) == 1:
             embeddings = self._embed_batch_texts(
                 [item.text for item in batches[0]],
@@ -580,9 +590,10 @@ class EmbeddingEngine(BaseEmbeddingEngine):
             )
             for item, embedding in zip(batches[0], embeddings):
                 setattr(item.obj, item.field_name, embedding)
+            if on_batch_completed is not None:
+                on_batch_completed(1, total_batches, stats)
             return
 
-        results: dict[int, list[list[float]]] = {}
         with ThreadPoolExecutor(max_workers=min(self.max_concurrency, len(batches))) as executor:
             future_map = {
                 executor.submit(
@@ -593,11 +604,14 @@ class EmbeddingEngine(BaseEmbeddingEngine):
                 for index, batch in enumerate(batches)
             }
             for future in as_completed(future_map):
-                results[future_map[future]] = future.result()
-
-        for batch_index, batch in enumerate(batches):
-            for item, embedding in zip(batch, results[batch_index]):
-                setattr(item.obj, item.field_name, embedding)
+                batch_index = future_map[future]
+                batch = batches[batch_index]
+                embeddings = future.result()
+                for item, embedding in zip(batch, embeddings):
+                    setattr(item.obj, item.field_name, embedding)
+                completed_batches += 1
+                if on_batch_completed is not None:
+                    on_batch_completed(completed_batches, total_batches, stats)
 
     def embed_batch(self, repo_objects: List[Any]) -> None:
         work_items: list[EmbeddingWorkItem] = []

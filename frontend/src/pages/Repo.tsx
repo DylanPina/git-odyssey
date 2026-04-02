@@ -84,6 +84,11 @@ function RepoWorkspace() {
 		isLoading,
 		isIngesting,
 		ingestStatus,
+		ingestProgressPercent,
+		ingestProgressPhase,
+		ingestProgressLabel,
+		ingestProgressCompletedUnits,
+		ingestProgressTotalUnits,
 		error,
 		refresh,
 	} = useRepoData({
@@ -220,6 +225,8 @@ function RepoWorkspace() {
 					isLoading={isLoading}
 					isIngesting={isIngesting}
 					ingestStatus={ingestStatus}
+					ingestProgressPercent={ingestProgressPercent}
+					ingestProgressLabel={ingestProgressLabel}
 					onExit={handleExit}
 					onClearFilters={handleClearFilters}
 					onFiltersChange={handleFiltersChange}
@@ -240,6 +247,8 @@ function RepoWorkspace() {
 			handleReview,
 			hasActiveFilters,
 			ingestStatus,
+			ingestProgressLabel,
+			ingestProgressPercent,
 			isIngesting,
 			isLoading,
 			repoPath,
@@ -338,6 +347,11 @@ function RepoWorkspace() {
 										isLoading={isLoading}
 										isIngesting={isIngesting}
 										ingestStatus={ingestStatus}
+										ingestProgressPercent={ingestProgressPercent}
+										ingestProgressPhase={ingestProgressPhase}
+										ingestProgressLabel={ingestProgressLabel}
+										ingestProgressCompletedUnits={ingestProgressCompletedUnits}
+										ingestProgressTotalUnits={ingestProgressTotalUnits}
 										layoutDirection={layoutDirection}
 										toggleLayoutDirection={toggleLayoutDirection}
 									/>
@@ -349,6 +363,11 @@ function RepoWorkspace() {
 										isLoading={isLoading}
 										isIngesting={isIngesting}
 										ingestStatus={ingestStatus}
+										ingestProgressPercent={ingestProgressPercent}
+										ingestProgressPhase={ingestProgressPhase}
+										ingestProgressLabel={ingestProgressLabel}
+										ingestProgressCompletedUnits={ingestProgressCompletedUnits}
+										ingestProgressTotalUnits={ingestProgressTotalUnits}
 										onCommitSummaryUpdate={handleCommitSummaryUpdate}
 									/>
 								)}

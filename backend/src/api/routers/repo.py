@@ -19,6 +19,7 @@ async def ensure_fresh_repo_index(
     repo_service: RepoService,
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
+    progress_id: str | None = None,
 ) -> str:
     normalized_repo_path = ingest_service.resolve_repo_path(repo_path)
     if not repo_service.has_repo(normalized_repo_path):
@@ -28,6 +29,7 @@ async def ensure_fresh_repo_index(
                 max_commits=max_commits,
                 context_lines=context_lines,
                 force=False,
+                progress_id=progress_id,
             ),
             current_user.id,
         )
@@ -42,6 +44,7 @@ async def ensure_fresh_repo_index(
                 max_commits=max_commits,
                 context_lines=context_lines,
                 force=True,
+                progress_id=progress_id,
             ),
             current_user.id,
         )
@@ -54,6 +57,7 @@ async def get_repo(
     repo_path: str,
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
+    progress_id: str | None = None,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -66,6 +70,7 @@ async def get_repo(
             repo_service=repo_service,
             max_commits=max_commits,
             context_lines=context_lines,
+            progress_id=progress_id,
         )
         result = repo_service.get_repo(normalized_repo_path)
         if result is None:
@@ -84,6 +89,7 @@ async def get_commits(
     repo_path: str,
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
+    progress_id: str | None = None,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -96,6 +102,7 @@ async def get_commits(
             repo_service=repo_service,
             max_commits=max_commits,
             context_lines=context_lines,
+            progress_id=progress_id,
         )
         return repo_service.get_commits(normalized_repo_path)
     except ValueError as e:
@@ -112,6 +119,7 @@ async def get_commit(
     commit_sha: str,
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
+    progress_id: str | None = None,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -124,8 +132,32 @@ async def get_commit(
             repo_service=repo_service,
             max_commits=max_commits,
             context_lines=context_lines,
+            progress_id=progress_id,
         )
         return repo_service.get_commit(normalized_repo_path, commit_sha)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("")
+async def delete_repo(
+    repo_path: str,
+    current_user: User = Depends(get_current_user),
+    ingest_service: IngestService = Depends(get_ingest_service),
+):
+    if not current_user.id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        normalized_repo_path = ingest_service.delete_repo_data(repo_path)
+        return {
+            "status": "Repository deleted successfully.",
+            "repo_path": normalized_repo_path,
+        }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:

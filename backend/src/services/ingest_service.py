@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from threading import Lock
 from time import perf_counter
 from typing import Literal
 
@@ -10,8 +11,8 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from api.api_model import IngestRequest
 from core.ast_extractor import ASTSummaryExtractor
-from core.embedder import EmbeddingEngine
-from core.repo import BranchState, Repo
+from core.embedder import EmbeddingEngine, EmbeddingExecutionStats
+from core.repo import BranchState, Repo, normalize_repo_path
 from data.data_model import Commit
 from data.schema import (
     FileChangeStatus,
@@ -22,12 +23,28 @@ from data.schema import (
     SQLFileChange,
     SQLFileSnapshot,
     SQLRepo,
+    SQLReviewSession,
     SQLUser,
     commits_branches,
 )
 from utils.logger import logger
 
 SyncMode = Literal["noop", "incremental", "full_rebuild"]
+IngestPhase = Literal[
+    "planning",
+    "loading_commits",
+    "extracting_ast",
+    "embedding",
+    "writing_db",
+    "completed",
+    "failed",
+]
+
+PLANNING_WEIGHT = 5.0
+COMMIT_LOAD_WEIGHT = 10.0
+AST_WEIGHT = 15.0
+EMBEDDING_WEIGHT = 55.0
+DB_WRITE_WEIGHT = 15.0
 
 
 @dataclass(frozen=True)
@@ -124,7 +141,50 @@ class IngestMetrics:
         }
 
 
+@dataclass
+class IngestProgressSnapshot:
+    progress_id: str
+    repo_path: str
+    phase: IngestPhase
+    label: str
+    percent: float
+    stage_percent: float
+    completed_units: int
+    total_units: int
+    commit_count: int | None
+    file_change_count: int | None
+    hunk_count: int | None
+    embedding_batches: int | None
+    inserted_commits: int | None
+    error: str | None
+    started_at: datetime
+    updated_at: datetime
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "progress_id": self.progress_id,
+            "repo_path": self.repo_path,
+            "phase": self.phase,
+            "label": self.label,
+            "percent": round(self.percent, 2),
+            "stage_percent": round(self.stage_percent, 4),
+            "completed_units": self.completed_units,
+            "total_units": self.total_units,
+            "commit_count": self.commit_count,
+            "file_change_count": self.file_change_count,
+            "hunk_count": self.hunk_count,
+            "embedding_batches": self.embedding_batches,
+            "inserted_commits": self.inserted_commits,
+            "error": self.error,
+            "started_at": self.started_at,
+            "updated_at": self.updated_at,
+        }
+
+
 class IngestService:
+    _progress_lock = Lock()
+    _progress_by_id: dict[str, IngestProgressSnapshot] = {}
+
     def __init__(
         self,
         session: Session,
@@ -135,6 +195,68 @@ class IngestService:
         self.embedder = embedder
         self.ast_extractor = ASTSummaryExtractor()
         self.flush_size = max(1, flush_size)
+
+    @classmethod
+    def get_progress(cls, progress_id: str) -> IngestProgressSnapshot | None:
+        with cls._progress_lock:
+            return cls._progress_by_id.get(progress_id)
+
+    def _set_progress(
+        self,
+        *,
+        progress_id: str | None,
+        repo_path: str,
+        phase: IngestPhase,
+        label: str,
+        stage_percent: float,
+        stage_start_percent: float,
+        stage_weight: float,
+        completed_units: int = 0,
+        total_units: int = 0,
+        commit_count: int | None = None,
+        file_change_count: int | None = None,
+        hunk_count: int | None = None,
+        embedding_batches: int | None = None,
+        inserted_commits: int | None = None,
+        error: str | None = None,
+        started_at: datetime | None = None,
+        percent_override: float | None = None,
+    ) -> None:
+        if not progress_id:
+            return
+
+        now = datetime.utcnow()
+        bounded_stage_percent = min(max(stage_percent, 0.0), 1.0)
+        percent = (
+            min(max(percent_override, 0.0), 100.0)
+            if percent_override is not None
+            else min(
+                max(stage_start_percent + (stage_weight * bounded_stage_percent), 0.0),
+                100.0,
+            )
+        )
+
+        with self._progress_lock:
+            existing = self._progress_by_id.get(progress_id)
+            snapshot = IngestProgressSnapshot(
+                progress_id=progress_id,
+                repo_path=repo_path,
+                phase=phase,
+                label=label,
+                percent=percent,
+                stage_percent=bounded_stage_percent,
+                completed_units=completed_units,
+                total_units=total_units,
+                commit_count=commit_count,
+                file_change_count=file_change_count,
+                hunk_count=hunk_count,
+                embedding_batches=embedding_batches,
+                inserted_commits=inserted_commits,
+                error=error,
+                started_at=existing.started_at if existing is not None else (started_at or now),
+                updated_at=now,
+            )
+            self._progress_by_id[progress_id] = snapshot
 
     def resolve_repo_path(self, repo_path: str) -> str:
         return Repo.discover_repo_path(repo_path)
@@ -171,10 +293,29 @@ class IngestService:
         normalized_repo_path = normalized_repo_path or self.resolve_repo_path(
             request.repo_path
         )
+        self._set_progress(
+            progress_id=request.progress_id,
+            repo_path=normalized_repo_path,
+            phase="planning",
+            label="Planning repository sync",
+            stage_percent=0.1,
+            stage_start_percent=0.0,
+            stage_weight=PLANNING_WEIGHT,
+            started_at=datetime.utcnow(),
+        )
         repo = repo if repo is not None else self._get_repo_row(normalized_repo_path)
         _, current_branch_states = Repo.get_branch_states(
             normalized_repo_path,
             max_commits=request.max_commits,
+        )
+        self._set_progress(
+            progress_id=request.progress_id,
+            repo_path=normalized_repo_path,
+            phase="planning",
+            label="Computed repository sync plan",
+            stage_percent=1.0,
+            stage_start_percent=0.0,
+            stage_weight=PLANNING_WEIGHT,
         )
         stored_branch_states = (
             self._get_stored_branch_states(normalized_repo_path) if repo else {}
@@ -436,6 +577,22 @@ class IngestService:
         self.session.execute(delete(SQLRepo).where(SQLRepo.path == repo_path))
         self.session.flush()
 
+    def delete_repo_data(self, repo_path: str) -> str:
+        normalized_repo_path = normalize_repo_path(repo_path)
+
+        review_sessions = (
+            self.session.query(SQLReviewSession)
+            .filter(SQLReviewSession.repo_path == normalized_repo_path)
+            .all()
+        )
+        for review_session in review_sessions:
+            self.session.delete(review_session)
+        self.session.flush()
+
+        self._delete_repo_rows(normalized_repo_path)
+        self.session.commit()
+        return normalized_repo_path
+
     def _delete_branch_links(
         self,
         *,
@@ -501,15 +658,52 @@ class IngestService:
         return repo
 
     def _populate_commit_features(
-        self, commits: dict[str, Commit], metrics: IngestMetrics
+        self,
+        commits: dict[str, Commit],
+        metrics: IngestMetrics,
+        *,
+        progress_id: str | None,
+        repo_path: str,
     ) -> None:
         ast_started_at = perf_counter()
+        total_file_changes = sum(len(commit.file_changes) for commit in commits.values())
+        processed_file_changes = 0
+        self._set_progress(
+            progress_id=progress_id,
+            repo_path=repo_path,
+            phase="extracting_ast",
+            label="Extracting AST summaries",
+            stage_percent=0.0 if total_file_changes else 1.0,
+            stage_start_percent=PLANNING_WEIGHT + COMMIT_LOAD_WEIGHT,
+            stage_weight=AST_WEIGHT,
+            completed_units=0,
+            total_units=total_file_changes,
+        )
         for commit in commits.values():
             metrics.commit_count += 1
             metrics.file_change_count += len(commit.file_changes)
             for file_change in commit.file_changes:
                 metrics.hunk_count += len(file_change.hunks)
                 self.ast_extractor.populate_file_change(file_change)
+                processed_file_changes += 1
+                self._set_progress(
+                    progress_id=progress_id,
+                    repo_path=repo_path,
+                    phase="extracting_ast",
+                    label="Extracting AST summaries",
+                    stage_percent=(
+                        processed_file_changes / total_file_changes
+                        if total_file_changes
+                        else 1.0
+                    ),
+                    stage_start_percent=PLANNING_WEIGHT + COMMIT_LOAD_WEIGHT,
+                    stage_weight=AST_WEIGHT,
+                    completed_units=processed_file_changes,
+                    total_units=total_file_changes,
+                    commit_count=metrics.commit_count,
+                    file_change_count=metrics.file_change_count,
+                    hunk_count=metrics.hunk_count,
+                )
         metrics.ast_extraction_seconds += perf_counter() - ast_started_at
 
         if self.embedder is None or not commits:
@@ -517,7 +711,49 @@ class IngestService:
                 logger.info("Semantic embeddings are disabled; indexing without vectors")
             return
 
-        embedding_stats = self.embedder.embed_repo(type("RepoView", (), {"commits": commits})())
+        embedding_started_at = perf_counter()
+
+        def handle_embedding_progress(
+            completed_batches: int,
+            total_batches: int,
+            current_stats: EmbeddingExecutionStats,
+        ) -> None:
+            self._set_progress(
+                progress_id=progress_id,
+                repo_path=repo_path,
+                phase="embedding",
+                label="Generating embeddings",
+                stage_percent=(
+                    completed_batches / total_batches if total_batches else 1.0
+                ),
+                stage_start_percent=PLANNING_WEIGHT + COMMIT_LOAD_WEIGHT + AST_WEIGHT,
+                stage_weight=EMBEDDING_WEIGHT,
+                completed_units=completed_batches,
+                total_units=total_batches,
+                commit_count=metrics.commit_count,
+                file_change_count=metrics.file_change_count,
+                hunk_count=metrics.hunk_count,
+                embedding_batches=total_batches,
+            )
+
+        self._set_progress(
+            progress_id=progress_id,
+            repo_path=repo_path,
+            phase="embedding",
+            label="Generating embeddings",
+            stage_percent=0.0,
+            stage_start_percent=PLANNING_WEIGHT + COMMIT_LOAD_WEIGHT + AST_WEIGHT,
+            stage_weight=EMBEDDING_WEIGHT,
+            completed_units=0,
+            total_units=0,
+            commit_count=metrics.commit_count,
+            file_change_count=metrics.file_change_count,
+            hunk_count=metrics.hunk_count,
+        )
+        embedding_stats = self.embedder.embed_repo(
+            type("RepoView", (), {"commits": commits})(),
+            on_batch_completed=handle_embedding_progress,
+        )
         metrics.semantic_payload_build_seconds += (
             embedding_stats.semantic_payload_build_seconds
         )
@@ -715,15 +951,43 @@ class IngestService:
 
         load_started_at = perf_counter()
         if plan.missing_commit_shas:
+            total_missing_commits = len(plan.missing_commit_shas)
+            self._set_progress(
+                progress_id=request.progress_id,
+                repo_path=normalized_repo_path,
+                phase="loading_commits",
+                label="Loading commits from Git",
+                stage_percent=0.0 if total_missing_commits else 1.0,
+                stage_start_percent=PLANNING_WEIGHT,
+                stage_weight=COMMIT_LOAD_WEIGHT,
+                completed_units=0,
+                total_units=total_missing_commits,
+            )
             _, missing_commit_models = Repo.load_commits(
                 normalized_repo_path,
                 sorted(plan.missing_commit_shas),
                 context_lines=request.context_lines,
+                progress_callback=lambda loaded_count, total_count: self._set_progress(
+                    progress_id=request.progress_id,
+                    repo_path=normalized_repo_path,
+                    phase="loading_commits",
+                    label="Loading commits from Git",
+                    stage_percent=(loaded_count / total_count) if total_count else 1.0,
+                    stage_start_percent=PLANNING_WEIGHT,
+                    stage_weight=COMMIT_LOAD_WEIGHT,
+                    completed_units=loaded_count,
+                    total_units=total_count,
+                ),
             )
         metrics.commit_load_seconds += perf_counter() - load_started_at
 
         if missing_commit_models:
-            self._populate_commit_features(missing_commit_models, metrics)
+            self._populate_commit_features(
+                missing_commit_models,
+                metrics,
+                progress_id=request.progress_id,
+                repo_path=normalized_repo_path,
+            )
             parent_shas = {
                 commit.parents[0]
                 for commit in missing_commit_models.values()
@@ -737,6 +1001,23 @@ class IngestService:
 
             db_started_at = perf_counter()
             pending_since_flush = 0
+            persisted_commits = 0
+            total_commits_to_insert = len(missing_commit_models)
+            self._set_progress(
+                progress_id=request.progress_id,
+                repo_path=normalized_repo_path,
+                phase="writing_db",
+                label="Writing repository data",
+                stage_percent=0.0 if total_commits_to_insert else 1.0,
+                stage_start_percent=PLANNING_WEIGHT
+                + COMMIT_LOAD_WEIGHT
+                + AST_WEIGHT
+                + EMBEDDING_WEIGHT,
+                stage_weight=DB_WRITE_WEIGHT,
+                completed_units=0,
+                total_units=total_commits_to_insert,
+                inserted_commits=0,
+            )
             for commit_sha in self._order_missing_commits(missing_commit_models):
                 commit = missing_commit_models[commit_sha]
                 first_parent = commit.parents[0] if commit.parents else None
@@ -755,9 +1036,46 @@ class IngestService:
                 pending_since_flush += 1
                 if pending_since_flush >= self.flush_size:
                     self.session.flush()
+                    persisted_commits += pending_since_flush
+                    self._set_progress(
+                        progress_id=request.progress_id,
+                        repo_path=normalized_repo_path,
+                        phase="writing_db",
+                        label="Writing repository data",
+                        stage_percent=(
+                            persisted_commits / total_commits_to_insert
+                            if total_commits_to_insert
+                            else 1.0
+                        ),
+                        stage_start_percent=PLANNING_WEIGHT
+                        + COMMIT_LOAD_WEIGHT
+                        + AST_WEIGHT
+                        + EMBEDDING_WEIGHT,
+                        stage_weight=DB_WRITE_WEIGHT,
+                        completed_units=persisted_commits,
+                        total_units=total_commits_to_insert,
+                        inserted_commits=persisted_commits,
+                    )
                     pending_since_flush = 0
 
             self.session.flush()
+            if pending_since_flush:
+                persisted_commits += pending_since_flush
+            self._set_progress(
+                progress_id=request.progress_id,
+                repo_path=normalized_repo_path,
+                phase="writing_db",
+                label="Writing repository data",
+                stage_percent=1.0,
+                stage_start_percent=PLANNING_WEIGHT
+                + COMMIT_LOAD_WEIGHT
+                + AST_WEIGHT
+                + EMBEDDING_WEIGHT,
+                stage_weight=DB_WRITE_WEIGHT,
+                completed_units=persisted_commits,
+                total_units=total_commits_to_insert,
+                inserted_commits=persisted_commits,
+            )
             metrics.db_insert_seconds += perf_counter() - db_started_at
 
         commit_row_map: dict[str, SQLCommit] = {}
@@ -937,6 +1255,17 @@ class IngestService:
                     self._apply_sync_metadata(
                         repo, request=request, result=result, metrics=metrics
                     )
+                    self._set_progress(
+                        progress_id=request.progress_id,
+                        repo_path=normalized_repo_path,
+                        phase="completed",
+                        label="Repository is up to date",
+                        stage_percent=1.0,
+                        stage_start_percent=0.0,
+                        stage_weight=100.0,
+                        completed_units=1,
+                        total_units=1,
+                    )
                     self.session.commit()
                 logger.info("Skipping ingest for unchanged repo at %s", normalized_repo_path)
                 return normalized_repo_path
@@ -968,6 +1297,26 @@ class IngestService:
                     result=result,
                     metrics=metrics,
                 )
+            self._set_progress(
+                progress_id=request.progress_id,
+                repo_path=normalized_repo_path,
+                phase="completed",
+                label="Repository sync complete",
+                stage_percent=1.0,
+                stage_start_percent=0.0,
+                stage_weight=100.0,
+                completed_units=result.inserted_commits + result.reused_commits,
+                total_units=max(
+                    result.inserted_commits + result.reused_commits,
+                    len(plan.target_commit_shas),
+                    1,
+                ),
+                commit_count=metrics.commit_count,
+                file_change_count=metrics.file_change_count,
+                hunk_count=metrics.hunk_count,
+                embedding_batches=metrics.semantic_batches + metrics.ast_batches,
+                inserted_commits=result.inserted_commits,
+            )
             self.session.commit()
             logger.info(
                 "Indexed repo at %s using %s sync (%s inserted, %s removed) metrics=%s",
@@ -977,7 +1326,21 @@ class IngestService:
                 result.removed_commits,
                 metrics.as_payload(),
             )
-        except Exception:
+        except Exception as error:
+            existing_progress = (
+                self.get_progress(request.progress_id) if request.progress_id else None
+            )
+            self._set_progress(
+                progress_id=request.progress_id,
+                repo_path=normalized_repo_path,
+                phase="failed",
+                label="Repository sync failed",
+                stage_percent=existing_progress.stage_percent if existing_progress else 0.0,
+                stage_start_percent=0.0,
+                stage_weight=0.0,
+                error=str(error),
+                percent_override=existing_progress.percent if existing_progress else 0.0,
+            )
             self.session.rollback()
             raise
 

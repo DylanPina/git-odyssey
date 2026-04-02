@@ -101,10 +101,12 @@ class Repo:
         commit_shas: list[str],
         *,
         context_lines: int = 0,
+        progress_callback=None,
     ) -> tuple[str, dict[str, Commit]]:
         pygit_repo, resolved_path = cls.open_repo(repo_path)
         commits: dict[str, Commit] = {}
-        for commit_sha in commit_shas:
+        total_commits = len(commit_shas)
+        for index, commit_sha in enumerate(commit_shas, start=1):
             commit = pygit_repo.revparse_single(commit_sha)
             if not isinstance(commit, pygit2.Commit):
                 continue
@@ -114,6 +116,8 @@ class Repo:
                 commit,
                 context_lines=context_lines,
             )
+            if progress_callback is not None:
+                progress_callback(index, total_commits)
         return resolved_path, commits
 
     @classmethod

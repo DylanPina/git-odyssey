@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getDesktopRepoSettings, getRepo, ingestRepo } from "@/api/api";
-import type { DesktopRepoSettings } from "@/lib/definitions/desktop";
+import {
+  getDesktopRepoSettings,
+  getRepo,
+  getRepoSyncProgress,
+  ingestRepo,
+  onRepoSyncEvent,
+} from "@/api/api";
+import type {
+  DesktopRepoSettings,
+  RepoSyncPhase,
+  RepoSyncProgressEvent,
+} from "@/lib/definitions/desktop";
 import type { Branch, Commit } from "@/lib/definitions/repo";
 import { getRepoStableKey } from "@/lib/repoPaths";
 import { repoCache } from "@/utils/repoCache";
@@ -20,8 +30,23 @@ type UseRepoData = {
   isLoading: boolean;
   isIngesting: boolean;
   ingestStatus: string;
+  ingestProgressPercent: number | null;
+  ingestProgressPhase: RepoSyncPhase | null;
+  ingestProgressLabel: string | null;
+  ingestProgressCompletedUnits: number | null;
+  ingestProgressTotalUnits: number | null;
   error: string | null;
   refresh: (options?: RefreshOptions) => Promise<void>;
+};
+
+type IngestProgressState = {
+  progressId: string;
+  phase: RepoSyncPhase;
+  label: string;
+  percent: number;
+  completedUnits: number;
+  totalUnits: number;
+  error?: string | null;
 };
 
 function isRepoMissingError(error: unknown): boolean {
@@ -42,6 +67,9 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isIngesting, setIsIngesting] = useState<boolean>(false);
   const [ingestStatus, setIngestStatus] = useState<string>("");
+  const [ingestProgress, setIngestProgress] = useState<IngestProgressState | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
 
   const cacheKey = useMemo(() => {
@@ -93,6 +121,7 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
 
       setIsIngesting(true);
       setError(null);
+      setIngestProgress(null);
       setIngestStatus(
         force ? "Refreshing repository from disk..." : "Indexing repository from disk..."
       );
@@ -220,6 +249,95 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!repoPath) {
+      setIngestProgress(null);
+      return;
+    }
+
+    return onRepoSyncEvent((event: RepoSyncProgressEvent) => {
+      if (getRepoStableKey(event.repoPath) !== getRepoStableKey(repoPath)) {
+        return;
+      }
+
+      if (event.phase === "completed") {
+        setIngestStatus(event.label);
+        setIngestProgress(null);
+        return;
+      }
+
+      if (event.phase === "failed") {
+        setError(event.error ?? "Repository sync failed.");
+        setIngestStatus(event.label);
+        setIngestProgress(null);
+        return;
+      }
+
+      setIngestStatus(event.label);
+      setIngestProgress({
+        progressId: event.progressId,
+        phase: event.phase,
+        label: event.label,
+        percent: event.percent,
+        completedUnits: event.completedUnits,
+        totalUnits: event.totalUnits,
+        error: event.error ?? null,
+      });
+    });
+  }, [repoPath]);
+
+  useEffect(() => {
+    if (!repoPath || (!isIngesting && !isLoading && ingestProgress === null)) {
+      return;
+    }
+
+    let active = true;
+    const poll = async () => {
+      try {
+        const event = await getRepoSyncProgress(repoPath);
+        if (!active || !event) {
+          return;
+        }
+        if (getRepoStableKey(event.repoPath) !== getRepoStableKey(repoPath)) {
+          return;
+        }
+        if (event.phase === "completed") {
+          setIngestStatus(event.label);
+          setIngestProgress(null);
+          return;
+        }
+        if (event.phase === "failed") {
+          setError(event.error ?? "Repository sync failed.");
+          setIngestStatus(event.label);
+          setIngestProgress(null);
+          return;
+        }
+        setIngestStatus(event.label);
+        setIngestProgress({
+          progressId: event.progressId,
+          phase: event.phase,
+          label: event.label,
+          percent: event.percent,
+          completedUnits: event.completedUnits,
+          totalUnits: event.totalUnits,
+          error: event.error ?? null,
+        });
+      } catch {
+        // Ignore polling failures and keep listening for push events.
+      }
+    };
+
+    void poll();
+    const intervalId = window.setInterval(() => {
+      void poll();
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [repoPath, isIngesting, isLoading, ingestProgress]);
+
   const refresh = useCallback(
     async (options?: RefreshOptions) => {
       await load(options);
@@ -231,8 +349,13 @@ export function useRepoData({ repoPath }: UseRepoDataArgs): UseRepoData {
     commits,
     branches,
     isLoading,
-    isIngesting,
+    isIngesting: isIngesting || ingestProgress !== null,
     ingestStatus,
+    ingestProgressPercent: ingestProgress?.percent ?? null,
+    ingestProgressPhase: ingestProgress?.phase ?? null,
+    ingestProgressLabel: ingestProgress?.label ?? null,
+    ingestProgressCompletedUnits: ingestProgress?.completedUnits ?? null,
+    ingestProgressTotalUnits: ingestProgress?.totalUnits ?? null,
     error,
     refresh,
   };

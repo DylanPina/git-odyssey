@@ -6,6 +6,14 @@ export type ReviewApprovalDecision =
   | "acceptForSession"
   | "decline"
   | "cancel";
+export type RepoSyncPhase =
+  | "planning"
+  | "loading_commits"
+  | "extracting_ast"
+  | "embedding"
+  | "writing_db"
+  | "completed"
+  | "failed";
 
 export type ReviewChatCodeContext = {
   id: string;
@@ -57,6 +65,25 @@ export type ReviewChatRequestInput = {
 
 export type ReviewChatResponse = {
   response: string;
+};
+
+export type RepoSyncProgressEvent = {
+  progressId: string;
+  repoPath: string;
+  phase: RepoSyncPhase;
+  label: string;
+  percent: number;
+  stagePercent: number;
+  completedUnits: number;
+  totalUnits: number;
+  commitCount?: number | null;
+  fileChangeCount?: number | null;
+  hunkCount?: number | null;
+  embeddingBatches?: number | null;
+  insertedCommits?: number | null;
+  error?: string | null;
+  startedAt: string;
+  updatedAt: string;
 };
 
 export interface GitProjectSummary {

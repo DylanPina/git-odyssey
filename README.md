@@ -129,10 +129,10 @@ docker compose down -v
 ## Local Data
 
 - Secrets: macOS Keychain
-- Non-secret desktop config: `~/Library/Application Support/git-odyssey-desktop/desktop-config.json`
+- Non-secret desktop config: `~/.git-odyssey/desktop-config.json`
 - Recent Git projects: stored in `desktop-config.json` and pruned automatically if the path is missing or no longer a Git repo
-- Desktop logs: `~/Library/Application Support/git-odyssey-desktop/logs/`
-- Backend log: `~/Library/Application Support/git-odyssey-desktop/logs/backend.log`
+- Desktop logs: `~/.git-odyssey/logs/`
+- Backend log: `~/.git-odyssey/logs/backend.log`
 
 ## Project Status
 

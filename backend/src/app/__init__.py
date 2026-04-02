@@ -1,6 +1,5 @@
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 import infrastructure.db as db
 from infrastructure.db import init_db, close_db
 from infrastructure.errors import (
@@ -12,7 +11,7 @@ from infrastructure.errors import (
     AIUnsupportedCapabilityError,
 )
 from infrastructure.migrations import run_migrations
-from infrastructure.schema import init_schema
+from infrastructure.schema import ensure_pgvector_extension, init_schema
 from contextlib import asynccontextmanager
 from api.dependencies import get_settings
 from utils.logger import logger
@@ -22,8 +21,7 @@ from utils.logger import logger
 async def lifespan(app: FastAPI):
     settings = get_settings()
     init_db(settings.database_url, settings.database_sslmode)
-    with db.engine.begin() as connection:
-        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    ensure_pgvector_extension()
     init_schema()
     run_migrations(settings)
     yield

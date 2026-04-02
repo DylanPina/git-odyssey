@@ -6,20 +6,20 @@ const test = require("node:test");
 
 const { DesktopConfigStore } = require("../src/config-store");
 
-function createUserDataPath() {
+function createRootPath() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "git-odyssey-config-store-"));
 }
 
-function cleanupUserDataPath(userDataPath) {
-  fs.rmSync(userDataPath, { recursive: true, force: true });
+function cleanupRootPath(rootPath) {
+  fs.rmSync(rootPath, { recursive: true, force: true });
 }
 
 test("getRepoSettings returns defaults for repositories without overrides", () => {
-  const userDataPath = createUserDataPath();
+  const rootPath = createRootPath();
 
   try {
-    const store = new DesktopConfigStore({ userDataPath });
-    const repoPath = path.join(userDataPath, "example-repo");
+    const store = new DesktopConfigStore({ rootPath });
+    const repoPath = path.join(rootPath, "example-repo");
 
     fs.mkdirSync(repoPath, { recursive: true });
 
@@ -28,18 +28,18 @@ test("getRepoSettings returns defaults for repositories without overrides", () =
       contextLines: 3,
     });
   } finally {
-    cleanupUserDataPath(userDataPath);
+    cleanupRootPath(rootPath);
   }
 });
 
 test("saveRepoSettings persists repository overrides across store reloads", () => {
-  const userDataPath = createUserDataPath();
+  const rootPath = createRootPath();
 
   try {
-    const repoPath = path.join(userDataPath, "example-repo");
+    const repoPath = path.join(rootPath, "example-repo");
     fs.mkdirSync(repoPath, { recursive: true });
 
-    const store = new DesktopConfigStore({ userDataPath });
+    const store = new DesktopConfigStore({ rootPath });
     const saved = store.saveRepoSettings({
       repoPath,
       maxCommits: 120,
@@ -51,24 +51,24 @@ test("saveRepoSettings persists repository overrides across store reloads", () =
       contextLines: 8,
     });
 
-    const reloadedStore = new DesktopConfigStore({ userDataPath });
+    const reloadedStore = new DesktopConfigStore({ rootPath });
     assert.deepEqual(reloadedStore.getRepoSettings(repoPath), {
       maxCommits: 120,
       contextLines: 8,
     });
   } finally {
-    cleanupUserDataPath(userDataPath);
+    cleanupRootPath(rootPath);
   }
 });
 
 test("repo settings loaded from disk are normalized back to safe defaults", () => {
-  const userDataPath = createUserDataPath();
+  const rootPath = createRootPath();
 
   try {
-    const repoPath = path.join(userDataPath, "example-repo");
+    const repoPath = path.join(rootPath, "example-repo");
     fs.mkdirSync(repoPath, { recursive: true });
 
-    const configPath = path.join(userDataPath, "desktop-config.json");
+    const configPath = path.join(rootPath, "desktop-config.json");
     fs.writeFileSync(
       configPath,
       JSON.stringify(
@@ -76,8 +76,8 @@ test("repo settings loaded from disk are normalized back to safe defaults", () =
           backendPort: 48120,
           databaseUrl: "postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey",
           databaseSslMode: "disable",
-          dataDir: path.join(userDataPath, "data"),
-          logDir: path.join(userDataPath, "logs"),
+          dataDir: path.join(rootPath, "data"),
+          logDir: path.join(rootPath, "logs"),
           aiRuntimeConfig: undefined,
           firstRunCompleted: false,
           recentProjects: [],
@@ -93,12 +93,77 @@ test("repo settings loaded from disk are normalized back to safe defaults", () =
       )
     );
 
-    const store = new DesktopConfigStore({ userDataPath });
+    const store = new DesktopConfigStore({ rootPath });
     assert.deepEqual(store.getRepoSettings(repoPath), {
       maxCommits: 50,
       contextLines: 3,
     });
   } finally {
-    cleanupUserDataPath(userDataPath);
+    cleanupRootPath(rootPath);
+  }
+});
+
+test("creates config, data, and logs under the root path", () => {
+  const rootPath = createRootPath();
+
+  try {
+    new DesktopConfigStore({ rootPath });
+
+    assert.equal(fs.existsSync(path.join(rootPath, "desktop-config.json")), true);
+    assert.equal(fs.existsSync(path.join(rootPath, "data")), true);
+    assert.equal(fs.existsSync(path.join(rootPath, "logs")), true);
+  } finally {
+    cleanupRootPath(rootPath);
+  }
+});
+
+test("migrates legacy Application Support state when the new root is empty", () => {
+  const rootPath = createRootPath();
+  const legacyHome = createRootPath();
+  const legacyRootPath = path.join(
+    legacyHome,
+    "Library",
+    "Application Support",
+    "git-odyssey-desktop"
+  );
+
+  try {
+    fs.mkdirSync(path.join(legacyRootPath, "logs"), { recursive: true });
+    fs.mkdirSync(path.join(legacyRootPath, "data"), { recursive: true });
+    fs.writeFileSync(
+      path.join(legacyRootPath, "desktop-config.json"),
+      JSON.stringify(
+        {
+          backendPort: 48120,
+          databaseUrl: "postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey",
+          databaseSslMode: "disable",
+          dataDir: path.join(legacyRootPath, "data"),
+          logDir: path.join(legacyRootPath, "logs"),
+          aiRuntimeConfig: undefined,
+          firstRunCompleted: true,
+          recentProjects: [],
+          repoSettings: {},
+        },
+        null,
+        2
+      )
+    );
+    fs.writeFileSync(path.join(legacyRootPath, "logs", "backend.log"), "legacy log");
+    fs.writeFileSync(path.join(legacyRootPath, "data", "state.txt"), "legacy data");
+
+    const originalHome = process.env.HOME;
+    process.env.HOME = legacyHome;
+    try {
+      new DesktopConfigStore({ rootPath });
+    } finally {
+      process.env.HOME = originalHome;
+    }
+
+    assert.equal(fs.existsSync(path.join(rootPath, "desktop-config.json")), true);
+    assert.equal(fs.existsSync(path.join(rootPath, "logs", "backend.log")), true);
+    assert.equal(fs.existsSync(path.join(rootPath, "data", "state.txt")), true);
+  } finally {
+    cleanupRootPath(rootPath);
+    cleanupRootPath(legacyHome);
   }
 });

@@ -86,6 +86,37 @@ class IngestRequest(BaseModel):
     max_commits: int = 50
     context_lines: int = 3
     force: bool = False
+    progress_id: str | None = None
+
+
+IngestProgressPhase = Literal[
+    "planning",
+    "loading_commits",
+    "extracting_ast",
+    "embedding",
+    "writing_db",
+    "completed",
+    "failed",
+]
+
+
+class IngestProgressResponse(BaseModel):
+    progress_id: str
+    repo_path: str
+    phase: IngestProgressPhase
+    label: str
+    percent: float
+    stage_percent: float
+    completed_units: int = 0
+    total_units: int = 0
+    commit_count: int | None = None
+    file_change_count: int | None = None
+    hunk_count: int | None = None
+    embedding_batches: int | None = None
+    inserted_commits: int | None = None
+    error: str | None = None
+    started_at: datetime
+    updated_at: datetime
 
 
 class CommitsResponse(BaseModel):

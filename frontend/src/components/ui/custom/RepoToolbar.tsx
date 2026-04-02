@@ -31,6 +31,8 @@ type RepoTitleBarTrailingProps = {
   isLoading?: boolean;
   isIngesting?: boolean;
   ingestStatus?: string;
+  ingestProgressPercent?: number | null;
+  ingestProgressLabel?: string | null;
   onExit?: () => void;
   onClearFilters?: () => void;
   onFiltersChange?: (filters: FilterFormData) => void;
@@ -68,6 +70,8 @@ export function RepoTitleBarTrailing({
   isLoading,
   isIngesting,
   ingestStatus,
+  ingestProgressPercent,
+  ingestProgressLabel,
   onExit,
   onClearFilters,
   onFiltersChange,
@@ -207,15 +211,30 @@ export function RepoTitleBarTrailing({
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <div>
+          <div className="flex items-center gap-2">
             <StatusPill
               tone={statusTone}
               pulse={Boolean(isLoading || isIngesting)}
               icon={<Database className="size-3" />}
               className="cursor-default"
             >
-              {statusLabel}
+              {isIngesting && ingestProgressLabel ? ingestProgressLabel : statusLabel}
             </StatusPill>
+            {isIngesting && ingestProgressPercent != null ? (
+              <div className="hidden w-24 items-center gap-2 sm:flex">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-control">
+                  <div
+                    className="h-full rounded-full bg-accent-primary transition-[width] duration-200 ease-out"
+                    style={{
+                      width: `${Math.min(Math.max(ingestProgressPercent, 0), 100)}%`,
+                    }}
+                  />
+                </div>
+                <span className="text-[11px] font-medium tabular-nums text-text-secondary">
+                  {Math.round(ingestProgressPercent)}%
+                </span>
+              </div>
+            ) : null}
           </div>
         </TooltipTrigger>
         <TooltipContent>{ingestStatus || "Repository status"}</TooltipContent>

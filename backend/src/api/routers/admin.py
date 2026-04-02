@@ -1,11 +1,12 @@
 from fastapi import APIRouter
-from infrastructure.schema import init_schema, drop_schema
+from infrastructure.schema import ensure_pgvector_extension, init_schema, drop_schema
 
 router = APIRouter()
 
 
 @router.post("/init")
 def init_database():
+    ensure_pgvector_extension()
     init_schema()
     # return {"status": "Database initialized successfully"}
     return {"status": "Database initialization is not supported"}

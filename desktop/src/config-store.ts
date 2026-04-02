@@ -79,19 +79,19 @@ function normalizeRepoSettingsMap(
 }
 
 class DesktopConfigStore {
-  userDataPath: string;
+  rootPath: string;
   configPath: string;
   state: DesktopConfigState;
 
-  constructor({ userDataPath }: { userDataPath: string }) {
-    this.userDataPath = userDataPath;
-    this.configPath = path.join(userDataPath, "desktop-config.json");
+  constructor({ rootPath }: { rootPath: string }) {
+    this.rootPath = rootPath;
+    this.configPath = path.join(rootPath, "desktop-config.json");
     this.state = this.#load();
   }
 
   #defaultState(): DesktopConfigState {
-    const dataDir = path.join(this.userDataPath, "data");
-    const logDir = path.join(this.userDataPath, "logs");
+    const dataDir = path.join(this.rootPath, "data");
+    const logDir = path.join(this.rootPath, "logs");
 
     return {
       backendPort: DEFAULT_BACKEND_PORT,
@@ -109,13 +109,44 @@ class DesktopConfigStore {
   }
 
   #ensureParentDirs(): void {
-    fs.mkdirSync(this.userDataPath, { recursive: true });
-    fs.mkdirSync(path.join(this.userDataPath, "data"), { recursive: true });
-    fs.mkdirSync(path.join(this.userDataPath, "logs"), { recursive: true });
+    fs.mkdirSync(this.rootPath, { recursive: true });
+    fs.mkdirSync(path.join(this.rootPath, "data"), { recursive: true });
+    fs.mkdirSync(path.join(this.rootPath, "logs"), { recursive: true });
+  }
+
+  #copyDirIfPresent(sourceDir: string, targetDir: string): void {
+    if (!fs.existsSync(sourceDir) || fs.existsSync(targetDir)) {
+      return;
+    }
+
+    fs.cpSync(sourceDir, targetDir, { recursive: true });
+  }
+
+  #migrateLegacyStateIfNeeded(): void {
+    if (fs.existsSync(this.configPath)) {
+      return;
+    }
+
+    const legacyRootPath = path.join(
+      process.env.HOME ?? "",
+      "Library",
+      "Application Support",
+      "git-odyssey-desktop"
+    );
+    const legacyConfigPath = path.join(legacyRootPath, "desktop-config.json");
+    if (!legacyConfigPath || !fs.existsSync(legacyConfigPath)) {
+      return;
+    }
+
+    this.#ensureParentDirs();
+    fs.copyFileSync(legacyConfigPath, this.configPath, fs.constants.COPYFILE_EXCL);
+    this.#copyDirIfPresent(path.join(legacyRootPath, "logs"), path.join(this.rootPath, "logs"));
+    this.#copyDirIfPresent(path.join(legacyRootPath, "data"), path.join(this.rootPath, "data"));
   }
 
   #load(): DesktopConfigState {
     this.#ensureParentDirs();
+    this.#migrateLegacyStateIfNeeded();
     const defaults = this.#defaultState();
 
     if (!fs.existsSync(this.configPath)) {
@@ -195,6 +226,20 @@ class DesktopConfigStore {
     ]);
     this.save({ recentProjects });
     return projectSummary;
+  }
+
+  removeRecentProject(projectPath: string): void {
+    const normalizedRepoPath = normalizePath(projectPath);
+    if (!normalizedRepoPath) {
+      return;
+    }
+
+    const recentProjects = (this.state.recentProjects ?? []).filter(
+      (project) => project.path !== normalizedRepoPath
+    );
+    const repoSettings = { ...(this.state.repoSettings ?? {}) };
+    delete repoSettings[normalizedRepoPath];
+    this.save({ recentProjects, repoSettings });
   }
 
   getRepoSettings(repoPath: string): DesktopRepoSettings {

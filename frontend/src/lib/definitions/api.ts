@@ -79,6 +79,11 @@ export interface DatabaseResponse {
   status: string;
 }
 
+export interface RepoDeleteResponse {
+  status: string;
+  repo_path: string;
+}
+
 export interface CommitResponse {
   commit: Commit;
 }
