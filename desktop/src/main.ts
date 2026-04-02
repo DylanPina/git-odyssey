@@ -1,6 +1,5 @@
 import os = require("node:os");
 import path = require("node:path");
-import { randomUUID } from "node:crypto";
 
 import {
   app,
@@ -40,6 +39,15 @@ let backendManager: BackendManager | null = null;
 let reviewRuntimeManager: ReviewRuntimeManager | null = null;
 let repoSyncWatcher: RepoSyncWatcher | null = null;
 const latestRepoSyncProgress = new Map<string, RepoSyncProgressEvent>();
+type IngestJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+type IngestJobPayload = {
+  job_id: string;
+  repo_path: string;
+  status: IngestJobStatus;
+  result_repo_path?: string | null;
+  error?: string | null;
+  progress: Record<string, unknown>;
+};
 
 function requireConfigStore(): DesktopConfigStore {
   if (!configStore) {
@@ -113,7 +121,7 @@ async function getSettingsStatus() {
 function buildRepoQueryParams(
   repoPath: string,
   repoSettings: DesktopRepoSettings | null | undefined = null,
-  progressId?: string
+  options?: { autoIngest?: boolean }
 ): URLSearchParams {
   const params = new URLSearchParams({ repo_path: repoPath });
 
@@ -125,8 +133,8 @@ function buildRepoQueryParams(
     params.set("context_lines", String(repoSettings.contextLines));
   }
 
-  if (progressId) {
-    params.set("progress_id", progressId);
+  if (options?.autoIngest === false) {
+    params.set("auto_ingest", "false");
   }
 
   return params;
@@ -194,59 +202,81 @@ function mapRepoSyncPayload(payload: Record<string, unknown>): RepoSyncProgressE
   };
 }
 
-async function requestWithRepoSyncProgress(
-  path: string,
+function mapRepoSyncJobPayload(payload: IngestJobPayload): RepoSyncProgressEvent {
+  return mapRepoSyncPayload(payload.progress);
+}
+
+function isRepoNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Repository not found";
+}
+
+async function startIngestJob(
   repoPath: string,
-  options?: { method?: string; body?: unknown; progressId?: string }
-): Promise<unknown> {
-  const progressId = options?.progressId ?? randomUUID();
-  let polling = true;
+  repoSettings: DesktopRepoSettings | null | undefined,
+  force: boolean
+): Promise<IngestJobPayload> {
+  return requireBackendManager().request("/api/ingest/jobs", {
+    method: "POST",
+    body: {
+      repo_path: repoPath,
+      max_commits: repoSettings?.maxCommits,
+      context_lines: repoSettings?.contextLines,
+      force,
+    },
+  }) as Promise<IngestJobPayload>;
+}
 
-  const emitProgress = async () => {
-    try {
-      const payload = await requireBackendManager().request(
-        `/api/ingest/progress/${progressId}`
-      );
-      broadcastRepoSyncEvent(mapRepoSyncPayload(payload as Record<string, unknown>));
-    } catch (_error) {
-      // Ignore missing progress snapshots while no ingest is active yet.
-    }
-  };
+async function waitForIngestJob(jobId: string): Promise<IngestJobPayload> {
+  while (true) {
+    const job = (await requireBackendManager().request(
+      `/api/ingest/jobs/${jobId}`
+    )) as IngestJobPayload;
+    broadcastRepoSyncEvent(mapRepoSyncJobPayload(job));
 
-  const pollingPromise = (async () => {
-    while (polling) {
-      await emitProgress();
-      if (!polling) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+    if (job.status === "completed") {
+      return job;
     }
-  })();
+
+    if (job.status === "failed") {
+      throw new Error(job.error || "Repository sync failed");
+    }
+
+    if (job.status === "cancelled") {
+      throw new Error("Repository sync was cancelled");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+async function runIngestJobAndWait(
+  repoPath: string,
+  repoSettings: DesktopRepoSettings | null | undefined,
+  force: boolean
+): Promise<IngestJobPayload> {
+  const job = await startIngestJob(repoPath, repoSettings, force);
+  broadcastRepoSyncEvent(mapRepoSyncJobPayload(job));
+  return waitForIngestJob(job.job_id);
+}
+
+async function ensureRepoIndexed(
+  repoPath: string,
+  repoSettings: DesktopRepoSettings | null | undefined
+): Promise<void> {
+  const params = buildRepoQueryParams(repoPath, repoSettings, { autoIngest: false });
 
   try {
-    const result = await requireBackendManager().request(path, options);
-    polling = false;
-    await pollingPromise;
-    await emitProgress();
-    return result;
+    const repo = (await requireBackendManager().request(
+      `/api/repo?${params.toString()}`
+    )) as { reindex_required?: boolean };
+    if (repo.reindex_required) {
+      await runIngestJobAndWait(repoPath, repoSettings, false);
+    }
   } catch (error) {
-    polling = false;
-    await pollingPromise;
-    await emitProgress();
-    broadcastRepoSyncEvent({
-      progressId,
-      repoPath,
-      phase: "failed",
-      label: "Repository sync failed",
-      percent: 0,
-      stagePercent: 0,
-      completedUnits: 0,
-      totalUnits: 0,
-      error: error instanceof Error ? error.message : "Repository sync failed",
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    throw error;
+    if (!isRepoNotFoundError(error)) {
+      throw error;
+    }
+    await runIngestJobAndWait(repoPath, repoSettings, false);
   }
 }
 
@@ -344,29 +374,34 @@ function registerIpcHandlers(): void {
   ipcMain.handle("git-odyssey:api:get-repo", async (_event, repoPath, repoSettings) => {
     const project = requireConfigStore().recordRecentProject(repoPath);
     ensureRepoSyncWatcher(project.path);
-    const progressId = randomUUID();
-    const params = buildRepoQueryParams(project.path, repoSettings, progressId);
-    return requestWithRepoSyncProgress(
-      `/api/repo?${params.toString()}`,
-      project.path,
-      { progressId }
-    );
+    await ensureRepoIndexed(project.path, repoSettings);
+    const params = buildRepoQueryParams(project.path, repoSettings, {
+      autoIngest: false,
+    });
+    return requireBackendManager().request(`/api/repo?${params.toString()}`);
   });
 
   ipcMain.handle("git-odyssey:api:ingest-repo", async (_event, input) => {
     const project = requireConfigStore().recordRecentProject(input.repoPath);
     ensureRepoSyncWatcher(project.path);
-    const progressId = randomUUID();
-    return requestWithRepoSyncProgress("/api/ingest", project.path, {
-      method: "POST",
-      progressId,
-      body: {
-        repo_path: project.path,
-        max_commits: input.maxCommits,
-        context_lines: input.contextLines,
-        force: input.force ?? false,
-        progress_id: progressId,
+    await runIngestJobAndWait(
+      project.path,
+      {
+        maxCommits: input.maxCommits,
+        contextLines: input.contextLines,
       },
+      input.force ?? false
+    );
+    const params = buildRepoQueryParams(
+      project.path,
+      {
+        maxCommits: input.maxCommits,
+        contextLines: input.contextLines,
+      },
+      { autoIngest: false }
+    );
+    return requireBackendManager().request(`/api/repo?${params.toString()}`, {
+      method: "GET",
     });
   });
 
@@ -429,12 +464,12 @@ function registerIpcHandlers(): void {
     async (_event, repoPath, commitSha, repoSettings) => {
       const project = requireConfigStore().recordRecentProject(repoPath);
       ensureRepoSyncWatcher(project.path);
-      const progressId = randomUUID();
-      const params = buildRepoQueryParams(project.path, repoSettings, progressId);
-      return requestWithRepoSyncProgress(
-        `/api/repo/commit/${commitSha}?${params.toString()}`,
-        project.path,
-        { progressId }
+      await ensureRepoIndexed(project.path, repoSettings);
+      const params = buildRepoQueryParams(project.path, repoSettings, {
+        autoIngest: false,
+      });
+      return requireBackendManager().request(
+        `/api/repo/commit/${commitSha}?${params.toString()}`
       );
     }
   );
@@ -442,13 +477,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle("git-odyssey:api:get-commits", async (_event, repoPath, repoSettings) => {
     const project = requireConfigStore().recordRecentProject(repoPath);
     ensureRepoSyncWatcher(project.path);
-    const progressId = randomUUID();
-    const params = buildRepoQueryParams(project.path, repoSettings, progressId);
-    return requestWithRepoSyncProgress(
-      `/api/repo/commits?${params.toString()}`,
-      project.path,
-      { progressId }
-    );
+    await ensureRepoIndexed(project.path, repoSettings);
+    const params = buildRepoQueryParams(project.path, repoSettings, {
+      autoIngest: false,
+    });
+    return requireBackendManager().request(`/api/repo/commits?${params.toString()}`);
   });
 
   ipcMain.handle("git-odyssey:api:compare-review-target", async (_event, input) => {

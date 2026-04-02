@@ -20,8 +20,11 @@ async def ensure_fresh_repo_index(
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
     progress_id: str | None = None,
+    auto_ingest: bool = True,
 ) -> str:
     normalized_repo_path = ingest_service.resolve_repo_path(repo_path)
+    if not auto_ingest:
+        return normalized_repo_path
     if not repo_service.has_repo(normalized_repo_path):
         await ingest_service.ingest_repo(
             IngestRequest(
@@ -58,6 +61,7 @@ async def get_repo(
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
     progress_id: str | None = None,
+    auto_ingest: bool = True,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -71,6 +75,7 @@ async def get_repo(
             max_commits=max_commits,
             context_lines=context_lines,
             progress_id=progress_id,
+            auto_ingest=auto_ingest,
         )
         result = repo_service.get_repo(normalized_repo_path)
         if result is None:
@@ -90,6 +95,7 @@ async def get_commits(
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
     progress_id: str | None = None,
+    auto_ingest: bool = True,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -103,6 +109,7 @@ async def get_commits(
             max_commits=max_commits,
             context_lines=context_lines,
             progress_id=progress_id,
+            auto_ingest=auto_ingest,
         )
         return repo_service.get_commits(normalized_repo_path)
     except ValueError as e:
@@ -120,6 +127,7 @@ async def get_commit(
     max_commits: int = DEFAULT_MAX_COMMITS,
     context_lines: int = DEFAULT_CONTEXT_LINES,
     progress_id: str | None = None,
+    auto_ingest: bool = True,
     current_user: User = Depends(get_current_user),
     ingest_service: IngestService = Depends(get_ingest_service),
     repo_service: RepoService = Depends(get_repo_service),
@@ -133,6 +141,7 @@ async def get_commit(
             max_commits=max_commits,
             context_lines=context_lines,
             progress_id=progress_id,
+            auto_ingest=auto_ingest,
         )
         return repo_service.get_commit(normalized_repo_path, commit_sha)
     except ValueError as e:

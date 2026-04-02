@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from threading import Lock
+from threading import Lock, Thread
 from time import perf_counter
 from typing import Literal
+from uuid import uuid4
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -27,9 +29,11 @@ from data.schema import (
     SQLUser,
     commits_branches,
 )
+import infrastructure.db as db
 from utils.logger import logger
 
 SyncMode = Literal["noop", "incremental", "full_rebuild"]
+IngestJobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 IngestPhase = Literal[
     "planning",
     "loading_commits",
@@ -45,6 +49,7 @@ COMMIT_LOAD_WEIGHT = 10.0
 AST_WEIGHT = 15.0
 EMBEDDING_WEIGHT = 55.0
 DB_WRITE_WEIGHT = 15.0
+TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,7 @@ class IngestMetrics:
 
 @dataclass
 class IngestProgressSnapshot:
+    job_id: str
     progress_id: str
     repo_path: str
     phase: IngestPhase
@@ -162,6 +168,7 @@ class IngestProgressSnapshot:
 
     def as_payload(self) -> dict[str, object]:
         return {
+            "job_id": self.job_id,
             "progress_id": self.progress_id,
             "repo_path": self.repo_path,
             "phase": self.phase,
@@ -181,9 +188,38 @@ class IngestProgressSnapshot:
         }
 
 
+@dataclass
+class IngestJobSnapshot:
+    job_id: str
+    repo_path: str
+    status: IngestJobStatus
+    result_repo_path: str | None
+    error: str | None
+    progress: IngestProgressSnapshot
+    started_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "job_id": self.job_id,
+            "repo_path": self.repo_path,
+            "status": self.status,
+            "result_repo_path": self.result_repo_path,
+            "error": self.error,
+            "progress": self.progress.as_payload(),
+            "started_at": self.started_at,
+            "updated_at": self.updated_at,
+            "completed_at": self.completed_at,
+        }
+
+
 class IngestService:
     _progress_lock = Lock()
     _progress_by_id: dict[str, IngestProgressSnapshot] = {}
+    _jobs_lock = Lock()
+    _jobs_by_id: dict[str, IngestJobSnapshot] = {}
+    _active_job_ids_by_repo: dict[str, str] = {}
 
     def __init__(
         self,
@@ -200,6 +236,205 @@ class IngestService:
     def get_progress(cls, progress_id: str) -> IngestProgressSnapshot | None:
         with cls._progress_lock:
             return cls._progress_by_id.get(progress_id)
+
+    @classmethod
+    def get_job(cls, job_id: str) -> IngestJobSnapshot | None:
+        with cls._jobs_lock:
+            return cls._jobs_by_id.get(job_id)
+
+    @classmethod
+    def reset_runtime_state(cls) -> None:
+        with cls._jobs_lock:
+            cls._jobs_by_id.clear()
+            cls._active_job_ids_by_repo.clear()
+        with cls._progress_lock:
+            cls._progress_by_id.clear()
+
+    @classmethod
+    def _update_job(
+        cls,
+        job_id: str,
+        *,
+        status: IngestJobStatus | None = None,
+        result_repo_path: str | None = None,
+        error: str | None = None,
+        progress: IngestProgressSnapshot | None = None,
+        completed_at: datetime | None = None,
+    ) -> IngestJobSnapshot | None:
+        with cls._jobs_lock:
+            job = cls._jobs_by_id.get(job_id)
+            if job is None:
+                return None
+
+            now = datetime.utcnow()
+            next_status = status or job.status
+            if status == "completed":
+                cls._active_job_ids_by_repo.pop(job.repo_path, None)
+            elif status in {"failed", "cancelled"}:
+                cls._active_job_ids_by_repo.pop(job.repo_path, None)
+
+            updated_job = IngestJobSnapshot(
+                job_id=job.job_id,
+                repo_path=job.repo_path,
+                status=next_status,
+                result_repo_path=(
+                    result_repo_path if result_repo_path is not None else job.result_repo_path
+                ),
+                error=error if error is not None else job.error,
+                progress=progress or job.progress,
+                started_at=job.started_at,
+                updated_at=now,
+                completed_at=completed_at if completed_at is not None else job.completed_at,
+            )
+            cls._jobs_by_id[job_id] = updated_job
+            return updated_job
+
+    def _create_queued_progress(
+        self,
+        *,
+        job_id: str,
+        repo_path: str,
+        started_at: datetime,
+    ) -> IngestProgressSnapshot:
+        return IngestProgressSnapshot(
+            job_id=job_id,
+            progress_id=job_id,
+            repo_path=repo_path,
+            phase="planning",
+            label="Queued repository sync",
+            percent=0.0,
+            stage_percent=0.0,
+            completed_units=0,
+            total_units=0,
+            commit_count=None,
+            file_change_count=None,
+            hunk_count=None,
+            embedding_batches=None,
+            inserted_commits=None,
+            error=None,
+            started_at=started_at,
+            updated_at=started_at,
+        )
+
+    def start_ingest_job(self, request: IngestRequest, user_id: str | int) -> IngestJobSnapshot:
+        normalized_repo_path = self.resolve_repo_path(request.repo_path)
+
+        with self._jobs_lock:
+            existing_job_id = self._active_job_ids_by_repo.get(normalized_repo_path)
+            if existing_job_id is not None:
+                existing_job = self._jobs_by_id.get(existing_job_id)
+                if existing_job is not None and existing_job.status not in TERMINAL_JOB_STATUSES:
+                    return existing_job
+
+            job_id = str(uuid4())
+            now = datetime.utcnow()
+            queued_progress = self._create_queued_progress(
+                job_id=job_id,
+                repo_path=normalized_repo_path,
+                started_at=now,
+            )
+            self._jobs_by_id[job_id] = IngestJobSnapshot(
+                job_id=job_id,
+                repo_path=normalized_repo_path,
+                status="queued",
+                result_repo_path=None,
+                error=None,
+                progress=queued_progress,
+                started_at=now,
+                updated_at=now,
+                completed_at=None,
+            )
+            self._active_job_ids_by_repo[normalized_repo_path] = job_id
+
+        with self._progress_lock:
+            self._progress_by_id[job_id] = queued_progress
+
+        worker_request = request.model_copy(
+            update={
+                "repo_path": normalized_repo_path,
+                "progress_id": job_id,
+            }
+        )
+        try:
+            self._spawn_job_worker(job_id, worker_request, user_id)
+        except Exception as error:
+            self._update_job(
+                job_id,
+                status="failed",
+                error=str(error),
+                completed_at=datetime.utcnow(),
+            )
+            raise
+        job = self.get_job(job_id)
+        if job is None:
+            raise RuntimeError("Failed to create ingest job")
+        return job
+
+    def _spawn_job_worker(
+        self,
+        job_id: str,
+        request: IngestRequest,
+        user_id: str | int,
+    ) -> None:
+        thread = Thread(
+            target=self._run_job_worker,
+            args=(job_id, request, user_id),
+            name=f"git-odyssey-ingest-{job_id}",
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_job_worker(
+        self,
+        job_id: str,
+        request: IngestRequest,
+        user_id: str | int,
+    ) -> None:
+        session_factory = db.SessionLocal
+        if session_factory is None:
+            error_message = "Database session factory is not initialized"
+            self._update_job(job_id, status="failed", error=error_message, completed_at=datetime.utcnow())
+            raise RuntimeError(error_message)
+
+        self._update_job(job_id, status="running")
+
+        try:
+            with session_factory() as session:
+                worker_service = IngestService(
+                    session=session,
+                    embedder=self.embedder,
+                    flush_size=self.flush_size,
+                )
+                result_repo_path = worker_service._ingest_repo_sync(request, user_id)
+            self._update_job(
+                job_id,
+                status="completed",
+                result_repo_path=result_repo_path,
+                error=None,
+                completed_at=datetime.utcnow(),
+            )
+        except Exception as error:
+            logger.exception("Background ingest job %s failed", job_id)
+            self._update_job(
+                job_id,
+                status="failed",
+                error=str(error),
+                completed_at=datetime.utcnow(),
+            )
+
+    async def wait_for_job(
+        self,
+        job_id: str,
+        *,
+        poll_interval_seconds: float = 0.05,
+    ) -> IngestJobSnapshot:
+        while True:
+            job = self.get_job(job_id)
+            if job is None:
+                raise ValueError(f"Ingest job {job_id} not found")
+            if job.status in TERMINAL_JOB_STATUSES:
+                return job
+            await asyncio.sleep(poll_interval_seconds)
 
     def _set_progress(
         self,
@@ -239,6 +474,7 @@ class IngestService:
         with self._progress_lock:
             existing = self._progress_by_id.get(progress_id)
             snapshot = IngestProgressSnapshot(
+                job_id=progress_id,
                 progress_id=progress_id,
                 repo_path=repo_path,
                 phase=phase,
@@ -257,6 +493,7 @@ class IngestService:
                 updated_at=now,
             )
             self._progress_by_id[progress_id] = snapshot
+        self._update_job(progress_id, progress=snapshot)
 
     def resolve_repo_path(self, repo_path: str) -> str:
         return Repo.discover_repo_path(repo_path)
@@ -1223,8 +1460,16 @@ class IngestService:
             reason=plan.reason,
         )
 
-    # TODO: Make async (this is bottleneck) - store ingestion jobs and use Celery or Arq
-    async def ingest_repo(self, request: IngestRequest, user_id: str) -> str:
+    async def ingest_repo(self, request: IngestRequest, user_id: str | int) -> str:
+        job = self.start_ingest_job(request, user_id)
+        completed_job = await self.wait_for_job(job.job_id)
+        if completed_job.status == "failed":
+            raise RuntimeError(completed_job.error or "Repository sync failed")
+        if completed_job.status == "cancelled":
+            raise RuntimeError("Repository sync was cancelled")
+        return completed_job.result_repo_path or completed_job.repo_path
+
+    def _ingest_repo_sync(self, request: IngestRequest, user_id: str | int) -> str:
         total_started_at = perf_counter()
         metrics = IngestMetrics()
         user = self.session.query(SQLUser).filter(SQLUser.id == user_id).first()

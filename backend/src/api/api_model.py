@@ -101,6 +101,7 @@ IngestProgressPhase = Literal[
 
 
 class IngestProgressResponse(BaseModel):
+    job_id: str
     progress_id: str
     repo_path: str
     phase: IngestProgressPhase
@@ -117,6 +118,21 @@ class IngestProgressResponse(BaseModel):
     error: str | None = None
     started_at: datetime
     updated_at: datetime
+
+
+IngestJobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+
+
+class IngestJobResponse(BaseModel):
+    job_id: str
+    repo_path: str
+    status: IngestJobStatus
+    result_repo_path: str | None = None
+    error: str | None = None
+    progress: IngestProgressResponse
+    started_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
 
 
 class CommitsResponse(BaseModel):

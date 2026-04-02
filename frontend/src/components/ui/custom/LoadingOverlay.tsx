@@ -49,7 +49,7 @@ export function LoadingOverlay({
           </div>
           <p className="text-sm leading-6 text-text-secondary">
             {isIngesting
-              ? "GitOdyssey is indexing repository history from disk. Large repositories can take a moment."
+              ? "GitOdyssey is analyzing commits and preparing repository insights."
               : "Preparing this workspace view."}
           </p>
         </div>
@@ -61,7 +61,7 @@ export function LoadingOverlay({
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-control">
               <div
-                className="h-full rounded-full bg-accent-primary transition-[width] duration-200 ease-out"
+                className="h-full rounded-full bg-primary shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_0_18px_rgba(122,162,255,0.35)] transition-[width] duration-200 ease-out"
                 style={{ width: `${Math.min(Math.max(progressPercent, 0), 100)}%` }}
               />
             </div>

@@ -224,7 +224,7 @@ export function RepoTitleBarTrailing({
               <div className="hidden w-24 items-center gap-2 sm:flex">
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-control">
                   <div
-                    className="h-full rounded-full bg-accent-primary transition-[width] duration-200 ease-out"
+                    className="h-full rounded-full bg-primary shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_0_16px_rgba(122,162,255,0.28)] transition-[width] duration-200 ease-out"
                     style={{
                       width: `${Math.min(Math.max(ingestProgressPercent, 0), 100)}%`,
                     }}

@@ -1,7 +1,6 @@
 import fs = require("node:fs");
 import path = require("node:path");
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 
 import type {
   DesktopConfigState,
@@ -31,6 +30,14 @@ type ConfigStoreLike = {
 };
 
 type LoggerLike = Pick<Console, "warn" | "error">;
+type IngestJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+type IngestJobPayload = {
+  job_id: string;
+  repo_path: string;
+  status: IngestJobStatus;
+  error?: string | null;
+  progress: Record<string, unknown>;
+};
 
 type RepoWatchState = {
   repoPath: string;
@@ -215,49 +222,40 @@ class RepoSyncWatcher {
       do {
         state.rerunRequested = false;
         const repoSettings = this.#configStore.getRepoSettings(repoPath);
-        const progressId = randomUUID();
-        let polling = true;
+        const job = (await this.#backendManager.request("/api/ingest/jobs", {
+          method: "POST",
+          body: {
+            repo_path: repoPath,
+            max_commits: repoSettings.maxCommits,
+            context_lines: repoSettings.contextLines,
+            force: false,
+          },
+        })) as IngestJobPayload;
 
-        const emitProgress = async () => {
-          if (!this.#emitRepoSyncEvent) {
-            return;
+        this.#emitRepoSyncJob(job);
+
+        while (true) {
+          const currentJob =
+            job.status === "queued" || job.status === "running"
+              ? ((await this.#backendManager.request(
+                  `/api/ingest/jobs/${job.job_id}`
+                )) as IngestJobPayload)
+              : job;
+          this.#emitRepoSyncJob(currentJob);
+
+          if (currentJob.status === "completed") {
+            break;
           }
 
-          try {
-            const payload = await this.#backendManager.request(
-              `/api/ingest/progress/${progressId}`
-            );
-            this.#emitRepoSyncEvent(this.#mapRepoSyncPayload(payload as Record<string, unknown>));
-          } catch (_error) {
-            // Ignore missing progress snapshots until the ingest initializes them.
+          if (currentJob.status === "failed") {
+            throw new Error(currentJob.error || "Repository sync failed");
           }
-        };
 
-        const pollingPromise = (async () => {
-          while (polling) {
-            await emitProgress();
-            if (!polling) {
-              break;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 250));
+          if (currentJob.status === "cancelled") {
+            throw new Error("Repository sync was cancelled");
           }
-        })();
 
-        try {
-          await this.#backendManager.request("/api/ingest", {
-            method: "POST",
-            body: {
-              repo_path: repoPath,
-              max_commits: repoSettings.maxCommits,
-              context_lines: repoSettings.contextLines,
-              force: false,
-              progress_id: progressId,
-            },
-          });
-        } finally {
-          polling = false;
-          await pollingPromise;
-          await emitProgress();
+          await new Promise((resolve) => setTimeout(resolve, 250));
         }
       } while (state.rerunRequested);
     } catch (error) {
@@ -294,6 +292,13 @@ class RepoSyncWatcher {
       startedAt: String(payload.started_at ?? new Date().toISOString()),
       updatedAt: String(payload.updated_at ?? new Date().toISOString()),
     };
+  }
+
+  #emitRepoSyncJob(job: IngestJobPayload): void {
+    if (!this.#emitRepoSyncEvent) {
+      return;
+    }
+    this.#emitRepoSyncEvent(this.#mapRepoSyncPayload(job.progress));
   }
 }
 
