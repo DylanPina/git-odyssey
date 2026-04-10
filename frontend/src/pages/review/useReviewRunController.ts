@@ -33,7 +33,28 @@ type UseReviewRunControllerArgs = {
 	baseRef?: string;
 	headRef?: string;
 	commitSha?: string | null;
+	sessionId?: string | null;
 };
+
+function sessionMatchesTarget(
+	session: ReviewSession,
+	input: {
+		targetMode: "compare" | "commit";
+		baseRef: string;
+		headRef: string;
+		commitSha: string | null;
+	},
+) {
+	if (session.target_mode !== input.targetMode) {
+		return false;
+	}
+
+	if (input.targetMode === "commit") {
+		return session.commit_sha === input.commitSha;
+	}
+
+	return session.base_ref === input.baseRef && session.head_ref === input.headRef;
+}
 
 export function useReviewRunController({
 	repoPath,
@@ -41,6 +62,7 @@ export function useReviewRunController({
 	baseRef = "",
 	headRef = "",
 	commitSha = null,
+	sessionId = null,
 }: UseReviewRunControllerArgs) {
 	const sessionRequestIdRef = useRef(0);
 	const historyRequestIdRef = useRef(0);
@@ -82,7 +104,7 @@ export function useReviewRunController({
 		setApprovalLoadingById({});
 		historySelectionRequestIdRef.current += 1;
 		lastHistorySyncRunKeyRef.current = null;
-	}, [baseRef, commitSha, headRef, repoPath, targetMode]);
+	}, [baseRef, commitSha, headRef, repoPath, sessionId, targetMode]);
 
 	const refreshSessionState = useCallback(
 		async (sessionId: string, preferredRunId?: string | null) => {
@@ -172,11 +194,13 @@ export function useReviewRunController({
 			baseRef: nextBaseRef = baseRef,
 			headRef: nextHeadRef = headRef,
 			commitSha: nextCommitSha = commitSha,
+			sessionId: nextSessionId = sessionId,
 		}: {
 			targetMode?: "compare" | "commit";
 			baseRef?: string;
 			headRef?: string;
 			commitSha?: string | null;
+			sessionId?: string | null;
 		} = {}): Promise<ReviewSession | null> => {
 			if (!repoPath) {
 				setSessionError("No Git project path was provided.");
@@ -196,15 +220,46 @@ export function useReviewRunController({
 			setRunError(null);
 
 			try {
-				const repoSettings = await getDesktopRepoSettings(repoPath);
-				const nextSession = await createReviewSession({
-					repoPath,
-					targetMode: nextTargetMode,
-					baseRef: nextTargetMode === "compare" ? nextBaseRef : undefined,
-					headRef: nextTargetMode === "compare" ? nextHeadRef : undefined,
-					commitSha: nextTargetMode === "commit" ? nextCommitSha : undefined,
-					contextLines: repoSettings.contextLines,
-				});
+				let boundSession: ReviewSession | null = null;
+				if (nextSessionId) {
+					try {
+						boundSession = await getReviewSession(nextSessionId);
+					} catch {
+						boundSession = null;
+					}
+				}
+
+				const canReuseBoundSession = Boolean(
+					boundSession &&
+						sessionMatchesTarget(boundSession, {
+							targetMode: nextTargetMode,
+							baseRef: nextBaseRef,
+							headRef: nextHeadRef,
+							commitSha: nextCommitSha,
+						}) &&
+						(nextTargetMode === "commit" ||
+							Boolean(
+								boundSession.runs[0]?.status &&
+									ACTIVE_RUN_STATUSES.has(boundSession.runs[0].status),
+							)),
+				);
+				const nextSession: ReviewSession =
+					canReuseBoundSession && boundSession
+						? boundSession
+					: await (async () => {
+							const repoSettings = await getDesktopRepoSettings(repoPath);
+							return createReviewSession({
+								repoPath,
+								targetMode: nextTargetMode,
+								baseRef:
+									nextTargetMode === "compare" ? nextBaseRef : undefined,
+								headRef:
+									nextTargetMode === "compare" ? nextHeadRef : undefined,
+								commitSha:
+									nextTargetMode === "commit" ? nextCommitSha : undefined,
+								contextLines: repoSettings.contextLines,
+							});
+						  })();
 				if (sessionRequestIdRef.current !== requestId) {
 					return null;
 				}
@@ -248,7 +303,7 @@ export function useReviewRunController({
 				}
 			}
 		},
-		[baseRef, commitSha, headRef, repoPath, targetMode],
+		[baseRef, commitSha, headRef, repoPath, sessionId, targetMode],
 	);
 
 	useEffect(() => {
@@ -262,8 +317,8 @@ export function useReviewRunController({
 			return;
 		}
 
-		void loadSession({ targetMode, baseRef, headRef, commitSha });
-	}, [baseRef, commitSha, headRef, loadSession, repoPath, targetMode]);
+		void loadSession({ targetMode, baseRef, headRef, commitSha, sessionId });
+	}, [baseRef, commitSha, headRef, loadSession, repoPath, sessionId, targetMode]);
 
 	useEffect(() => {
 		if (

@@ -13,6 +13,8 @@ export const ACTIVE_RUN_STATUSES = new Set<ReviewRun["status"]>([
 
 export const REVIEW_SELECTED_REFS_STORAGE_KEY_PREFIX =
 	"git-odyssey.review.selected_refs";
+export const REVIEW_TABS_STORAGE_KEY_PREFIX = "git-odyssey.review.tabs";
+export const REVIEW_TABS_STORAGE_VERSION = 1;
 export const REVIEW_CHAT_STORAGE_KEY_PREFIX = "git-odyssey.review.chat";
 export const REVIEW_FILE_TREE_WIDTH_STORAGE_KEY =
 	"git-odyssey.review.file_tree_width";
