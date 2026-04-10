@@ -1,0 +1,19 @@
+# Start with: tmuxinator local
+
+name: git-odyssey
+root: /Users/dillonpina/Documents/code/git-odyssey
+startup_window: app
+
+windows:
+  - app:
+      panes:
+        - docker compose up -d db && npm run desktop:dev
+  - lazygit:
+      panes:
+        - lazygit
+  - lazydocker:
+      panes:
+        - lazydocker
+  - ghostty:
+      panes:
+        - clear
