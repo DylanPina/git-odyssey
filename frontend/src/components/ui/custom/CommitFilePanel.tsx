@@ -18,7 +18,6 @@ import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { StatusPill } from "@/components/ui/status-pill";
 import {
-	findClosestHunk,
 	getFileChangeDiffContents,
 	type DiffFileStatus,
 	type DiffCodeSearchFileIndex,
@@ -27,13 +26,12 @@ import {
 	type DiffSelectionContext,
 	type DiffSearchHighlightStrategy,
 	type DiffViewerSide,
-	formatHunkLabel,
 	getDiffStatusLabel,
 	getDiffStatusTone,
 	getFileChangeLabelPath,
 	inferLanguage,
 } from "@/lib/diff";
-import type { FileChange, FileHunk } from "@/lib/definitions/repo";
+import type { FileChange } from "@/lib/definitions/repo";
 import { registerGitOdysseyMonacoTheme } from "@/lib/monacoTheme";
 import { buildMonacoModelUri } from "@/lib/repoPaths";
 import { cn } from "@/lib/utils";
@@ -65,10 +63,6 @@ type CommitFilePanelProps = {
 	isFileSummaryOpen?: boolean;
 	onToggleFileSummary?: () => void;
 	onSummarizeFile?: () => void;
-	hunkSummaries?: Record<string, SummaryState>;
-	hunkSummaryOpen?: Record<string, boolean>;
-	onToggleHunkSummary?: (hunkId: string) => void;
-	onSummarizeHunk?: (hunk: FileHunk) => void;
 	isSelected?: boolean;
 	navigationTarget?: DiffNavigationTarget | null;
 	onNavigationTargetHandled?: () => void;
@@ -82,12 +76,6 @@ type CommitFilePanelProps = {
 	diffMode?: DiffMode;
 	onDiffModeChange?: (mode: DiffMode) => void;
 };
-
-function getHunkAnchorKey(hunk: FileHunk, index: number): string {
-	return hunk.id != null
-		? `id:${hunk.id}`
-		: `range:${index}:${hunk.old_start}:${hunk.new_start}`;
-}
 
 function resolveNavigationPosition(
 	status: DiffFileStatus,
@@ -127,10 +115,6 @@ export function CommitFilePanel({
 	isFileSummaryOpen = false,
 	onToggleFileSummary,
 	onSummarizeFile,
-	hunkSummaries = {},
-	hunkSummaryOpen = {},
-	onToggleHunkSummary,
-	onSummarizeHunk,
 	isSelected = false,
 	navigationTarget = null,
 	onNavigationTargetHandled,
@@ -170,7 +154,6 @@ export function CommitFilePanel({
 		modified: [],
 	});
 	const lineHighlightTimerRef = useRef<number | null>(null);
-	const hunkRefs = useRef<Record<string, HTMLDivElement | null>>({});
 	const pendingCodeNavigationRef = useRef<
 		Record<string, CodeNavigationTarget | undefined>
 	>({});
@@ -623,41 +606,6 @@ export function CommitFilePanel({
 		[focusMountedLine, labelPath],
 	);
 
-	const revealHunk = useCallback(
-		(hunk: FileHunk) => {
-			const side: DiffViewerSide =
-				status === "deleted" ? "original" : "modified";
-			const line = side === "original" ? hunk.old_start : hunk.new_start;
-			focusDiffLine({ side, line });
-		},
-		[focusDiffLine, status],
-	);
-	const emphasizedHunkAnchorKey = useMemo(() => {
-		if (
-			!contextHighlight ||
-			contextHighlight.highlightStrategy === "file_header" ||
-			contextHighlight.line == null ||
-			contextHighlight.side == null
-		) {
-			return null;
-		}
-
-		const closestHunk = findClosestHunk(hunkList, {
-			newStart:
-				contextHighlight.side === "modified" ? contextHighlight.line : null,
-			oldStart:
-				contextHighlight.side === "original" ? contextHighlight.line : null,
-		});
-		if (!closestHunk) {
-			return null;
-		}
-
-		const hunkIndex = hunkList.findIndex(
-			(candidate) => candidate === closestHunk,
-		);
-		return getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
-	}, [contextHighlight, hunkList]);
-
 	const focusMountedCodeMatch = useCallback(
 		(
 			editor: MonacoEditor.editor.IStandaloneDiffEditor,
@@ -726,25 +674,10 @@ export function CommitFilePanel({
 			return;
 		}
 
-		const closestHunk = findClosestHunk(hunkList, navigationTarget);
 		focusDiffLine({
 			...navigationPosition,
 			highlight: true,
 		});
-
-		if (closestHunk) {
-			const hunkIndex = hunkList.findIndex(
-				(candidate) => candidate === closestHunk,
-			);
-			const anchorKey = getHunkAnchorKey(closestHunk, Math.max(hunkIndex, 0));
-
-			window.requestAnimationFrame(() => {
-				hunkRefs.current[anchorKey]?.scrollIntoView({
-					behavior: "smooth",
-					block: "center",
-				});
-			});
-		}
 
 		onNavigationTargetHandled?.();
 	}, [
@@ -1063,102 +996,6 @@ export function CommitFilePanel({
 					</div>
 				) : null}
 
-				{hunkList.length ? (
-					<div className="space-y-2 px-3 py-3">
-						{hunkList.map((hunk, index) => {
-							const hKey = hunk.id != null ? String(hunk.id) : undefined;
-							const hState = hKey ? hunkSummaries[hKey] : undefined;
-							const hOpen = hKey ? (hunkSummaryOpen[hKey] ?? false) : false;
-							const label = formatHunkLabel(hunk);
-							const anchorKey = getHunkAnchorKey(hunk, index);
-							const canShowHunkSummaryControls = Boolean(
-								hKey &&
-									(onToggleHunkSummary ||
-										onSummarizeHunk ||
-										hState?.text ||
-										hState?.error),
-							);
-
-							return (
-								<div
-									key={`${viewerId}-${labelPath}-${anchorKey}`}
-									ref={(node) => {
-										hunkRefs.current[anchorKey] = node;
-									}}
-									className={cn(
-										"rounded-[10px] border border-border-subtle bg-control/40 transition-[border-color,box-shadow,background-color] duration-150",
-										anchorKey === emphasizedHunkAnchorKey &&
-											"border-[rgba(122,162,255,0.34)] bg-[rgba(122,162,255,0.08)] shadow-[0_0_0_1px_rgba(122,162,255,0.14)]",
-									)}
-								>
-									<div className="flex items-center justify-between gap-3 px-3 py-2">
-										<button
-											type="button"
-											className="font-mono text-xs text-text-secondary transition-colors hover:text-text-primary"
-											onClick={() => revealHunk(hunk)}
-											title="Jump to hunk in diff"
-										>
-											{label}
-										</button>
-
-										{canShowHunkSummaryControls ? (
-											<Button
-												variant={hState?.text ? "toolbar" : "ghost"}
-												size="sm"
-												disabled={
-													Boolean(hState?.loading) ||
-													(hState?.text
-														? typeof onToggleHunkSummary !== "function"
-														: typeof onSummarizeHunk !== "function")
-												}
-												onClick={(event) => {
-													event.stopPropagation();
-													if (!hKey) return;
-													if (hState?.text) onToggleHunkSummary?.(hKey);
-													else onSummarizeHunk?.(hunk);
-												}}
-											>
-												{hState?.loading ? (
-													<>
-														<Loader2 className="size-4 animate-spin" />
-														Summarizing
-													</>
-												) : hState?.text ? (
-													<>
-														{hOpen ? (
-															<ChevronDown className="size-4" />
-														) : (
-															<ChevronRight className="size-4" />
-														)}
-														Summary
-													</>
-												) : (
-													<>
-														<Sparkles className="size-4" />
-														Summarize
-													</>
-												)}
-											</Button>
-										) : null}
-									</div>
-
-									{canShowHunkSummaryControls &&
-									hOpen &&
-									(hState?.text || hState?.error) ? (
-										<div className="space-y-2.5 border-t border-border-subtle px-3 py-2.5">
-											{hState?.error ? (
-												<InlineBanner tone="danger" title={hState.error} />
-											) : null}
-											{hState?.text ? (
-												<MarkdownRenderer content={hState.text} />
-											) : null}
-										</div>
-									) : null}
-								</div>
-							);
-						})}
-					</div>
-				) : null}
 			</div>
 		</section>
 	);

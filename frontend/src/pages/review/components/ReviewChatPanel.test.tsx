@@ -74,7 +74,7 @@ describe("ReviewChatPanel", () => {
 		);
 
 		await user.type(
-			screen.getByPlaceholderText(/ask codex about this diff/i),
+			screen.getByPlaceholderText(/ask ai about this diff/i),
 			"{enter}",
 		);
 

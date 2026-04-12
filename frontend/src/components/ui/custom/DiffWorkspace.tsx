@@ -36,7 +36,7 @@ import {
   type DiffSearchContext,
   type DiffViewerSide,
 } from "@/lib/diff";
-import type { FileChange, FileHunk } from "@/lib/definitions/repo";
+import type { FileChange } from "@/lib/definitions/repo";
 import { cn } from "@/lib/utils";
 
 type SummaryState = { loading: boolean; text?: string; error?: string };
@@ -56,10 +56,6 @@ type DiffWorkspaceSummaryActions = {
   summaryOpen: Record<string, boolean>;
   onToggleFileSummary: (summaryKey: string) => void;
   onSummarizeFile: (fileChange: FileChange) => void;
-  hunkSummaries: Record<string, SummaryState>;
-  hunkSummaryOpen: Record<string, boolean>;
-  onToggleHunkSummary: (hunkKey: string) => void;
-  onSummarizeHunk: (hunk: FileHunk) => void;
 };
 
 type DiffWorkspaceResizablePanel = {
@@ -1589,12 +1585,6 @@ export const DiffWorkspace = forwardRef<
                                       summaryActions.onSummarizeFile(fileChange)
                                   : undefined
                               }
-                              hunkSummaries={summaryActions?.hunkSummaries}
-                              hunkSummaryOpen={summaryActions?.hunkSummaryOpen}
-                              onToggleHunkSummary={
-                                summaryActions?.onToggleHunkSummary
-                              }
-                              onSummarizeHunk={summaryActions?.onSummarizeHunk}
                               isSelected={selectedFilePath === labelPath}
                               navigationTarget={
                                 navigationTarget?.filePath === labelPath
