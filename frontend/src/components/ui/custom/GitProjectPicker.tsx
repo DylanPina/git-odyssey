@@ -6,6 +6,7 @@ import { deleteRepo, getRecentProjects, pickGitProject } from "@/api/api";
 import { Button } from "@/components/ui/button";
 import type { GitProjectSummary } from "@/lib/definitions/desktop";
 import { buildRepoRoute, getRepoStableKey } from "@/lib/repoPaths";
+import { clearStoredReviewRepoState } from "@/pages/review/review-storage";
 import { repoCache } from "@/utils/repoCache";
 
 const browseButtonClass =
@@ -81,6 +82,7 @@ export function GitProjectPicker() {
       try {
         await deleteRepo(project.path);
         repoCache.clear(getRepoStableKey(project.path));
+        clearStoredReviewRepoState(project.path);
         await loadRecentProjects();
       } catch (deleteError) {
         const message =

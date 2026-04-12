@@ -332,6 +332,12 @@
     gap: 10px;
   }
 
+  .desktop-titlebar__slot--center {
+    flex: 1 1 auto;
+    app-region: no-drag;
+    -webkit-app-region: no-drag;
+  }
+
   .desktop-titlebar__slot--trailing {
     justify-content: flex-end;
   }
@@ -400,6 +406,185 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .review-titlebar-tabs {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .review-titlebar-tabs__repo {
+    display: flex;
+    min-width: 0;
+    max-width: 12rem;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 0 0.65rem;
+    height: 1.95rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.045);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .review-titlebar-tabs__repo-label {
+    min-width: 0;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.8);
+    font-family: var(--font-code);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .review-titlebar-tabs__scroll {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 1px;
+    scrollbar-width: none;
+  }
+
+  .review-titlebar-tabs__scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .review-titlebar-tabs__tab {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 1px;
+    height: 2rem;
+    padding-right: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .review-titlebar-tabs__tab[data-active="true"] {
+    border-color: rgba(122, 162, 255, 0.36);
+    background:
+      linear-gradient(180deg, rgba(122, 162, 255, 0.16), rgba(122, 162, 255, 0.08)),
+      rgba(255, 255, 255, 0.035);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 0 1px rgba(122, 162, 255, 0.08);
+  }
+
+  .review-titlebar-tabs__tab:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .review-titlebar-tabs__select {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    padding: 0 0.55rem 0 0.5rem;
+    border: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    cursor: pointer;
+  }
+
+  .review-titlebar-tabs__tab[data-active="true"] .review-titlebar-tabs__select {
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .review-titlebar-tabs__type-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.045);
+    color: rgba(255, 255, 255, 0.74);
+  }
+
+  .review-titlebar-tabs__type-icon--commit {
+    color: rgba(199, 216, 255, 0.88);
+  }
+
+  .review-titlebar-tabs__type-icon--compare {
+    color: rgba(151, 215, 181, 0.9);
+  }
+
+  .review-titlebar-tabs__label {
+    min-width: 0;
+    max-width: min(18vw, 11rem);
+    overflow: hidden;
+    font-family: var(--font-code);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.015em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .review-titlebar-tabs__status-icon {
+    flex: 0 0 auto;
+    width: 0.9rem;
+    height: 0.9rem;
+  }
+
+  .review-titlebar-tabs__count-badge {
+    display: inline-flex;
+    min-width: 1.2rem;
+    height: 1.2rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: rgba(210, 107, 107, 0.14);
+    border: 1px solid rgba(210, 107, 107, 0.28);
+    color: rgba(255, 223, 223, 0.95);
+    font-family: var(--font-code);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .review-titlebar-tabs__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.42);
+    cursor: pointer;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .review-titlebar-tabs__close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .review-titlebar-tabs__create {
+    flex: 0 0 auto;
   }
 
   .workspace-shell {

@@ -21,10 +21,6 @@ import {
 	readRepoPathFromSearchParams,
 } from "@/lib/repoPaths";
 import { useDesktopTitleBarChrome } from "@/lib/desktop-titlebar-actions";
-import {
-	getReviewRefsStorageKey,
-	getStoredReviewRefs,
-} from "@/pages/review/review-storage";
 
 const nodeTypes = {
 	commit: CommitNode,
@@ -203,12 +199,11 @@ function RepoWorkspace() {
 			return;
 		}
 
-		const storedReviewRefs = getStoredReviewRefs(getReviewRefsStorageKey(repoPath));
 		navigate(
 			buildReviewRoute(repoPath, {
 				mode: "compare",
-				baseRef: storedReviewRefs?.baseRef ?? null,
-				headRef: storedReviewRefs?.headRef ?? null,
+				baseRef: null,
+				headRef: null,
 			}),
 		);
 	}, [navigate, repoPath]);

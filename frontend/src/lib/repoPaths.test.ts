@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildReviewRoute,
+	readReviewTabIdFromSearchParams,
 	readReviewTargetFromSearchParams,
 } from "@/lib/repoPaths";
 
@@ -14,6 +15,22 @@ describe("repoPaths review routes", () => {
 				headRef: "feature",
 			}),
 		).toBe("/repo/review?path=%2Ftmp%2Fexample-repo&base=main&head=feature");
+	});
+
+	it("builds review routes with a tab id", () => {
+		expect(
+			buildReviewRoute(
+				"/tmp/example-repo",
+				{
+					mode: "compare",
+					baseRef: "main",
+					headRef: "feature",
+				},
+				{ tabId: "tab-123" },
+			),
+		).toBe(
+			"/repo/review?path=%2Ftmp%2Fexample-repo&tab=tab-123&base=main&head=feature",
+		);
 	});
 
 	it("builds commit review routes with search context", () => {
@@ -66,5 +83,13 @@ describe("repoPaths review routes", () => {
 			baseRef: "main",
 			headRef: "feature",
 		});
+	});
+
+	it("parses review tab ids from search params", () => {
+		expect(
+			readReviewTabIdFromSearchParams(
+				new URLSearchParams("path=%2Ftmp%2Fexample-repo&tab=tab-123"),
+			),
+		).toBe("tab-123");
 	});
 });

@@ -86,8 +86,16 @@ function parseOptionalLineNumber(value: string | null): number | null {
 export function buildReviewRoute(
   repoPath: string,
   target: ReviewRouteTarget,
+  options?: {
+    tabId?: string | null;
+  },
 ): string {
   const params = new URLSearchParams({ path: normalizeRepoPath(repoPath) });
+  const tabId = String(options?.tabId || "").trim();
+
+  if (tabId) {
+    params.set("tab", tabId);
+  }
 
   if (target.mode === "commit") {
     params.set("commit", target.commitSha);
@@ -129,6 +137,13 @@ export function readReviewRefsFromSearchParams(searchParams: URLSearchParams): {
     baseRef: searchParams.get("base"),
     headRef: searchParams.get("head"),
   };
+}
+
+export function readReviewTabIdFromSearchParams(
+  searchParams: URLSearchParams
+): string | null {
+  const tabId = searchParams.get("tab")?.trim();
+  return tabId || null;
 }
 
 export function readReviewTargetFromSearchParams(

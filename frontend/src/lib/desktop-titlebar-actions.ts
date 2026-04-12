@@ -15,6 +15,7 @@ export type DesktopTitleBarAction = {
 
 export type DesktopTitleBarChrome = {
   leading?: ReactNode;
+  center?: ReactNode;
   trailing?: ReactNode;
 };
 

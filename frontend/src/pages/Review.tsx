@@ -7,10 +7,7 @@ import {
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import {
-	getDesktopRepoSettings,
-	getDesktopSettingsStatus,
-} from "@/api/api";
+import { getDesktopRepoSettings, getDesktopSettingsStatus } from "@/api/api";
 import {
 	DiffWorkspace,
 	type DiffWorkspaceHandle,
@@ -19,6 +16,7 @@ import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownR
 import { DiffWorkspaceHeader } from "@/components/ui/custom/DiffWorkspaceHeader";
 import { DiffWorkspacePage } from "@/components/ui/custom/DiffWorkspacePage";
 import { ReviewAssistantPanel } from "@/pages/review/components/ReviewAssistantPanel";
+import { ReviewTitleBarTabs } from "@/pages/review/components/ReviewTitleBarTabs";
 import { ReviewTitleBarTrailing } from "@/pages/review/components/ReviewTitleBarTrailing";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useCommitDetails } from "@/hooks/useCommitDetails";
@@ -41,11 +39,13 @@ import type {
 } from "@/lib/definitions/review";
 import { useDesktopTitleBarChrome } from "@/lib/desktop-titlebar-actions";
 import {
-	readCommitSearchContextFromSearchParams,
+	getRepoDisplayName,
 	readRepoPathFromSearchParams,
+	readReviewTabIdFromSearchParams,
 	readReviewTargetFromSearchParams,
 } from "@/lib/repoPaths";
 import {
+	DETACHED_HEAD_LABEL,
 	REVIEW_DIFF_MIN_WIDTH,
 	REVIEW_FILE_TREE_WIDTH_DEFAULT,
 	REVIEW_FILE_TREE_WIDTH_MIN,
@@ -57,11 +57,12 @@ import {
 	getErrorMessage,
 	getRunStatusTone,
 } from "@/pages/review/review-formatters";
+import { getReviewTabShortcutDirection } from "@/pages/review/review-shortcuts";
 import { useReviewHistoryFilters } from "@/pages/review/useReviewHistoryFilters";
 import { useReviewChatSession } from "@/pages/review/useReviewChatSession";
 import { useReviewLayoutState } from "@/pages/review/useReviewLayoutState";
-import { useReviewRefSelection } from "@/pages/review/useReviewRefSelection";
 import { useReviewRunController } from "@/pages/review/useReviewRunController";
+import { useReviewTabs } from "@/pages/review/useReviewTabs";
 
 function getShortcutTargetElement(target: EventTarget | null): Element | null {
 	if (target instanceof Element) {
@@ -101,12 +102,12 @@ export function Review() {
 	const setDesktopTitleBarChrome = useDesktopTitleBarChrome();
 	const [searchParams] = useSearchParams();
 	const repoPath = readRepoPathFromSearchParams(searchParams);
-	const reviewTarget = useMemo(
-		() => readReviewTargetFromSearchParams(searchParams),
+	const routeTabId = useMemo(
+		() => readReviewTabIdFromSearchParams(searchParams),
 		[searchParams],
 	);
-	const commitSearchContext = useMemo(
-		() => readCommitSearchContextFromSearchParams(searchParams),
+	const reviewTarget = useMemo(
+		() => readReviewTargetFromSearchParams(searchParams),
 		[searchParams],
 	);
 	const reviewTargetCommitSha =
@@ -128,25 +129,64 @@ export function Review() {
 		branches,
 		isLoading: isRepoLoading,
 	} = useRepoData({ repoPath });
+	const repoDisplayName = useMemo(
+		() => (repoPath ? getRepoDisplayName(repoPath) : "Repository"),
+		[repoPath],
+	);
+	const branchOptions = useMemo(
+		() =>
+			Array.from(
+				new Set(
+					branches
+						.map((branch) => branch.name)
+						.filter((name) => name && name !== DETACHED_HEAD_LABEL),
+				),
+			).sort((left, right) =>
+				left.localeCompare(right, undefined, {
+					numeric: true,
+					sensitivity: "base",
+				}),
+			),
+		[branches],
+	);
 
 	const {
-		baseRef,
-		headRef,
-		branchOptions,
-		handleBaseRefChange,
-		handleHeadRefChange,
-	} = useReviewRefSelection({
+		tabs,
+		activeTab,
+		activeTabId,
+		activeTarget,
+		activateTab,
+		activateNextTab,
+		activatePreviousTab,
+		createCompareTab,
+		closeTab,
+		updateActiveCompareRefs,
+		syncActiveTabSession,
+	} = useReviewTabs({
 		repoPath,
-		targetMode: reviewTarget.mode,
-		queryBaseRef: reviewTarget.mode === "compare" ? reviewTarget.baseRef : null,
-		queryHeadRef: reviewTarget.mode === "compare" ? reviewTarget.headRef : null,
+		reviewTarget,
+		routeTabId,
 		branches,
 		commits,
 		isRepoLoading,
 		navigate,
 	});
+	const controllerTarget =
+		activeTarget ??
+		({
+			mode: "compare",
+			baseRef: "",
+			headRef: "",
+		} as const);
+	const compareReviewTarget =
+		controllerTarget.mode === "compare" ? controllerTarget : null;
+	const commitReviewTarget =
+		controllerTarget.mode === "commit" ? controllerTarget : null;
+	const baseRef = compareReviewTarget?.baseRef ?? "";
+	const headRef = compareReviewTarget?.headRef ?? "";
 
 	const {
+		session,
 		reviewHistory,
 		sessionError,
 		historyError,
@@ -171,7 +211,7 @@ export function Review() {
 		cancelCurrentRun,
 	} = useReviewRunController({
 		repoPath,
-		targetMode: reviewTarget.mode,
+		targetMode: controllerTarget.mode,
 		baseRef,
 		headRef,
 		commitSha: reviewTargetCommitSha,
@@ -185,10 +225,16 @@ export function Review() {
 		commitSha: reviewTargetCommitSha ?? undefined,
 	});
 
+	useEffect(() => {
+		syncActiveTabSession(session);
+	}, [session, syncActiveTabSession]);
+
 	const historyFilters = useReviewHistoryFilters(reviewHistory);
 	const assistantEnabled = Boolean(
 		repoPath &&
-			(reviewTarget.mode === "commit" ? reviewTargetCommitSha : baseRef && headRef),
+			(reviewTarget.mode === "commit"
+				? reviewTargetCommitSha
+				: baseRef && headRef),
 	);
 	const {
 		reviewPanelMode,
@@ -231,6 +277,18 @@ export function Review() {
 		reviewResult,
 		isViewingHistory,
 	});
+	const handleBaseRefChange = useCallback(
+		(nextBaseRef: string) => {
+			void updateActiveCompareRefs(nextBaseRef, headRef);
+		},
+		[headRef, updateActiveCompareRefs],
+	);
+	const handleHeadRefChange = useCallback(
+		(nextHeadRef: string) => {
+			void updateActiveCompareRefs(baseRef, nextHeadRef);
+		},
+		[baseRef, updateActiveCompareRefs],
+	);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -286,15 +344,15 @@ export function Review() {
 		};
 	}, [repoPath]);
 
-	const chatComposerNote =
-		!assistantEnabled
-			? reviewTarget.mode === "commit"
-				? "Select a commit to prepare Codex review chat."
-				: "Select both branches to prepare Codex review chat."
-			: !isChatReady || isSessionLoading
-				? "Preparing Codex review chat for this compare target."
-				: null;
-	const isChatComposerDisabled = !assistantEnabled || !isChatReady || isSessionLoading;
+	const chatComposerNote = !assistantEnabled
+		? controllerTarget.mode === "commit"
+			? "Select a commit to prepare Codex review chat."
+			: "Select both branches to prepare Codex review chat."
+		: !isChatReady || isSessionLoading
+			? "Preparing Codex review chat for this compare target."
+			: null;
+	const isChatComposerDisabled =
+		!assistantEnabled || !isChatReady || isSessionLoading;
 
 	const availableFindingPaths = useMemo(() => {
 		const paths = new Set<string>();
@@ -380,7 +438,12 @@ export function Review() {
 
 			focusFinding();
 		},
-		[canNavigateToFinding, reviewPanelMode, setReviewPanelMode, setSelectedFindingId],
+		[
+			canNavigateToFinding,
+			reviewPanelMode,
+			setReviewPanelMode,
+			setSelectedFindingId,
+		],
 	);
 
 	const handleChatDraftChange = useCallback(
@@ -538,20 +601,33 @@ export function Review() {
 		() => formatCommitTimestamp(targetCommit?.time),
 		[targetCommit?.time],
 	);
-	const displayedTargetMode = displayedSession?.target_mode ?? reviewTarget.mode;
+	const displayedTargetMode =
+		displayedSession?.target_mode ?? controllerTarget.mode;
 	const displayedCommitSha =
-		displayedSession?.commit_sha ??
-		reviewTargetCommitSha;
+		displayedSession?.commit_sha ?? reviewTargetCommitSha;
 
 	const reviewTitleBarChrome = useMemo(
 		() => ({
+			center:
+				repoPath && tabs.length > 0 ? (
+					<ReviewTitleBarTabs
+						repoLabel={repoDisplayName}
+						tabs={tabs}
+						activeTabId={activeTabId}
+						onSelectTab={activateTab}
+						onCloseTab={(tabId) => {
+							void closeTab(tabId);
+						}}
+						onCreateTab={createCompareTab}
+					/>
+				) : undefined,
 			trailing: (
 				<ReviewTitleBarTrailing
-					targetMode={displayedTargetMode}
+					targetMode={controllerTarget.mode}
 					branchOptions={branchOptions}
 					baseRef={baseRef}
 					headRef={headRef}
-					commitSha={displayedCommitSha}
+					commitSha={commitReviewTarget?.commitSha ?? null}
 					onBaseRefChange={handleBaseRefChange}
 					onHeadRefChange={handleHeadRefChange}
 					isRepoLoading={isRepoLoading}
@@ -572,14 +648,14 @@ export function Review() {
 					onSelectHistoryReview={(entry) => {
 						void handleSelectHistoryReview(entry);
 					}}
-						isGuidelinesLoading={isGuidelinesLoading}
-						guidelinesError={guidelinesError}
-						savedGuidelines={savedGuidelines}
-						repoPath={repoPath}
-						appliedInstructions={activeRun?.applied_instructions ?? null}
-						onStartReview={(customInstructions) => {
-							void startReview(customInstructions);
-						}}
+					isGuidelinesLoading={isGuidelinesLoading}
+					guidelinesError={guidelinesError}
+					savedGuidelines={savedGuidelines}
+					repoPath={repoPath}
+					appliedInstructions={activeRun?.applied_instructions ?? null}
+					onStartReview={(customInstructions) => {
+						void startReview(customInstructions);
+					}}
 					onCancelReview={() => {
 						void cancelCurrentRun();
 					}}
@@ -587,22 +663,28 @@ export function Review() {
 			),
 		}),
 		[
+			activeTabId,
+			activateTab,
 			canCancelReview,
 			canStartReview,
 			branchOptions,
+			closeTab,
+			commitReviewTarget?.commitSha,
+			controllerTarget.mode,
+			createCompareTab,
 			handleBaseRefChange,
 			handleHeadRefChange,
 			handleReturnToLatestReview,
 			handleSelectHistoryReview,
 			baseRef,
 			headRef,
-				displayedCommitSha,
-				displayedTargetMode,
-				cancelCurrentRun,
-				activeRun?.applied_instructions,
-				guidelinesError,
-				hasCancelableRun,
-				historyError,
+			displayedCommitSha,
+			displayedTargetMode,
+			cancelCurrentRun,
+			activeRun?.applied_instructions,
+			guidelinesError,
+			hasCancelableRun,
+			historyError,
 			historyFilters,
 			historySelectionLoadingRunId,
 			isHistoryLoading,
@@ -611,10 +693,13 @@ export function Review() {
 			isRepoLoading,
 			isRunCancelling,
 			isRunStarting,
+			repoDisplayName,
+			repoPath,
 			reviewHistory,
 			savedGuidelines,
 			selectedHistoryView?.entry.run_id,
 			startReview,
+			tabs,
 		],
 	);
 
@@ -634,10 +719,23 @@ export function Review() {
 				event.repeat ||
 				event.isComposing ||
 				!(event.metaKey || event.ctrlKey) ||
-				event.altKey ||
-				event.shiftKey ||
 				isEditableShortcutTarget(event.target)
 			) {
+				return;
+			}
+
+			const tabShortcutDirection = getReviewTabShortcutDirection(event);
+			if (tabShortcutDirection && tabs.length > 1) {
+				event.preventDefault();
+				if (tabShortcutDirection === "next") {
+					activateNextTab();
+				} else {
+					activatePreviousTab();
+				}
+				return;
+			}
+
+			if (event.altKey || event.shiftKey) {
 				return;
 			}
 
@@ -656,17 +754,23 @@ export function Review() {
 
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [assistantEnabled, toggleReviewRail]);
+	}, [
+		activateNextTab,
+		activatePreviousTab,
+		assistantEnabled,
+		tabs.length,
+		toggleReviewRail,
+	]);
 
 	const changedFilesLabel = displayedSession
 		? `${displayedSession.stats.files_changed} file${displayedSession.stats.files_changed === 1 ? "" : "s"} changed`
-		: reviewTarget.mode === "commit"
+		: controllerTarget.mode === "commit"
 			? "Commit diff"
 			: "Review diff";
 	const isDisplayedSessionLoading =
 		historySelectionLoadingRunId !== null ||
 		(!isViewingHistory && isSessionLoading) ||
-		(reviewTarget.mode === "commit" && isCommitLoading);
+		(controllerTarget.mode === "commit" && isCommitLoading);
 
 	const workspaceTopContent = (
 		<DiffWorkspaceHeader
@@ -675,8 +779,12 @@ export function Review() {
 			titleMeta={
 				displayedSession ? (
 					<div className="flex items-center gap-2 font-mono text-[11px]">
-						<span className="text-success">+{displayedSession.stats.additions}</span>
-						<span className="text-danger">-{displayedSession.stats.deletions}</span>
+						<span className="text-success">
+							+{displayedSession.stats.additions}
+						</span>
+						<span className="text-danger">
+							-{displayedSession.stats.deletions}
+						</span>
 						<span className="text-text-secondary">lines changed</span>
 					</div>
 				) : null
@@ -859,7 +967,13 @@ export function Review() {
 				<DiffWorkspace
 					ref={diffWorkspaceRef}
 					repoPath={repoPath}
-					viewerId={displayedSession ? `review:${displayedSession.id}` : "review"}
+					viewerId={
+						displayedSession
+							? `review:${displayedSession.id}`
+							: activeTab
+								? `review:tab:${activeTab.id}`
+								: "review"
+					}
 					files={displayedSession?.file_changes ?? []}
 					isLoading={isDisplayedSessionLoading}
 					error={
@@ -869,27 +983,27 @@ export function Review() {
 								? null
 								: isViewingHistory
 									? historySelectionError
-									: reviewTarget.mode === "commit"
-										? commitError ?? sessionError
+									: controllerTarget.mode === "commit"
+										? (commitError ?? sessionError)
 										: sessionError
 					}
 					topContent={workspaceTopContent}
 					fileSearchInputId="review-file-search-input"
 					codeSearchInputId="review-code-search-input"
 					emptyTitle={
-						reviewTarget.mode === "commit"
+						controllerTarget.mode === "commit"
 							? "Select a commit to prepare a review session."
 							: "Select two local branches to prepare a review session."
 					}
 					emptyDescription={
-						reviewTarget.mode === "commit"
+						controllerTarget.mode === "commit"
 							? "GitOdyssey creates a persisted Codex review session for parent(commit)...commit and then runs the review in a disposable worktree."
 							: "GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
 					}
 					chromeDensity="compact"
 					searchContext={
-						reviewTarget.mode === "commit"
-							? (commitSearchContext ?? reviewTarget.searchContext ?? null)
+						controllerTarget.mode === "commit"
+							? (commitReviewTarget?.searchContext ?? null)
 							: null
 					}
 					fileTreeCollapsible

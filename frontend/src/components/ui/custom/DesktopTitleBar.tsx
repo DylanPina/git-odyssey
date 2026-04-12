@@ -67,7 +67,7 @@ export function DesktopTitleBar({
   const title = [meta.scopeLabel, meta.detailTitle ?? meta.detailLabel]
     .filter(Boolean)
     .join(" · ");
-  const { leading, trailing } = chrome ?? {};
+  const { leading, center, trailing } = chrome ?? {};
 
   return (
     <header
@@ -131,25 +131,31 @@ export function DesktopTitleBar({
       </div>
 
       <div className="desktop-titlebar__center">
-        <div
-          className="desktop-titlebar__content"
-          title={title || meta.documentTitle}
-        >
-          {meta.sectionLabel ? (
-            <span className="desktop-titlebar__section">{meta.sectionLabel}</span>
-          ) : null}
+        {center ? (
+          <div className="desktop-titlebar__slot desktop-titlebar__slot--center">
+            {center}
+          </div>
+        ) : (
+          <div
+            className="desktop-titlebar__content"
+            title={title || meta.documentTitle}
+          >
+            {meta.sectionLabel ? (
+              <span className="desktop-titlebar__section">{meta.sectionLabel}</span>
+            ) : null}
 
-          {meta.scopeLabel ? (
-            <span className="desktop-titlebar__scope">{meta.scopeLabel}</span>
-          ) : null}
+            {meta.scopeLabel ? (
+              <span className="desktop-titlebar__scope">{meta.scopeLabel}</span>
+            ) : null}
 
-          {meta.detailLabel ? (
-            <>
-              <span className="desktop-titlebar__dot" aria-hidden="true" />
-              <span className="desktop-titlebar__detail">{meta.detailLabel}</span>
-            </>
-          ) : null}
-        </div>
+            {meta.detailLabel ? (
+              <>
+                <span className="desktop-titlebar__dot" aria-hidden="true" />
+                <span className="desktop-titlebar__detail">{meta.detailLabel}</span>
+              </>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <div className="desktop-titlebar__side desktop-titlebar__side--trailing">

@@ -259,3 +259,10 @@ override.tf.json
 .terraformrc
 terraform.rc
 infra/terraform/.terraform.lock.hcl
+
+# Desktop metadata
+backend/.DS_Store
+desktop/.DS_Store
+infra/.DS_Store
+.DS_Store
+infra/.DS_Store
