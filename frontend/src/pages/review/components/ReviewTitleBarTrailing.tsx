@@ -3,6 +3,7 @@ import {
 	ArrowRight,
 	Check,
 	CheckIcon,
+	X,
 	ChevronDown,
 	ChevronUp,
 	ChevronsUpDownIcon,
@@ -13,9 +14,7 @@ import {
 	Play,
 	Plus,
 	ScrollText,
-	Square,
 	Trash2,
-	X,
 } from "lucide-react";
 
 import {
@@ -23,6 +22,11 @@ import {
 	saveDesktopAdditionalReviewGuidelines,
 } from "@/api/api";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import {
 	Command,
@@ -62,7 +66,10 @@ type AdditionalReviewGuidelineItem = {
 const SAVED_GUIDELINE_PREVIEW_LENGTH = 96;
 
 function createGuidelineItemId() {
-	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+	if (
+		typeof crypto !== "undefined" &&
+		typeof crypto.randomUUID === "function"
+	) {
 		return crypto.randomUUID();
 	}
 
@@ -269,9 +276,8 @@ export function ReviewTitleBarTrailing({
 		string | null
 	>(null);
 	const [editingGuidelineDraft, setEditingGuidelineDraft] = React.useState("");
-	const [expandedSavedGuidelineIds, setExpandedSavedGuidelineIds] = React.useState<
-		string[]
-	>([]);
+	const [expandedSavedGuidelineIds, setExpandedSavedGuidelineIds] =
+		React.useState<string[]>([]);
 	const [additionalGuidelinesError, setAdditionalGuidelinesError] =
 		React.useState<string | null>(null);
 	const [isAdditionalGuidelinesLoading, setIsAdditionalGuidelinesLoading] =
@@ -504,13 +510,16 @@ export function ReviewTitleBarTrailing({
 		],
 	);
 
-	const handleToggleSavedGuideline = React.useCallback((guidelineId: string) => {
-		setExpandedSavedGuidelineIds((current) =>
-			current.includes(guidelineId)
-				? current.filter((id) => id !== guidelineId)
-				: [...current, guidelineId],
-		);
-	}, []);
+	const handleToggleSavedGuideline = React.useCallback(
+		(guidelineId: string) => {
+			setExpandedSavedGuidelineIds((current) =>
+				current.includes(guidelineId)
+					? current.filter((id) => id !== guidelineId)
+					: [...current, guidelineId],
+			);
+		},
+		[],
+	);
 
 	return (
 		<div className="flex min-w-0 items-center gap-2">
@@ -717,9 +726,7 @@ export function ReviewTitleBarTrailing({
 																aria-label="Edit review guideline"
 																value={editingGuidelineDraft}
 																onChange={(event) =>
-																	setEditingGuidelineDraft(
-																		event.target.value,
-																	)
+																	setEditingGuidelineDraft(event.target.value)
 																}
 																className="min-h-28 resize-y"
 															/>
@@ -854,42 +861,43 @@ export function ReviewTitleBarTrailing({
 			)}
 
 			{shouldShowStartReview ? (
-				<Button
-					variant="accent"
-					size="sm"
-					className="min-w-[10.5rem]"
-					onClick={() => {
-						onStartReview(serializedAdditionalGuidelines);
-					}}
-					disabled={!canStartReview}
-				>
-					<>
-						<Play className="size-4" />
-						Start Review
-					</>
-				</Button>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="toolbar"
+							size="icon-sm"
+							onClick={() => {
+								onStartReview(serializedAdditionalGuidelines);
+							}}
+							disabled={!canStartReview}
+							aria-label="Start AI Review"
+							title="Start AI Review"
+						>
+							<Play className="size-4" />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Start AI Review</TooltipContent>
+				</Tooltip>
 			) : null}
 
-			{hasCancelableRun ? (
-				<Button
-					variant="danger"
-					size="sm"
-					className="min-w-[8.5rem]"
-					onClick={onCancelReview}
-					disabled={!canCancelReview}
-				>
-					{isRunCancelling ? (
-						<>
-							<Loader2 className="size-4 animate-spin" />
-							Cancelling
-						</>
-					) : (
-						<>
-							<Square className="size-4" />
-							Cancel Run
-						</>
-					)}
-				</Button>
+			{hasCancelableRun || !shouldShowStartReview ? (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="danger"
+							size="icon-sm"
+							onClick={onCancelReview}
+							disabled={!canCancelReview}
+						>
+							{isRunCancelling ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : (
+								<X className="size-4" />
+							)}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Cancel AI Review</TooltipContent>
+				</Tooltip>
 			) : null}
 		</div>
 	);

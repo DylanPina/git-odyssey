@@ -421,7 +421,7 @@ describe("ReviewTitleBarTrailing", () => {
 		await user.type(newGuidelineInput, "Check rollback safety.");
 		await user.click(screen.getByRole("button", { name: /add guideline/i }));
 		await user.type(newGuidelineInput, "This draft should stay unsaved.");
-		await user.click(screen.getByRole("button", { name: /start review/i }));
+		await user.click(screen.getByRole("button", { name: /start ai review/i }));
 
 		expect(onStartReview).toHaveBeenCalledWith("Check rollback safety.");
 	});
