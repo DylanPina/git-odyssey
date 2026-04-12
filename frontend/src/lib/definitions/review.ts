@@ -155,6 +155,8 @@ export interface ReviewRun {
 	engine: string;
 	mode: string;
 	status: ReviewRunStatus;
+	custom_instructions?: string | null;
+	applied_instructions?: string | null;
 	error_detail?: string | null;
 	review_thread_id?: string | null;
 	worktree_path?: string | null;
@@ -199,6 +201,7 @@ export interface ReviewRuntimeEvent {
 export interface ReviewChatContext {
 	runStatus?: ReviewRunStatus | null;
 	summary?: string | null;
+	appliedInstructions?: string | null;
 	findings: ReviewFinding[];
 }
 

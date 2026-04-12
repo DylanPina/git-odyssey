@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Loader2, Send, Sparkles, X } from "lucide-react";
+import { ArrowUp, Loader2, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { Textarea } from "@/components/ui/textarea";
@@ -309,13 +310,11 @@ export function ReviewChatPanel({
 			</div>
 
 			<div className="border-t border-border-subtle px-2.5 py-2.5">
-				{error ? <InlineBanner tone="danger" title={error} className="mb-2" /> : null}
+				{error ? (
+					<InlineBanner tone="danger" title={error} className="mb-2" />
+				) : null}
 				{composerNote ? (
-					<InlineBanner
-						tone="info"
-						title={composerNote}
-						className="mb-2"
-					/>
+					<InlineBanner tone="info" title={composerNote} className="mb-2" />
 				) : null}
 				{draftFindingContexts.length > 0 || draftCodeContexts.length > 0 ? (
 					<div className="mb-2 flex flex-wrap gap-1.5">
@@ -348,21 +347,26 @@ export function ReviewChatPanel({
 								handleSend();
 							}
 						}}
-						placeholder="Ask Codex about this diff. Injected code context will stay attached as jump-back buttons."
+						placeholder="Ask AI about this diff"
 						className="min-h-[76px] resize-none pr-12"
 						disabled={isLoading || isComposerDisabled}
 					/>
-					<Button
-						type="button"
-						onClick={handleSend}
-						disabled={!canSendMessage || isLoading}
-						variant="accent"
-						size="icon-sm"
-						className="absolute bottom-2 right-2"
-						aria-label="Send message"
-					>
-						<Send className="size-4" />
-					</Button>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								onClick={handleSend}
+								disabled={!canSendMessage || isLoading}
+								variant="toolbar"
+								size="icon-sm"
+								className="absolute bottom-2 right-2"
+								aria-label="Send message"
+							>
+								<ArrowUp className="size-3.5" />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent>Send</TooltipContent>
+					</Tooltip>
 				</div>
 				<p className="mt-1 text-[10px] text-text-tertiary">
 					Press Enter to send. Use Shift+Enter for a new line.

@@ -97,6 +97,22 @@ test("preload exposes review IPC bridge methods", async () => {
     approvalId: "approval_1",
     decision: "accept",
   });
+  await exposed.gitOdysseyDesktop.settings.getAdditionalReviewGuidelines(
+    "/tmp/example-repo"
+  );
+  await exposed.gitOdysseyDesktop.settings.saveAdditionalReviewGuidelines({
+    repoPath: "/tmp/example-repo",
+    draftGuideline: "Draft guideline",
+    guidelines: [
+      {
+        id: "guideline-1",
+        text: "Persist me",
+      },
+    ],
+  });
+  await exposed.gitOdysseyDesktop.settings.saveReviewSettings({
+    pullRequestGuidelines: "Focus on auth",
+  });
   const unsubscribe = exposed.gitOdysseyDesktop.review.onEvent(() => {});
   unsubscribe();
 
@@ -154,13 +170,38 @@ test("preload exposes review IPC bridge methods", async () => {
       decision: "accept",
     },
   ]);
+  assert.deepEqual(invocations[10], [
+    "git-odyssey:settings:get-additional-review-guidelines",
+    "/tmp/example-repo",
+  ]);
+  assert.deepEqual(invocations[11], [
+    "git-odyssey:settings:save-additional-review-guidelines",
+    {
+      repoPath: "/tmp/example-repo",
+      draftGuideline: "Draft guideline",
+      guidelines: [
+        {
+          id: "guideline-1",
+          text: "Persist me",
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(invocations[12], [
+    "git-odyssey:settings:save-review-settings",
+    {
+      pullRequestGuidelines: "Focus on auth",
+    },
+  ]);
   assert.equal(listeners[0][0], "git-odyssey:review:event");
 });
 
 test("main process review handlers forward requests to the backend", async () => {
   const handlers = new Map();
   let backendManagerInstance = null;
+  let repoSyncWatcherInstance = null;
   let reviewRuntimeManagerInstance = null;
+  let reviewGuidelinesStoreInstance = null;
   let createdWindowOptions = null;
   const mainPath = path.join(__dirname, "..", "src", "main.ts");
 
@@ -191,7 +232,11 @@ test("main process review handlers forward requests to the backend", async () =>
       this.state = {
         backendPort: 48123,
         aiRuntimeConfig: {},
+        reviewSettings: {
+          pullRequestGuidelines: "",
+        },
       };
+      this.repoSettings = new Map();
     }
 
     getState() {
@@ -203,13 +248,31 @@ test("main process review handlers forward requests to the backend", async () =>
     }
 
     getRepoSettings() {
-      return { maxCommits: 50, contextLines: 3 };
+      const repoPath = arguments[0];
+      return (
+        this.repoSettings.get(repoPath) ?? {
+          maxCommits: 50,
+          contextLines: 3,
+          pullRequestGuidelines: "",
+        }
+      );
+    }
+
+    saveReviewSettings(input) {
+      this.state.reviewSettings = input;
+      return input;
     }
 
     save() {}
 
     saveRepoSettings(input) {
-      return input;
+      const nextSettings = {
+        maxCommits: input.maxCommits,
+        contextLines: input.contextLines,
+        pullRequestGuidelines: input.pullRequestGuidelines ?? "",
+      };
+      this.repoSettings.set(input.repoPath, nextSettings);
+      return nextSettings;
     }
 
     recordRecentProject(repoPath) {
@@ -291,6 +354,52 @@ test("main process review handlers forward requests to the backend", async () =>
     async dispose() {}
   }
 
+  class MockReviewGuidelinesStore {
+    constructor() {
+      this.states = new Map();
+      reviewGuidelinesStoreInstance = this;
+    }
+
+    get(repoPath) {
+      return (
+        this.states.get(repoPath) ?? {
+          repoPath,
+          draftGuideline: "",
+          guidelines: [],
+          updatedAt: null,
+        }
+      );
+    }
+
+    save(input) {
+      const nextState = {
+        repoPath: input.repoPath,
+        draftGuideline: input.draftGuideline,
+        guidelines: input.guidelines,
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      };
+      this.states.set(input.repoPath, nextState);
+      return nextState;
+    }
+  }
+
+  class MockRepoSyncWatcher {
+    constructor() {
+      this.triggerSyncCalls = [];
+      repoSyncWatcherInstance = this;
+    }
+
+    triggerSync(repoPath) {
+      this.triggerSyncCalls.push(repoPath);
+    }
+
+    ensureWatching() {}
+
+    close() {}
+
+    dispose() {}
+  }
+
   await withMockedModuleLoads(
     {
       electron: {
@@ -327,6 +436,12 @@ test("main process review handlers forward requests to the backend", async () =>
       "./review-runtime": {
         ReviewRuntimeManager: MockReviewRuntimeManager,
       },
+      "./review-guidelines-store": {
+        ReviewGuidelinesStore: MockReviewGuidelinesStore,
+      },
+      "./repo-sync-watcher": {
+        RepoSyncWatcher: MockRepoSyncWatcher,
+      },
       "./git-projects": {
         findGitProjectRoot: (repoPath) => repoPath,
       },
@@ -347,6 +462,14 @@ test("main process review handlers forward requests to the backend", async () =>
   const getRunHandler = handlers.get("git-odyssey:api:get-review-run");
   const cancelRunHandler = handlers.get("git-odyssey:api:cancel-review-run");
   const respondApprovalHandler = handlers.get("git-odyssey:api:respond-review-approval");
+  const getAdditionalReviewGuidelinesHandler = handlers.get(
+    "git-odyssey:settings:get-additional-review-guidelines"
+  );
+  const saveAdditionalReviewGuidelinesHandler = handlers.get(
+    "git-odyssey:settings:save-additional-review-guidelines"
+  );
+  const saveReviewSettingsHandler = handlers.get("git-odyssey:settings:save-review-settings");
+  const saveRepoSettingsHandler = handlers.get("git-odyssey:settings:save-repo-settings");
   const input = {
     repoPath: "/tmp/example-repo",
     targetMode: "compare",
@@ -395,6 +518,36 @@ test("main process review handlers forward requests to the backend", async () =>
     runId: "rev_run_456",
     approvalId: "approval_1",
     decision: "accept",
+  });
+  const additionalGuidelineState = await getAdditionalReviewGuidelinesHandler(
+    {},
+    "/tmp/example-repo"
+  );
+  const savedAdditionalGuidelineState =
+    await saveAdditionalReviewGuidelinesHandler({}, {
+      repoPath: "/tmp/example-repo",
+      draftGuideline: "Draft guideline",
+      guidelines: [
+        {
+          id: "guideline-1",
+          text: "Persist me",
+        },
+      ],
+    });
+  const savedReviewSettings = await saveReviewSettingsHandler({}, {
+    pullRequestGuidelines: "Focus on auth",
+  });
+  await saveRepoSettingsHandler({}, {
+    repoPath: "/tmp/example-repo",
+    maxCommits: 50,
+    contextLines: 3,
+    pullRequestGuidelines: "Only review migrations",
+  });
+  await saveRepoSettingsHandler({}, {
+    repoPath: "/tmp/example-repo",
+    maxCommits: 50,
+    contextLines: 5,
+    pullRequestGuidelines: "Only review migrations",
   });
 
   assert.deepEqual(backendManagerInstance.requests[0], {
@@ -482,6 +635,33 @@ test("main process review handlers forward requests to the backend", async () =>
     approvalId: "approval_1",
     decision: "accept",
   });
+  assert.deepEqual(additionalGuidelineState, {
+    repoPath: "/tmp/example-repo",
+    draftGuideline: "",
+    guidelines: [],
+    updatedAt: null,
+  });
+  assert.deepEqual(savedAdditionalGuidelineState, {
+    repoPath: "/tmp/example-repo",
+    draftGuideline: "Draft guideline",
+    guidelines: [
+      {
+        id: "guideline-1",
+        text: "Persist me",
+      },
+    ],
+    updatedAt: "2026-04-10T00:00:00.000Z",
+  });
+  assert.deepEqual(
+    reviewGuidelinesStoreInstance.states.get("/tmp/example-repo"),
+    savedAdditionalGuidelineState
+  );
+  assert.deepEqual(savedReviewSettings, {
+    pullRequestGuidelines: "Focus on auth",
+  });
+  assert.deepEqual(repoSyncWatcherInstance.triggerSyncCalls, [
+    "/tmp/example-repo",
+  ]);
   assert.equal(createdWindowOptions.titleBarStyle, "hidden");
   assert.equal(createdWindowOptions.backgroundColor, "#0d0f10");
   if (process.platform === "darwin") {

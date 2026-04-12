@@ -8,6 +8,10 @@ import {
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
+	getDesktopRepoSettings,
+	getDesktopSettingsStatus,
+} from "@/api/api";
+import {
 	DiffWorkspace,
 	type DiffWorkspaceHandle,
 } from "@/components/ui/custom/DiffWorkspace";
@@ -50,6 +54,7 @@ import {
 } from "@/pages/review/review-constants";
 import {
 	formatLabel,
+	getErrorMessage,
 	getRunStatusTone,
 } from "@/pages/review/review-formatters";
 import { useReviewHistoryFilters } from "@/pages/review/useReviewHistoryFilters";
@@ -104,8 +109,18 @@ export function Review() {
 		() => readCommitSearchContextFromSearchParams(searchParams),
 		[searchParams],
 	);
+	const reviewTargetCommitSha =
+		reviewTarget.mode === "commit" ? reviewTarget.commitSha : null;
 	const diffWorkspaceRef = useRef<DiffWorkspaceHandle | null>(null);
-	const [customInstructions] = useState("");
+	const [savedGuidelines, setSavedGuidelines] = useState<{
+		appWide: string;
+		repoSpecific: string;
+	}>({
+		appWide: "",
+		repoSpecific: "",
+	});
+	const [isGuidelinesLoading, setIsGuidelinesLoading] = useState(false);
+	const [guidelinesError, setGuidelinesError] = useState<string | null>(null);
 	const [chatComposerFocusToken, setChatComposerFocusToken] = useState(0);
 
 	const {
@@ -159,7 +174,7 @@ export function Review() {
 		targetMode: reviewTarget.mode,
 		baseRef,
 		headRef,
-		commitSha: reviewTarget.mode === "commit" ? reviewTarget.commitSha : null,
+		commitSha: reviewTargetCommitSha,
 	});
 	const {
 		commit: targetCommit,
@@ -167,15 +182,13 @@ export function Review() {
 		error: commitError,
 	} = useCommitDetails({
 		repoPath,
-		commitSha: reviewTarget.mode === "commit" ? reviewTarget.commitSha : undefined,
+		commitSha: reviewTargetCommitSha ?? undefined,
 	});
 
 	const historyFilters = useReviewHistoryFilters(reviewHistory);
 	const assistantEnabled = Boolean(
 		repoPath &&
-			(reviewTarget.mode === "commit"
-				? reviewTarget.commitSha
-				: baseRef && headRef),
+			(reviewTarget.mode === "commit" ? reviewTargetCommitSha : baseRef && headRef),
 	);
 	const {
 		reviewPanelMode,
@@ -218,6 +231,60 @@ export function Review() {
 		reviewResult,
 		isViewingHistory,
 	});
+
+	useEffect(() => {
+		let cancelled = false;
+
+		const loadSavedGuidelines = async () => {
+			if (!repoPath) {
+				setSavedGuidelines({
+					appWide: "",
+					repoSpecific: "",
+				});
+				setGuidelinesError(null);
+				setIsGuidelinesLoading(false);
+				return;
+			}
+
+			setIsGuidelinesLoading(true);
+			setGuidelinesError(null);
+
+			try {
+				const [settingsStatus, repoSettings] = await Promise.all([
+					getDesktopSettingsStatus(),
+					getDesktopRepoSettings(repoPath),
+				]);
+				if (cancelled) {
+					return;
+				}
+
+				setSavedGuidelines({
+					appWide: settingsStatus.reviewSettings.pullRequestGuidelines,
+					repoSpecific: repoSettings.pullRequestGuidelines,
+				});
+			} catch (error) {
+				if (cancelled) {
+					return;
+				}
+
+				setSavedGuidelines({
+					appWide: "",
+					repoSpecific: "",
+				});
+				setGuidelinesError(getErrorMessage(error));
+			} finally {
+				if (!cancelled) {
+					setIsGuidelinesLoading(false);
+				}
+			}
+		};
+
+		void loadSavedGuidelines();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [repoPath]);
 
 	const chatComposerNote =
 		!assistantEnabled
@@ -474,7 +541,7 @@ export function Review() {
 	const displayedTargetMode = displayedSession?.target_mode ?? reviewTarget.mode;
 	const displayedCommitSha =
 		displayedSession?.commit_sha ??
-		(reviewTarget.mode === "commit" ? reviewTarget.commitSha : null);
+		reviewTargetCommitSha;
 
 	const reviewTitleBarChrome = useMemo(
 		() => ({
@@ -505,9 +572,14 @@ export function Review() {
 					onSelectHistoryReview={(entry) => {
 						void handleSelectHistoryReview(entry);
 					}}
-					onStartReview={() => {
-						void startReview(customInstructions);
-					}}
+						isGuidelinesLoading={isGuidelinesLoading}
+						guidelinesError={guidelinesError}
+						savedGuidelines={savedGuidelines}
+						repoPath={repoPath}
+						appliedInstructions={activeRun?.applied_instructions ?? null}
+						onStartReview={(customInstructions) => {
+							void startReview(customInstructions);
+						}}
 					onCancelReview={() => {
 						void cancelCurrentRun();
 					}}
@@ -524,20 +596,23 @@ export function Review() {
 			handleSelectHistoryReview,
 			baseRef,
 			headRef,
-			displayedCommitSha,
-			displayedTargetMode,
-			cancelCurrentRun,
-			customInstructions,
-			hasCancelableRun,
-			historyError,
+				displayedCommitSha,
+				displayedTargetMode,
+				cancelCurrentRun,
+				activeRun?.applied_instructions,
+				guidelinesError,
+				hasCancelableRun,
+				historyError,
 			historyFilters,
 			historySelectionLoadingRunId,
 			isHistoryLoading,
+			isGuidelinesLoading,
 			isViewingHistory,
 			isRepoLoading,
 			isRunCancelling,
 			isRunStarting,
 			reviewHistory,
+			savedGuidelines,
 			selectedHistoryView?.entry.run_id,
 			startReview,
 		],

@@ -1,6 +1,9 @@
 import fs = require("node:fs");
 import path = require("node:path");
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import { once } from "node:events";
 
 import type {
@@ -98,12 +101,6 @@ class BackendManager {
         : null,
       process.env.VIRTUAL_ENV
         ? path.join(process.env.VIRTUAL_ENV, "bin", "python")
-        : null,
-      process.env.CONDA_PREFIX
-        ? path.join(process.env.CONDA_PREFIX, "bin", "python3")
-        : null,
-      process.env.CONDA_PREFIX
-        ? path.join(process.env.CONDA_PREFIX, "bin", "python")
         : null,
     ].filter((candidate): candidate is string => Boolean(candidate));
 

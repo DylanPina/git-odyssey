@@ -3,7 +3,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
-from api.api_model import ReviewSessionCreateRequest, ReviewSubmittedFinding
+from api.api_model import (
+    ReviewRunStartRequest,
+    ReviewSessionCreateRequest,
+    ReviewSubmittedFinding,
+)
 from data.data_model import DiffHunk, FileChange, FileSnapshot
 from data.schema import FileChangeStatus
 from services.review_service import ReviewServiceError
@@ -252,6 +256,38 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
         self.assertEqual(item.severity_counts.low, 1)
         self.assertEqual(item.generated_at, generated_at)
         self.assertEqual(item.completed_at, completed_at)
+
+    def test_create_run_persists_custom_and_applied_instructions(self) -> None:
+        session_row = SimpleNamespace(
+            id="rev_sess_123",
+            status="ready",
+            updated_at=None,
+        )
+        expected_response = object()
+        self.service._get_session_or_404 = Mock(return_value=session_row)
+        self.service._next_id = Mock(return_value="rev_run_123")
+        self.service._build_run_response = Mock(return_value=expected_response)
+
+        result = self.service.create_run(
+            "rev_sess_123",
+            ReviewRunStartRequest(
+                engine="codex_cli",
+                mode="native_review",
+                custom_instructions="  Focus on auth flows.  ",
+                applied_instructions="  App-wide review guidelines:\nFocus on auth flows.  ",
+            ),
+        )
+
+        self.assertIs(result, expected_response)
+        run = self.service.session.add.call_args.args[0]
+        self.assertEqual(run.custom_instructions, "Focus on auth flows.")
+        self.assertEqual(
+            run.applied_instructions,
+            "App-wide review guidelines:\nFocus on auth flows.",
+        )
+        self.service._build_run_response.assert_called_once_with(
+            run, include_events=True
+        )
 
 
 if __name__ == "__main__":

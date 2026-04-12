@@ -1170,6 +1170,25 @@ def _drop_legacy_embedding_columns_migration(connection, settings: Settings) -> 
     )
 
 
+def _review_run_instructions_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS custom_instructions TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE review_runs
+            ADD COLUMN IF NOT EXISTS applied_instructions TEXT
+            """
+        )
+    )
+
+
 MIGRATIONS = [
     Migration(
         version="20260321_ai_runtime_embeddings",
@@ -1202,6 +1221,10 @@ MIGRATIONS = [
     Migration(
         version="20260402_drop_legacy_embedding_columns",
         run=_drop_legacy_embedding_columns_migration,
+    ),
+    Migration(
+        version="20260409_review_run_instructions",
+        run=_review_run_instructions_migration,
     ),
 ]
 

@@ -1,0 +1,29 @@
+[project]
+name = "git-odyssey-backend"
+version = "0.1.0"
+description = "GitOdyssey desktop FastAPI sidecar"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "annotated-types==0.7.0",
+  "cffi==2.0.0",
+  "fastapi",
+  "httpx",
+  "openai",
+  "pgvector",
+  "psycopg2-binary",
+  "pycparser==2.22",
+  "pygit2==1.18.2",
+  "pydantic==2.11.9",
+  "pydantic-core==2.33.2",
+  "pydantic-settings",
+  "python-dotenv",
+  "sqlalchemy",
+  "tree-sitter",
+  "tree-sitter-typescript",
+  "typing-extensions==4.15.0",
+  "typing-inspection==0.4.1",
+  "uvicorn[standard]",
+]
+
+[tool.uv]
+package = false

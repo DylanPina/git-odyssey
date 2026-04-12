@@ -18,8 +18,11 @@ import type {
 } from "@/lib/definitions/review";
 import type { User } from "@/lib/definitions/auth";
 import type {
+  DesktopAdditionalReviewGuidelineSaveInput,
+  DesktopAdditionalReviewGuidelineState,
   DesktopAiConfigInput,
   DesktopAiValidationResult,
+  DesktopReviewSettings,
   DesktopRepoSettings,
   DesktopRepoSettingsSaveInput,
   GitProjectSummary,
@@ -245,6 +248,24 @@ export const getDesktopRepoSettings = async (
   repoPath: string
 ): Promise<DesktopRepoSettings> => {
   return getDesktopBridge().settings.getRepoSettings(repoPath);
+};
+
+export const getDesktopAdditionalReviewGuidelines = async (
+  repoPath: string
+): Promise<DesktopAdditionalReviewGuidelineState> => {
+  return getDesktopBridge().settings.getAdditionalReviewGuidelines(repoPath);
+};
+
+export const saveDesktopAdditionalReviewGuidelines = async (
+  input: DesktopAdditionalReviewGuidelineSaveInput
+): Promise<DesktopAdditionalReviewGuidelineState> => {
+  return getDesktopBridge().settings.saveAdditionalReviewGuidelines(input);
+};
+
+export const saveDesktopReviewSettings = async (
+  input: DesktopReviewSettings
+): Promise<DesktopReviewSettings> => {
+  return getDesktopBridge().settings.saveReviewSettings(input);
 };
 
 export const validateDesktopAiConfig = async (

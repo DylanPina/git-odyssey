@@ -83,6 +83,8 @@ type ReviewRunPayload = {
 type ReviewRunDetailPayload = {
   id: string;
   status?: string | null;
+  custom_instructions?: string | null;
+  applied_instructions?: string | null;
   result?: {
     summary?: string | null;
     findings?: Array<{
@@ -155,6 +157,7 @@ type RunState = {
   commitSha: string | null;
   headHeadSha: string;
   customInstructions: string | null;
+  appliedInstructions: string | null;
   baseThreadId: string | null;
   reviewThreadId: string | null;
   currentTurnId: string | null;
@@ -213,6 +216,18 @@ function sanitizeErrorMessage(error: unknown, fallback: string): string {
 
 function sanitizePathComponent(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
+function normalizeInstructionText(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  return String(value).trim();
 }
 
 async function execFileWithInput(
@@ -298,6 +313,11 @@ class ReviewRuntimeManager extends EventEmitter {
     const session = await this.backendManager.request<ReviewSessionPayload>(
       `/api/review/sessions/${sessionId}`
     );
+    const customInstructions = normalizeInstructionText(input.customInstructions) || null;
+    const appliedInstructions = this.#buildAppliedInstructions(
+      session.repo_path,
+      customInstructions
+    );
     const run = await this.backendManager.request<ReviewRunPayload>(
       `/api/review/sessions/${sessionId}/runs`,
       {
@@ -305,7 +325,8 @@ class ReviewRuntimeManager extends EventEmitter {
         body: {
           engine: "codex_cli",
           mode: "native_review",
-          custom_instructions: input.customInstructions ?? null,
+          custom_instructions: customInstructions,
+          applied_instructions: appliedInstructions,
         },
       }
     );
@@ -319,7 +340,8 @@ class ReviewRuntimeManager extends EventEmitter {
       headRef: session.head_ref,
       commitSha: session.commit_sha || null,
       headHeadSha: session.head_head_sha,
-      customInstructions: input.customInstructions ?? null,
+      customInstructions: customInstructions,
+      appliedInstructions,
       baseThreadId: null,
       reviewThreadId: null,
       currentTurnId: null,
@@ -700,6 +722,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return this.#normalizeReviewChatContext({
       runStatus: run.status ?? null,
       summary: run.result?.summary ?? null,
+      appliedInstructions: run.applied_instructions ?? null,
       findings: (run.result?.findings ?? []).map((finding, index) => ({
         id: String(finding.id || `finding_${index + 1}`),
         severity:
@@ -729,6 +752,7 @@ class ReviewRuntimeManager extends EventEmitter {
     return {
       runStatus: input.runStatus ?? null,
       summary: input.summary ?? null,
+      appliedInstructions: normalizeInstructionText(input.appliedInstructions) || null,
       findings: Array.isArray(input.findings) ? input.findings : [],
     };
   }
@@ -759,7 +783,7 @@ class ReviewRuntimeManager extends EventEmitter {
       "## Compare Target",
       this.#formatReviewChatTargetSummary(state),
       "",
-      "## Persisted Review Findings",
+      "## Persisted Review Context",
       this.#formatReviewChatContext(reviewContext),
       "",
       "## Recent Transcript",
@@ -778,7 +802,7 @@ class ReviewRuntimeManager extends EventEmitter {
       "## Compare Target",
       this.#formatReviewChatTargetSummary(state),
       "",
-      "## Persisted Review Findings",
+      "## Persisted Review Context",
       this.#formatReviewChatContext(reviewContext),
       "",
       "## Attached Code Context",
@@ -821,13 +845,23 @@ class ReviewRuntimeManager extends EventEmitter {
 
   #formatReviewChatContext(reviewContext: ReviewChatContext | null): string {
     if (!reviewContext) {
-      return "No persisted review result exists for this compare target yet.";
+      return "No persisted review result or applied guidance exists for this compare target yet.";
     }
 
     const lines = [
       `Run status: ${reviewContext.runStatus || "unknown"}`,
-      `Summary: ${String(reviewContext.summary || "").trim() || "No persisted review summary yet."}`,
+      reviewContext.appliedInstructions
+        ? "Applied review guidance:"
+        : "Applied review guidance: default GitOdyssey review behavior only.",
     ];
+
+    if (reviewContext.appliedInstructions) {
+      lines.push(reviewContext.appliedInstructions);
+    }
+
+    lines.push(
+      `Summary: ${String(reviewContext.summary || "").trim() || "No persisted review summary yet."}`,
+    );
 
     if (!reviewContext.findings.length) {
       lines.push("Findings: none");
@@ -849,6 +883,52 @@ class ReviewRuntimeManager extends EventEmitter {
     });
 
     return lines.join("\n");
+  }
+
+  #buildAppliedInstructions(
+    repoPath: string,
+    customInstructions: string | null
+  ): string | null {
+    const desktopState = this.configStore.getState();
+    const repoSettings = this.configStore.getRepoSettings(repoPath);
+    const sections = [
+      {
+        label: "App-wide review guidelines",
+        body: normalizeInstructionText(
+          desktopState.reviewSettings?.pullRequestGuidelines
+        ),
+      },
+      {
+        label: "Repo-specific review guidelines",
+        body: normalizeInstructionText(repoSettings.pullRequestGuidelines),
+      },
+      {
+        label: "Additional review guidelines",
+        body: normalizeInstructionText(customInstructions),
+      },
+    ].filter((section) => section.body);
+
+    if (!sections.length) {
+      return null;
+    }
+
+    return sections
+      .map((section) => `${section.label}:\n${section.body}`)
+      .join("\n\n");
+  }
+
+  #appendAppliedInstructions(
+    instructionLines: string[],
+    appliedInstructions: string | null
+  ): void {
+    if (!appliedInstructions) {
+      return;
+    }
+
+    instructionLines.push(
+      "Apply the following saved and run-specific review guidance for this run:"
+    );
+    instructionLines.push(appliedInstructions);
   }
 
   #formatReviewChatCodeContexts(codeContexts: ReviewChatCodeContext[]): string {
@@ -1641,9 +1721,7 @@ class ReviewRuntimeManager extends EventEmitter {
       "Use commands and exploration normally; the desktop app will handle approvals and observability.",
     ];
 
-    if (state.customInstructions && String(state.customInstructions).trim()) {
-      instructionLines.push(`Additional review instructions: ${state.customInstructions.trim()}`);
-    }
+    this.#appendAppliedInstructions(instructionLines, state.appliedInstructions);
 
     return instructionLines.join("\n");
   }
@@ -1727,9 +1805,7 @@ class ReviewRuntimeManager extends EventEmitter {
       "End with a concise prose review summary and concrete findings, if any.",
     ];
 
-    if (state.customInstructions && String(state.customInstructions).trim()) {
-      instructionLines.push(`Additional review instructions: ${state.customInstructions.trim()}`);
-    }
+    this.#appendAppliedInstructions(instructionLines, state.appliedInstructions);
 
     return instructionLines.join("\n");
   }

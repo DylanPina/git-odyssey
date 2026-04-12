@@ -10,13 +10,17 @@ import {
   type OpenDialogOptions,
 } from "electron";
 
+import { ReviewGuidelinesStore } from "./review-guidelines-store";
 import { BackendManager } from "./backend-manager";
 import { DesktopConfigStore } from "./config-store";
 import { findGitProjectRoot, normalizePath } from "./git-projects";
 import { MacKeychainStore } from "./keychain";
 import { RepoSyncWatcher } from "./repo-sync-watcher";
 import { ReviewRuntimeManager } from "./review-runtime";
-import type { DesktopRepoSettings, RepoSyncProgressEvent } from "./types";
+import type {
+  DesktopRepoSettings,
+  RepoSyncProgressEvent,
+} from "./types";
 import { buildMainWindowOptions } from "./window-frame";
 
 const APP_NAME = "GitOdyssey";
@@ -34,6 +38,7 @@ type RendererEntry =
 
 let mainWindow: BrowserWindow | null = null;
 let configStore: DesktopConfigStore | null = null;
+let reviewGuidelinesStore: ReviewGuidelinesStore | null = null;
 let keychain: MacKeychainStore | null = null;
 let backendManager: BackendManager | null = null;
 let reviewRuntimeManager: ReviewRuntimeManager | null = null;
@@ -55,6 +60,14 @@ function requireConfigStore(): DesktopConfigStore {
   }
 
   return configStore;
+}
+
+function requireReviewGuidelinesStore(): ReviewGuidelinesStore {
+  if (!reviewGuidelinesStore) {
+    throw new Error("Review guidelines store is not initialized.");
+  }
+
+  return reviewGuidelinesStore;
 }
 
 function requireKeychain(): MacKeychainStore {
@@ -289,6 +302,24 @@ function registerIpcHandlers(): void {
     return requireConfigStore().getRepoSettings(repoPath);
   });
 
+  ipcMain.handle(
+      "git-odyssey:settings:get-additional-review-guidelines",
+      async (_event, repoPath) => {
+      return requireReviewGuidelinesStore().get(repoPath);
+    }
+  );
+
+  ipcMain.handle(
+    "git-odyssey:settings:save-additional-review-guidelines",
+    async (_event, input) => {
+      return requireReviewGuidelinesStore().save(input);
+    }
+  );
+
+  ipcMain.handle("git-odyssey:settings:save-review-settings", async (_event, input) => {
+    return requireConfigStore().saveReviewSettings(input);
+  });
+
   ipcMain.handle("git-odyssey:settings:validate-ai-config", async (_event, input) => {
     const savedSecrets = await requireKeychain().getSecrets(input.config);
     return requireBackendManager().request("/api/desktop/validate-ai-config", {
@@ -314,8 +345,14 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("git-odyssey:settings:save-repo-settings", async (_event, input) => {
+    const previousSettings = requireConfigStore().getRepoSettings(input.repoPath);
     const settings = requireConfigStore().saveRepoSettings(input);
-    repoSyncWatcher?.triggerSync(input.repoPath);
+    if (
+      previousSettings.maxCommits !== settings.maxCommits ||
+      previousSettings.contextLines !== settings.contextLines
+    ) {
+      repoSyncWatcher?.triggerSync(input.repoPath);
+    }
     return settings;
   });
 
@@ -389,6 +426,7 @@ function registerIpcHandlers(): void {
       {
         maxCommits: input.maxCommits,
         contextLines: input.contextLines,
+        pullRequestGuidelines: "",
       },
       input.force ?? false
     );
@@ -397,6 +435,7 @@ function registerIpcHandlers(): void {
       {
         maxCommits: input.maxCommits,
         contextLines: input.contextLines,
+        pullRequestGuidelines: "",
       },
       { autoIngest: false }
     );
@@ -585,9 +624,13 @@ function registerIpcHandlers(): void {
 
 app.whenReady().then(async () => {
   app.setName(APP_NAME);
+  const desktopRootPath = path.join(os.homedir(), DESKTOP_STATE_DIRNAME);
 
   configStore = new DesktopConfigStore({
-    rootPath: path.join(os.homedir(), DESKTOP_STATE_DIRNAME),
+    rootPath: desktopRootPath,
+  });
+  reviewGuidelinesStore = new ReviewGuidelinesStore({
+    rootPath: desktopRootPath,
   });
   keychain = new MacKeychainStore({ serviceName: APP_NAME });
   try {

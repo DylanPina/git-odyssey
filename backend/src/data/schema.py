@@ -276,6 +276,8 @@ class SQLReviewRun(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending")
     phase: Mapped[str] = mapped_column(String(32), default="queued")
     partial: Mapped[bool] = mapped_column(Boolean, default=False)
+    custom_instructions: Mapped[Optional[str]] = mapped_column(Text)
+    applied_instructions: Mapped[Optional[str]] = mapped_column(Text)
     summary: Mapped[Optional[str]] = mapped_column(Text)
     findings_payload: Mapped[list] = mapped_column("findings", JSON, default=list)
     event_log_payload: Mapped[list] = mapped_column("events", JSON, default=list)

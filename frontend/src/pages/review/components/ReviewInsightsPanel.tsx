@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
 import { StatusPill } from "@/components/ui/status-pill";
 import type {
@@ -58,7 +59,7 @@ function ReviewInProgressState({
 	const visibleTrace = reasoningTrace.slice(0, 5);
 
 	return (
-			<div className="review-runtime-pulse relative overflow-hidden rounded-[14px] border border-[rgba(122,162,255,0.18)] bg-[linear-gradient(180deg,rgba(122,162,255,0.07),rgba(122,162,255,0.02))] px-3 py-3">
+		<div className="review-runtime-pulse relative overflow-hidden rounded-[14px] border border-[rgba(122,162,255,0.18)] bg-[linear-gradient(180deg,rgba(122,162,255,0.07),rgba(122,162,255,0.02))] px-3 py-3">
 			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,162,255,0.16),transparent_55%)] opacity-70" />
 			<div className="relative">
 				<div className="flex items-start justify-between gap-3">
@@ -159,7 +160,9 @@ function CompletedReasoningSection({
 					) : (
 						<ChevronRight className="size-4 text-text-secondary" />
 					)}
-					<span className="text-sm font-semibold text-text-primary">{title}</span>
+					<span className="text-sm font-semibold text-text-primary">
+						{title}
+					</span>
 				</span>
 			</button>
 
@@ -216,9 +219,9 @@ function ReviewFindingsList({
 	}
 
 	return (
-			<div className="space-y-1.5">
+		<div className="space-y-1.5">
 			{findings.map((finding) => {
-				const { label, sideLabel } = formatFindingReference(finding);
+				const { label } = formatFindingReference(finding);
 				const isSelected = selectedFindingId === finding.id;
 				const canNavigate = canNavigateToFinding(finding);
 				const content = (
@@ -239,30 +242,33 @@ function ReviewFindingsList({
 									{label}
 								</span>
 							</div>
-							<Button
-								type="button"
-								variant="toolbar"
-								size="sm"
-								className="h-7 rounded-full px-2.5 text-[11px]"
-								onClick={(event) => {
-									event.stopPropagation();
-									onAddToChat(finding);
-								}}
-								aria-label={`Ask AI about ${finding.title}`}
-							>
-								<MessageCircle className="size-3.5" />
-								<span>Ask AI</span>
-							</Button>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										type="button"
+										variant="toolbar"
+										size="sm"
+										className="h-7 rounded-full px-2.5 text-[11px]"
+										onClick={(event) => {
+											event.stopPropagation();
+											onAddToChat(finding);
+										}}
+										aria-label={`Ask AI about ${finding.title}`}
+									>
+										<MessageCircle className="size-3.5" />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent>Add to chat</TooltipContent>
+							</Tooltip>
 						</div>
 						<div className="mt-2 text-sm font-semibold leading-5 text-text-primary">
 							{finding.title}
 						</div>
-						<div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
-							{sideLabel ? <span>{sideLabel} side</span> : null}
-							{!canNavigate ? (
+						{!canNavigate ? (
+							<div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
 								<span>Reference unavailable in the current diff.</span>
-							) : null}
-						</div>
+							</div>
+						) : null}
 						<div className="mt-1.5 text-sm leading-5 text-text-secondary">
 							<p className="whitespace-pre-wrap">{finding.body}</p>
 						</div>
@@ -351,7 +357,10 @@ export function ReviewInsightsPanel({
 	const summaryText = reviewResult?.summary?.trim() || null;
 	const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
 	const sectionPadding = isFullscreen ? "px-4 py-3 xl:px-5" : "px-2.5 py-2.5";
-	const completedThoughtDuration = formatThoughtDuration(activeRun, reviewResult);
+	const completedThoughtDuration = formatThoughtDuration(
+		activeRun,
+		reviewResult,
+	);
 	const completedThoughtTitle = completedThoughtDuration
 		? `Thought for ${completedThoughtDuration}`
 		: "Thought";
@@ -411,7 +420,9 @@ export function ReviewInsightsPanel({
 								className="hidden xl:flex"
 								onClick={onToggleFullscreen}
 								aria-pressed={isFullscreen}
-								aria-label={isFullscreen ? "Restore split view" : "Expand review"}
+								aria-label={
+									isFullscreen ? "Restore split view" : "Expand review"
+								}
 								title={isFullscreen ? "Restore split view" : "Expand review"}
 							>
 								{isFullscreen ? (
@@ -428,7 +439,9 @@ export function ReviewInsightsPanel({
 								aria-label={
 									isInline ? "Hide review section" : "Collapse review rail"
 								}
-								title={isInline ? "Hide review section" : "Collapse review rail"}
+								title={
+									isInline ? "Hide review section" : "Collapse review rail"
+								}
 							>
 								<PanelRightOpen className="size-4 rotate-180" />
 							</Button>
@@ -443,7 +456,9 @@ export function ReviewInsightsPanel({
 					isInline ? "max-h-[28rem]" : "flex-1",
 				)}
 			>
-				<section className={cn("border-b border-border-subtle", sectionPadding)}>
+				<section
+					className={cn("border-b border-border-subtle", sectionPadding)}
+				>
 					<div className="flex items-center justify-between gap-3">
 						<div className="workspace-section-label">Summary</div>
 						{summaryText && shouldClampSummary ? (
