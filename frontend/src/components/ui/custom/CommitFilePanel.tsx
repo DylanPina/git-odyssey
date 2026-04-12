@@ -59,6 +59,7 @@ type CommitFilePanelProps = {
 	fileChange: FileChange;
 	isExpanded: boolean;
 	onToggleExpanded: () => void;
+	showDiffModeToggle?: boolean;
 	fileSummary?: SummaryState;
 	isFileSummaryOpen?: boolean;
 	onToggleFileSummary?: () => void;
@@ -111,6 +112,7 @@ export function CommitFilePanel({
 	fileChange,
 	isExpanded,
 	onToggleExpanded,
+	showDiffModeToggle = true,
 	fileSummary,
 	isFileSummaryOpen = false,
 	onToggleFileSummary,
@@ -804,34 +806,36 @@ export function CommitFilePanel({
 					</button>
 
 					<div className="flex shrink-0 items-center gap-1.5">
-						<Button
-							variant="toolbar"
-							size="sm"
-							className="h-8 gap-1.5 px-2.5 text-[12px] [&_svg:not([class*='size-'])]:size-3.5"
-							aria-label={`Diff mode: ${diffMode}. Switch to ${
-								diffMode === "side-by-side" ? "inline" : "side-by-side"
-							}.`}
-							onClick={(event) => {
-								event.stopPropagation();
-								const nextMode =
-									diffMode === "side-by-side" ? "inline" : "side-by-side";
-								if (onDiffModeChange) {
-									onDiffModeChange(nextMode);
-									return;
-								}
-								setUncontrolledDiffMode(nextMode);
-							}}
-							title={`Switch to ${
-								diffMode === "side-by-side" ? "inline" : "side-by-side"
-							} diff`}
-						>
-							{diffMode === "side-by-side" ? (
-								<Columns2 className="size-3.5" />
-							) : (
-								<Rows3 className="size-3.5" />
-							)}
-							<span>{diffMode === "side-by-side" ? "Split" : "Inline"}</span>
-						</Button>
+						{showDiffModeToggle ? (
+							<Button
+								variant="toolbar"
+								size="sm"
+								className="h-8 gap-1.5 px-2.5 text-[12px] [&_svg:not([class*='size-'])]:size-3.5"
+								aria-label={`Diff mode: ${diffMode}. Switch to ${
+									diffMode === "side-by-side" ? "inline" : "side-by-side"
+								}.`}
+								onClick={(event) => {
+									event.stopPropagation();
+									const nextMode =
+										diffMode === "side-by-side" ? "inline" : "side-by-side";
+									if (onDiffModeChange) {
+										onDiffModeChange(nextMode);
+										return;
+									}
+									setUncontrolledDiffMode(nextMode);
+								}}
+								title={`Switch to ${
+									diffMode === "side-by-side" ? "inline" : "side-by-side"
+								} diff`}
+							>
+								{diffMode === "side-by-side" ? (
+									<Columns2 className="size-3.5" />
+								) : (
+									<Rows3 className="size-3.5" />
+								)}
+								<span>{diffMode === "side-by-side" ? "Split" : "Inline"}</span>
+							</Button>
+						) : null}
 
 						{activeSelection && onInjectSelection ? (
 							<Button

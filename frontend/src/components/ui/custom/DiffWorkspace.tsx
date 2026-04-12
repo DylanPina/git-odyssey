@@ -11,8 +11,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Columns2, Rows3, Search, X } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { CommitFilePanel } from "@/components/ui/custom/CommitFilePanel";
 import { CommitFileTree } from "@/components/ui/custom/CommitFileTree";
 import { LoadingOverlay } from "@/components/ui/custom/LoadingOverlay";
@@ -1433,36 +1434,65 @@ export const DiffWorkspace = forwardRef<
       }
     />
   );
+  const shouldRenderWorkspaceHeader = Boolean(topContent || hasFiles);
+  const shouldRenderRootHeader =
+    shouldRenderWorkspaceHeader && (Boolean(error) || !hasFiles);
+  const shouldRenderFileLayoutHeader =
+    shouldRenderWorkspaceHeader && hasFiles && !error && !isRightRailFullscreen;
+  const diffModeToggle = hasFiles ? (
+    <Button
+      variant="toolbar"
+      size="sm"
+      className="h-12 shrink-0 gap-1.5 rounded-[16px] px-3 text-[12px] [&_svg:not([class*='size-'])]:size-3.5"
+      aria-label={`Diff mode: ${diffMode}. Switch to ${
+        diffMode === "side-by-side" ? "inline" : "side-by-side"
+      }.`}
+      onClick={() =>
+        setDiffMode((current) =>
+          current === "side-by-side" ? "inline" : "side-by-side",
+        )
+      }
+      title={`Switch to ${
+        diffMode === "side-by-side" ? "inline" : "side-by-side"
+      } diff`}
+    >
+      {diffMode === "side-by-side" ? (
+        <Columns2 className="size-3.5" />
+      ) : (
+        <Rows3 className="size-3.5" />
+      )}
+      <span>{diffMode === "side-by-side" ? "Split" : "Inline"}</span>
+    </Button>
+  ) : null;
+  const workspaceHeader = (
+    <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+      {topContent ? (
+        <div className="min-w-0 flex-1">{topContent}</div>
+      ) : (
+        <div className="hidden flex-1 xl:block" />
+      )}
+
+      {hasFiles ? (
+        <div className="flex w-full min-w-0 items-center gap-2 xl:max-w-[28rem]">
+          {diffModeToggle}
+          <div className="min-w-0 flex-1">{codeSearch}</div>
+        </div>
+      ) : null}
+    </div>
+  );
 
   return (
     <div className="workspace-panel relative flex h-full flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(17,20,24,0.98),rgba(11,13,17,0.96))]">
       <LoadingOverlay isVisible={Boolean(isLoading)} />
 
-      {topContent || hasFiles ? (
+      {shouldRenderRootHeader ? (
         <div
           className={cn(
             "border-b border-border-subtle bg-[rgba(10,12,16,0.88)]",
             headerPadding,
           )}
         >
-          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-            {topContent ? (
-              <div className="min-w-0 flex-1">{topContent}</div>
-            ) : (
-              <div className="hidden flex-1 xl:block" />
-            )}
-
-            {hasFiles ? (
-              <div
-                className={cn(
-                  "w-full xl:max-w-[20rem]",
-                  isRightRailFullscreen ? "xl:hidden" : undefined,
-                )}
-              >
-                {codeSearch}
-              </div>
-            ) : null}
-          </div>
+          {workspaceHeader}
         </div>
       ) : null}
 
@@ -1478,7 +1508,7 @@ export const DiffWorkspace = forwardRef<
           >
             <div
               className={cn(
-                "relative shrink-0",
+                "order-2 relative shrink-0 xl:order-none",
                 isRightRailFullscreen ? "xl:hidden" : undefined,
               )}
             >
@@ -1516,13 +1546,24 @@ export const DiffWorkspace = forwardRef<
 
             <div
               className={cn(
-                "min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(16,18,23,0.54),rgba(10,12,15,0.92))]",
+                "contents xl:flex xl:min-h-0 xl:min-w-0 xl:flex-1 xl:flex-col",
                 isRightRailFullscreen ? "xl:hidden" : undefined,
               )}
             >
+              {shouldRenderFileLayoutHeader ? (
+                <div
+                  className={cn(
+                    "order-1 min-w-0 border-b border-border-subtle bg-[rgba(10,12,16,0.88)] xl:order-none",
+                    headerPadding,
+                  )}
+                >
+                  {workspaceHeader}
+                </div>
+              ) : null}
+
               <div
                 className={cn(
-                  "h-full min-h-0 overflow-hidden",
+                  "order-3 min-h-0 flex-1 overflow-hidden bg-[linear-gradient(180deg,rgba(16,18,23,0.54),rgba(10,12,15,0.92))] xl:order-none",
                   isCompactChrome ? "p-2.5 sm:p-3" : "p-4 sm:p-5",
                 )}
               >
@@ -1565,6 +1606,7 @@ export const DiffWorkspace = forwardRef<
                                   [labelPath]: !(prev[labelPath] ?? true),
                                 }))
                               }
+                              showDiffModeToggle={false}
                               fileSummary={
                                 summaryActions?.fileSummaries[summaryKey]
                               }
@@ -1650,7 +1692,7 @@ export const DiffWorkspace = forwardRef<
               <div
                 style={rightRailStyle}
                 className={cn(
-                  "relative hidden min-h-0 shrink-0 border-l border-border-subtle bg-[linear-gradient(180deg,rgba(11,14,19,0.98),rgba(8,10,14,0.94))] xl:flex",
+                  "order-4 relative hidden min-h-0 shrink-0 border-l border-border-subtle bg-[linear-gradient(180deg,rgba(11,14,19,0.98),rgba(8,10,14,0.94))] xl:order-none xl:flex",
                   isRightRailFullscreen
                     ? "w-full min-w-0 grow shrink border-l-0"
                     : hasDesktopResize

@@ -678,8 +678,6 @@ export function Review() {
 			handleSelectHistoryReview,
 			baseRef,
 			headRef,
-			displayedCommitSha,
-			displayedTargetMode,
 			cancelCurrentRun,
 			activeRun?.applied_instructions,
 			guidelinesError,
