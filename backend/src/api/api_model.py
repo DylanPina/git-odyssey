@@ -233,6 +233,7 @@ class ReviewRunStartRequest(BaseModel):
     engine: str = "codex_cli"
     mode: str = "native_review"
     custom_instructions: str | None = None
+    applied_instructions: str | None = None
 
 
 class ReviewRunStatusUpdateRequest(BaseModel):
@@ -357,6 +358,8 @@ class ReviewRunResponse(BaseModel):
     engine: str
     mode: str
     status: ReviewRunStatus
+    custom_instructions: str | None = None
+    applied_instructions: str | None = None
     error_detail: str | None = None
     review_thread_id: str | None = None
     worktree_path: str | None = None

@@ -43,6 +43,7 @@ export type ReviewChatFindingContext = ReviewChatFinding;
 export type ReviewChatContext = {
   runStatus?: string | null;
   summary?: string | null;
+  appliedInstructions?: string | null;
   findings: ReviewChatFinding[];
 };
 
@@ -92,14 +93,42 @@ export interface GitProjectSummary {
   lastOpenedAt: string;
 }
 
+export interface DesktopReviewSettings {
+  pullRequestGuidelines: string;
+}
+
+export interface DesktopReviewSettingsInput {
+  pullRequestGuidelines?: string | null;
+}
+
+export interface DesktopAdditionalReviewGuideline {
+  id: string;
+  text: string;
+}
+
+export interface DesktopAdditionalReviewGuidelineState {
+  repoPath: string;
+  draftGuideline: string;
+  guidelines: DesktopAdditionalReviewGuideline[];
+  updatedAt: string | null;
+}
+
+export interface DesktopAdditionalReviewGuidelineSaveInput {
+  repoPath: string;
+  draftGuideline: string;
+  guidelines: DesktopAdditionalReviewGuideline[];
+}
+
 export interface DesktopRepoSettings {
   maxCommits: number;
   contextLines: number;
+  pullRequestGuidelines: string;
 }
 
 export interface DesktopRepoSettingsInput {
   maxCommits?: number | string | null;
   contextLines?: number | string | null;
+  pullRequestGuidelines?: string | null;
 }
 
 export interface DesktopRepoSettingsSaveInput extends DesktopRepoSettings {
@@ -156,6 +185,7 @@ export interface DesktopSettingsStatus {
   logDir: string;
   databaseUrlConfigured: boolean;
   aiRuntimeConfig: AIRuntimeConfig;
+  reviewSettings: DesktopReviewSettings;
   ai: {
     textGeneration: AICapabilityStatus;
     embeddings: AICapabilityStatus;
@@ -207,6 +237,7 @@ export interface DesktopConfigState {
   dataDir: string;
   logDir: string;
   aiRuntimeConfig: AIRuntimeConfig;
+  reviewSettings: DesktopReviewSettings;
   firstRunCompleted: boolean;
   recentProjects: GitProjectSummary[];
   repoSettings: Record<string, DesktopRepoSettings>;
@@ -220,6 +251,7 @@ export interface DesktopConfigPatch {
   dataDir?: string;
   logDir?: string;
   aiRuntimeConfig?: AIRuntimeConfig;
+  reviewSettings?: DesktopReviewSettingsInput;
   firstRunCompleted?: boolean;
   recentProjects?: GitProjectSummary[];
   repoSettings?: Record<string, DesktopRepoSettingsInput>;

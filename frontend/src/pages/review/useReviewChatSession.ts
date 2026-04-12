@@ -147,6 +147,7 @@ function buildReviewChatContext(
 	return {
 		runStatus: activeRun?.status ?? null,
 		summary: reviewResult?.summary ?? null,
+		appliedInstructions: activeRun?.applied_instructions ?? null,
 		findings: reviewResult?.findings ?? [],
 	};
 }

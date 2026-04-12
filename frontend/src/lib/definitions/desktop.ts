@@ -37,18 +37,46 @@ export interface DesktopServiceHealth {
 export type ProviderType = "openai" | "openai_compatible";
 export type AuthMode = "bearer" | "none";
 
+export interface DesktopReviewSettings {
+  pullRequestGuidelines: string;
+}
+
+export interface DesktopAdditionalReviewGuideline {
+  id: string;
+  text: string;
+}
+
+export interface DesktopAdditionalReviewGuidelineState {
+  repoPath: string;
+  draftGuideline: string;
+  guidelines: DesktopAdditionalReviewGuideline[];
+  updatedAt: string | null;
+}
+
+export interface DesktopAdditionalReviewGuidelineSaveInput {
+  repoPath: string;
+  draftGuideline: string;
+  guidelines: DesktopAdditionalReviewGuideline[];
+}
+
 export interface DesktopRepoSettings {
   maxCommits: number;
   contextLines: number;
+  pullRequestGuidelines: string;
 }
 
 export interface DesktopRepoSettingsSaveInput extends DesktopRepoSettings {
   repoPath: string;
 }
 
+export const DEFAULT_DESKTOP_REVIEW_SETTINGS: DesktopReviewSettings = {
+  pullRequestGuidelines: "",
+};
+
 export const DEFAULT_DESKTOP_REPO_SETTINGS: DesktopRepoSettings = {
   maxCommits: 50,
   contextLines: 3,
+  pullRequestGuidelines: "",
 };
 
 export interface ProviderProfileConfig {
@@ -101,6 +129,7 @@ export interface DesktopSettingsStatus {
   logDir: string;
   databaseUrlConfigured: boolean;
   aiRuntimeConfig: AIRuntimeConfig;
+  reviewSettings: DesktopReviewSettings;
   ai: {
     textGeneration: AICapabilityStatus;
     embeddings: AICapabilityStatus;
@@ -293,6 +322,13 @@ export interface GitOdysseyDesktopBridge {
   settings: {
     getStatus(): Promise<DesktopSettingsStatus>;
     getRepoSettings(repoPath: string): Promise<DesktopRepoSettings>;
+    getAdditionalReviewGuidelines(
+      repoPath: string
+    ): Promise<DesktopAdditionalReviewGuidelineState>;
+    saveAdditionalReviewGuidelines(
+      input: DesktopAdditionalReviewGuidelineSaveInput
+    ): Promise<DesktopAdditionalReviewGuidelineState>;
+    saveReviewSettings(input: DesktopReviewSettings): Promise<DesktopReviewSettings>;
     validateAiConfig(input: DesktopAiConfigInput): Promise<DesktopAiValidationResult>;
     saveAiConfig(input: DesktopAiConfigInput): Promise<DesktopSettingsStatus>;
     saveRepoSettings(

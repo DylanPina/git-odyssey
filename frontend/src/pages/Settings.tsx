@@ -2,6 +2,7 @@ import { ArrowLeft, FolderGit2, Settings2 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { RepoSettingsCard } from "@/components/ui/custom/RepoSettingsCard";
+import { ReviewGuidelinesCard } from "@/components/ui/custom/ReviewGuidelinesCard";
 import { DesktopSetupCard } from "@/components/ui/custom/DesktopSetupCard";
 import { TokenSecretsCard } from "@/components/ui/custom/TokenSecretsCard";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,10 @@ export function Settings() {
             <TokenSecretsCard
               desktopSettingsStatus={desktopSettingsStatus}
               desktopHealth={desktopHealth}
+            />
+
+            <ReviewGuidelinesCard
+              desktopSettingsStatus={desktopSettingsStatus}
             />
 
             <RepoSettingsCard repoPath={repoPath} />

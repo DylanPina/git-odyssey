@@ -37,7 +37,7 @@ This architecture supports broad PR reviews, targeted security reviews, regressi
 - macOS
 - Node.js 20+
 - Docker Desktop
-- Conda or another Python 3.13 environment manager
+- `uv`
 
 ### 1. Install JavaScript dependencies
 
@@ -46,13 +46,18 @@ npm install --prefix frontend
 npm install --prefix desktop
 ```
 
-### 2. Create the Python environment
+### 2. Sync the Python environment
 
-Use the provided Conda environment so the native Python dependencies stay on the supported Python 3.13 toolchain:
+Use `uv` to create and manage the backend environment:
 
 ```bash
-conda env create -f backend/environment.yml
-conda activate git-odyssey
+uv sync --project backend
+```
+
+This creates `backend/.venv`, which the desktop shell will use automatically in development. If you want to work inside the environment directly, you can activate it with:
+
+```bash
+source backend/.venv/bin/activate
 ```
 
 ### 3. Start the local database
@@ -113,6 +118,7 @@ npm start
 npm run desktop:dev
 npm run desktop:build
 npm run desktop:smoke
+npm run backend:sync
 npm run backend:test
 npm run frontend:lint
 docker compose down

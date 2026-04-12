@@ -1,7 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import type {
+  DesktopAdditionalReviewGuidelineSaveInput,
+  DesktopAdditionalReviewGuidelineState,
   DesktopAiConfigInput,
+  DesktopReviewSettings,
   DesktopRepoSettings,
   DesktopRepoSettingsSaveInput,
   ReviewChatRequestInput,
@@ -123,6 +126,20 @@ const bridge = {
     getStatus: () => invoke("git-odyssey:settings:get-status"),
     getRepoSettings: (repoPath: string) =>
       invoke("git-odyssey:settings:get-repo-settings", repoPath),
+    getAdditionalReviewGuidelines: (repoPath: string) =>
+      invoke<DesktopAdditionalReviewGuidelineState>(
+        "git-odyssey:settings:get-additional-review-guidelines",
+        repoPath
+      ),
+    saveAdditionalReviewGuidelines: (
+      input: DesktopAdditionalReviewGuidelineSaveInput
+    ) =>
+      invoke<DesktopAdditionalReviewGuidelineState>(
+        "git-odyssey:settings:save-additional-review-guidelines",
+        input
+      ),
+    saveReviewSettings: (input: DesktopReviewSettings) =>
+      invoke("git-odyssey:settings:save-review-settings", input),
     validateAiConfig: (input: DesktopAiConfigInput) =>
       invoke("git-odyssey:settings:validate-ai-config", input),
     saveAiConfig: (input: DesktopAiConfigInput) =>

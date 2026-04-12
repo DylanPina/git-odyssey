@@ -213,6 +213,8 @@ class ReviewRouterTests(unittest.TestCase):
             "engine": "codex_cli",
             "mode": "native_review",
             "status": "pending",
+            "custom_instructions": "Focus on auth flows.",
+            "applied_instructions": "App-wide review guidelines:\nFocus on auth flows.",
             "created_at": "2026-03-28T12:00:00Z",
             "updated_at": "2026-03-28T12:00:00Z",
             "events": [],
@@ -227,6 +229,7 @@ class ReviewRouterTests(unittest.TestCase):
                     engine="codex_cli",
                     mode="native_review",
                     custom_instructions="Focus on auth flows.",
+                    applied_instructions="App-wide review guidelines:\nFocus on auth flows.",
                 ),
                 review_session_service=review_session_service,
             )

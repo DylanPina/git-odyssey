@@ -5,6 +5,8 @@ import type {
   CredentialStatus,
   DesktopConfigPatch,
   DesktopConfigState,
+  DesktopReviewSettings,
+  DesktopReviewSettingsInput,
   DesktopRepoSettings,
   DesktopRepoSettingsInput,
   DesktopRepoSettingsSaveInput,
@@ -25,6 +27,28 @@ import {
 const DEFAULT_BACKEND_PORT = Number(process.env.GITODYSSEY_BACKEND_PORT ?? "48120");
 const DEFAULT_REPO_MAX_COMMITS = 50;
 const DEFAULT_REPO_CONTEXT_LINES = 3;
+
+function normalizeGuidelineText(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  return String(value).trim();
+}
+
+function normalizeReviewSettings(
+  rawSettings?: DesktopReviewSettingsInput
+): DesktopReviewSettings {
+  const settings = rawSettings && typeof rawSettings === "object" ? rawSettings : {};
+
+  return {
+    pullRequestGuidelines: normalizeGuidelineText(settings.pullRequestGuidelines),
+  };
+}
 
 function normalizePositiveInteger(
   value: number | string | null | undefined,
@@ -54,6 +78,7 @@ function normalizeRepoSettings(rawSettings?: DesktopRepoSettingsInput): DesktopR
       settings.contextLines,
       DEFAULT_REPO_CONTEXT_LINES
     ),
+    pullRequestGuidelines: normalizeGuidelineText(settings.pullRequestGuidelines),
   };
 }
 
@@ -102,6 +127,7 @@ class DesktopConfigStore {
       dataDir,
       logDir,
       aiRuntimeConfig: buildDefaultAiRuntimeConfig(),
+      reviewSettings: normalizeReviewSettings(),
       firstRunCompleted: false,
       recentProjects: [],
       repoSettings: {},
@@ -115,11 +141,19 @@ class DesktopConfigStore {
   }
 
   #copyDirIfPresent(sourceDir: string, targetDir: string): void {
-    if (!fs.existsSync(sourceDir) || fs.existsSync(targetDir)) {
+    if (!fs.existsSync(sourceDir)) {
       return;
     }
 
-    fs.cpSync(sourceDir, targetDir, { recursive: true });
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    for (const entry of fs.readdirSync(sourceDir)) {
+      fs.cpSync(path.join(sourceDir, entry), path.join(targetDir, entry), {
+        recursive: true,
+        force: false,
+        errorOnExist: false,
+      });
+    }
   }
 
   #migrateLegacyStateIfNeeded(): void {
@@ -163,6 +197,9 @@ class DesktopConfigStore {
         aiRuntimeConfig: normalizeAiRuntimeConfig(
           parsed.aiRuntimeConfig ?? defaults.aiRuntimeConfig
         ),
+        reviewSettings: normalizeReviewSettings(
+          parsed.reviewSettings ?? defaults.reviewSettings
+        ),
         recentProjects: dedupeRecentProjects(parsed.recentProjects ?? []),
         repoSettings: normalizeRepoSettingsMap(
           parsed.repoSettings ?? defaults.repoSettings
@@ -191,6 +228,9 @@ class DesktopConfigStore {
       ...partial,
       aiRuntimeConfig: normalizeAiRuntimeConfig(
         partial.aiRuntimeConfig ?? this.state.aiRuntimeConfig
+      ),
+      reviewSettings: normalizeReviewSettings(
+        partial.reviewSettings ?? this.state.reviewSettings
       ),
       repoSettings: partial.repoSettings
         ? {
@@ -251,6 +291,16 @@ class DesktopConfigStore {
     return normalizeRepoSettings(this.state.repoSettings?.[normalizedRepoPath]);
   }
 
+  getReviewSettings(): DesktopReviewSettings {
+    return normalizeReviewSettings(this.state.reviewSettings);
+  }
+
+  saveReviewSettings(input: DesktopReviewSettingsInput): DesktopReviewSettings {
+    const nextSettings = normalizeReviewSettings(input);
+    this.save({ reviewSettings: nextSettings });
+    return nextSettings;
+  }
+
   saveRepoSettings(input: DesktopRepoSettingsSaveInput): DesktopRepoSettings {
     const normalizedRepoPath = normalizePath(input?.repoPath);
     if (!normalizedRepoPath) {
@@ -276,6 +326,7 @@ class DesktopConfigStore {
       logDir: this.state.logDir,
       databaseUrlConfigured: Boolean(this.state.databaseUrl),
       aiRuntimeConfig,
+      reviewSettings: this.getReviewSettings(),
       ai: {
         textGeneration: summarizeCapability(
           aiRuntimeConfig,

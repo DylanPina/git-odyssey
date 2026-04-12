@@ -14,6 +14,7 @@ import { InlineBanner } from "@/components/ui/inline-banner";
 import { Input } from "@/components/ui/input";
 import { PanelHeader } from "@/components/ui/panel-header";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DEFAULT_DESKTOP_REPO_SETTINGS,
   type GitProjectSummary,
@@ -27,12 +28,14 @@ import {
 type RepoSettingsFormState = {
   maxCommits: string;
   contextLines: string;
+  pullRequestGuidelines: string;
 };
 
 function buildInitialState() {
   return {
     maxCommits: String(DEFAULT_DESKTOP_REPO_SETTINGS.maxCommits),
     contextLines: String(DEFAULT_DESKTOP_REPO_SETTINGS.contextLines),
+    pullRequestGuidelines: DEFAULT_DESKTOP_REPO_SETTINGS.pullRequestGuidelines,
   };
 }
 
@@ -98,6 +101,7 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
         setFormState({
           maxCommits: String(repoSettings.maxCommits),
           contextLines: String(repoSettings.contextLines),
+          pullRequestGuidelines: repoSettings.pullRequestGuidelines,
         });
       } catch (loadError) {
         const message =
@@ -167,13 +171,15 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
           repoPath,
           maxCommits,
           contextLines,
+          pullRequestGuidelines: formState.pullRequestGuidelines,
         });
         setFormState({
           maxCommits: String(savedSettings.maxCommits),
           contextLines: String(savedSettings.contextLines),
+          pullRequestGuidelines: savedSettings.pullRequestGuidelines,
         });
         setFeedback(
-          "Repository settings saved. They will be applied the next time this repo is refreshed or indexed."
+          "Repository settings saved. Indexing defaults apply on the next refresh or reindex, and review guidance applies on the next review run."
         );
       } catch (saveError) {
         const message =
@@ -185,15 +191,20 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
         setIsSaving(false);
       }
     },
-    [formState.contextLines, formState.maxCommits, repoPath]
+    [
+      formState.contextLines,
+      formState.maxCommits,
+      formState.pullRequestGuidelines,
+      repoPath,
+    ]
   );
 
   return (
     <section className="workspace-panel-elevated space-y-5 p-5 sm:p-6">
       <PanelHeader
         eyebrow="Repository Settings"
-        title="Per-repo indexing defaults"
-        description="These values control how many commits GitOdyssey ingests for a repository and how much surrounding diff context is stored when it indexes or refreshes that repo."
+        title="Per-repo indexing defaults and review guidance"
+        description="These values control how much history GitOdyssey indexes for this repository, how much surrounding diff context it stores, and which repo-specific review rules are appended after the app-wide baseline."
         actions={
           <StatusPill tone={repoPath ? "accent" : "neutral"}>
             {repoPath ? "Repo selected" : "No repo selected"}
@@ -209,7 +220,7 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
           <EmptyState
             icon={<FolderCog className="size-4" />}
             title="Choose a repository to edit repo-specific settings"
-            description="Global AI settings work without a selected repository. Pick a repo here when you want to control its ingest defaults."
+            description="Global AI settings work without a selected repository. Pick a repo here when you want to control its ingest defaults and repo-specific review guidance."
             action={
               <Button
                 type="button"
@@ -357,6 +368,25 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
                   </p>
                 </label>
               </div>
+
+              <label className="space-y-1.5 text-sm text-text-secondary">
+                <span>Repo-specific review guidelines</span>
+                <Textarea
+                  value={formState.pullRequestGuidelines}
+                  onChange={(event) =>
+                    setFormState((current) => ({
+                      ...current,
+                      pullRequestGuidelines: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: Be extra strict about migration safety and backwards compatibility for this repository."
+                  className="min-h-32"
+                />
+                <p className="text-xs leading-5 text-text-tertiary">
+                  These rules are appended after the app-wide review guidelines for
+                  this repository only.
+                </p>
+              </label>
 
               <div className="flex flex-wrap gap-3">
                 <Button type="submit" variant="accent" disabled={isSaving}>

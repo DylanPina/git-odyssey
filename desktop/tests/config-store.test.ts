@@ -26,6 +26,7 @@ test("getRepoSettings returns defaults for repositories without overrides", () =
     assert.deepEqual(store.getRepoSettings(repoPath), {
       maxCommits: 50,
       contextLines: 3,
+      pullRequestGuidelines: "",
     });
   } finally {
     cleanupRootPath(rootPath);
@@ -44,17 +45,20 @@ test("saveRepoSettings persists repository overrides across store reloads", () =
       repoPath,
       maxCommits: 120,
       contextLines: 8,
+      pullRequestGuidelines: "Focus on migrations.  ",
     });
 
     assert.deepEqual(saved, {
       maxCommits: 120,
       contextLines: 8,
+      pullRequestGuidelines: "Focus on migrations.",
     });
 
     const reloadedStore = new DesktopConfigStore({ rootPath });
     assert.deepEqual(reloadedStore.getRepoSettings(repoPath), {
       maxCommits: 120,
       contextLines: 8,
+      pullRequestGuidelines: "Focus on migrations.",
     });
   } finally {
     cleanupRootPath(rootPath);
@@ -85,6 +89,7 @@ test("repo settings loaded from disk are normalized back to safe defaults", () =
             [repoPath]: {
               maxCommits: "invalid",
               contextLines: -5,
+              pullRequestGuidelines: "  Watch auth edges.  ",
             },
           },
         },
@@ -97,6 +102,29 @@ test("repo settings loaded from disk are normalized back to safe defaults", () =
     assert.deepEqual(store.getRepoSettings(repoPath), {
       maxCommits: 50,
       contextLines: 3,
+      pullRequestGuidelines: "Watch auth edges.",
+    });
+  } finally {
+    cleanupRootPath(rootPath);
+  }
+});
+
+test("saveReviewSettings persists trimmed app-wide guidelines across reloads", () => {
+  const rootPath = createRootPath();
+
+  try {
+    const store = new DesktopConfigStore({ rootPath });
+    const saved = store.saveReviewSettings({
+      pullRequestGuidelines: "  Prioritize auth and data loss regressions.  ",
+    });
+
+    assert.deepEqual(saved, {
+      pullRequestGuidelines: "Prioritize auth and data loss regressions.",
+    });
+
+    const reloadedStore = new DesktopConfigStore({ rootPath });
+    assert.deepEqual(reloadedStore.getReviewSettings(), {
+      pullRequestGuidelines: "Prioritize auth and data loss regressions.",
     });
   } finally {
     cleanupRootPath(rootPath);

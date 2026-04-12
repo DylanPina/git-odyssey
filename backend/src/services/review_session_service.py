@@ -62,6 +62,11 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    return normalized or None
+
+
 class ReviewSessionPersistenceService:
     def __init__(
         self,
@@ -200,6 +205,8 @@ class ReviewSessionPersistenceService:
     ) -> ReviewRunResponse:
         session_row = self._get_session_or_404(session_id)
         now = _utcnow()
+        custom_instructions = _normalize_optional_text(request.custom_instructions)
+        applied_instructions = _normalize_optional_text(request.applied_instructions)
         run = SQLReviewRun(
             id=self._next_id("rev_run"),
             session_id=session_row.id,
@@ -212,6 +219,8 @@ class ReviewSessionPersistenceService:
             status="pending",
             phase="queued",
             partial=False,
+            custom_instructions=custom_instructions,
+            applied_instructions=applied_instructions,
             findings_payload=[],
             event_log_payload=[],
             command_logs=[],
@@ -688,6 +697,8 @@ class ReviewSessionPersistenceService:
             engine=run.engine,
             mode=run.mode,
             status=run.status,
+            custom_instructions=run.custom_instructions,
+            applied_instructions=run.applied_instructions,
             error_detail=run.error_detail,
             review_thread_id=run.review_thread_id,
             worktree_path=run.worktree_path,
