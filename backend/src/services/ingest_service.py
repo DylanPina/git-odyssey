@@ -503,7 +503,7 @@ class IngestService:
         repo_path: str,
         *,
         max_commits: int = 50,
-        context_lines: int = 3,
+        context_lines: int = 10,
     ) -> bool:
         normalized_repo_path = self.resolve_repo_path(repo_path)
         repo = self._get_repo_row(normalized_repo_path)

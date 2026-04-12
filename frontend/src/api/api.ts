@@ -35,9 +35,7 @@ import type { FilterFormData } from "@/lib/filter-utils";
 
 function getDesktopBridge(): GitOdysseyDesktopBridge {
   if (typeof window === "undefined" || !window.gitOdysseyDesktop) {
-    throw new Error(
-      "GitOdyssey must run inside the Electron desktop shell."
-    );
+    throw new Error("GitOdyssey must run inside the Electron desktop shell.");
   }
 
   return window.gitOdysseyDesktop;
@@ -45,7 +43,7 @@ function getDesktopBridge(): GitOdysseyDesktopBridge {
 
 export const getRepo = async (
   repoPath: string,
-  repoSettings?: DesktopRepoSettings
+  repoSettings?: DesktopRepoSettings,
 ): Promise<RepoResponse> => {
   return getDesktopBridge().api.getRepo(repoPath, repoSettings);
 };
@@ -53,8 +51,8 @@ export const getRepo = async (
 export const ingestRepo = async (
   repoPath: string,
   maxCommits: number = 50,
-  contextLines: number = 3,
-  force: boolean = false
+  contextLines: number = 10,
+  force: boolean = false,
 ): Promise<RepoResponse> => {
   return getDesktopBridge().api.ingestRepo({
     repoPath,
@@ -68,7 +66,7 @@ export const filterCommits = async (
   query: string,
   filters: FilterFormData,
   repoPath: string,
-  maxResults?: number
+  maxResults?: number,
 ): Promise<FilterResponse> => {
   return getDesktopBridge().api.filterCommits({
     query,
@@ -87,12 +85,14 @@ export const getRecentProjects = async (): Promise<GitProjectSummary[]> => {
 };
 
 export const getRepoSyncProgress = async (
-  repoPath: string
+  repoPath: string,
 ): Promise<RepoSyncProgressEvent | null> => {
   return getDesktopBridge().api.getRepoSyncProgress(repoPath);
 };
 
-export const deleteRepo = async (repoPath: string): Promise<RepoDeleteResponse> => {
+export const deleteRepo = async (
+  repoPath: string,
+): Promise<RepoDeleteResponse> => {
   return getDesktopBridge().api.deleteRepo(repoPath);
 };
 
@@ -111,13 +111,17 @@ export const summarizeHunk = async (id: number): Promise<string> => {
 export const sendChatMessage = async (
   query: string,
   repoPath: string,
-  contextShas: string[]
+  contextShas: string[],
 ): Promise<ChatResponse> => {
-  return getDesktopBridge().api.sendChatMessage({ query, repoPath, contextShas });
+  return getDesktopBridge().api.sendChatMessage({
+    query,
+    repoPath,
+    contextShas,
+  });
 };
 
 export const sendReviewChatMessage = async (
-  input: ReviewChatRequest
+  input: ReviewChatRequest,
 ): Promise<ReviewChatResponse> => {
   return getDesktopBridge().api.sendReviewChatMessage(input);
 };
@@ -133,14 +137,14 @@ export const dropDatabase = async (): Promise<DatabaseResponse> => {
 export const getCommit = async (
   repoPath: string,
   commitSha: string,
-  repoSettings?: DesktopRepoSettings
+  repoSettings?: DesktopRepoSettings,
 ): Promise<CommitResponse> => {
   return getDesktopBridge().api.getCommit(repoPath, commitSha, repoSettings);
 };
 
 export const getCommits = async (
   repoPath: string,
-  repoSettings?: DesktopRepoSettings
+  repoSettings?: DesktopRepoSettings,
 ): Promise<CommitsResponse> => {
   return getDesktopBridge().api.getCommits(repoPath, repoSettings);
 };
@@ -179,7 +183,7 @@ export const createReviewSession = async (input: {
 };
 
 export const getReviewSession = async (
-  sessionId: string
+  sessionId: string,
 ): Promise<ReviewSession> => {
   return getDesktopBridge().api.getReviewSession(sessionId);
 };
@@ -226,8 +230,8 @@ export const respondReviewApproval = async (input: {
 
 export const onReviewRuntimeEvent = (
   listener: (
-    event: import("@/lib/definitions/review").ReviewRuntimeEvent
-  ) => void
+    event: import("@/lib/definitions/review").ReviewRuntimeEvent,
+  ) => void,
 ): (() => void) => {
   return getDesktopBridge().review.onEvent(listener);
 };
@@ -240,48 +244,49 @@ export const logout = async (): Promise<{ message: string }> => {
   return getDesktopBridge().api.logout();
 };
 
-export const getDesktopSettingsStatus = async (): Promise<DesktopSettingsStatus> => {
-  return getDesktopBridge().settings.getStatus();
-};
+export const getDesktopSettingsStatus =
+  async (): Promise<DesktopSettingsStatus> => {
+    return getDesktopBridge().settings.getStatus();
+  };
 
 export const getDesktopRepoSettings = async (
-  repoPath: string
+  repoPath: string,
 ): Promise<DesktopRepoSettings> => {
   return getDesktopBridge().settings.getRepoSettings(repoPath);
 };
 
 export const getDesktopAdditionalReviewGuidelines = async (
-  repoPath: string
+  repoPath: string,
 ): Promise<DesktopAdditionalReviewGuidelineState> => {
   return getDesktopBridge().settings.getAdditionalReviewGuidelines(repoPath);
 };
 
 export const saveDesktopAdditionalReviewGuidelines = async (
-  input: DesktopAdditionalReviewGuidelineSaveInput
+  input: DesktopAdditionalReviewGuidelineSaveInput,
 ): Promise<DesktopAdditionalReviewGuidelineState> => {
   return getDesktopBridge().settings.saveAdditionalReviewGuidelines(input);
 };
 
 export const saveDesktopReviewSettings = async (
-  input: DesktopReviewSettings
+  input: DesktopReviewSettings,
 ): Promise<DesktopReviewSettings> => {
   return getDesktopBridge().settings.saveReviewSettings(input);
 };
 
 export const validateDesktopAiConfig = async (
-  input: DesktopAiConfigInput
+  input: DesktopAiConfigInput,
 ): Promise<DesktopAiValidationResult> => {
   return getDesktopBridge().settings.validateAiConfig(input);
 };
 
 export const saveDesktopAiConfig = async (
-  input: DesktopAiConfigInput
+  input: DesktopAiConfigInput,
 ): Promise<DesktopSettingsStatus> => {
   return getDesktopBridge().settings.saveAiConfig(input);
 };
 
 export const saveDesktopRepoSettings = async (
-  input: DesktopRepoSettingsSaveInput
+  input: DesktopRepoSettingsSaveInput,
 ): Promise<DesktopRepoSettings> => {
   return getDesktopBridge().settings.saveRepoSettings(input);
 };
@@ -291,7 +296,7 @@ export const getDesktopHealth = async (): Promise<DesktopHealthStatus> => {
 };
 
 export const onRepoSyncEvent = (
-  listener: (event: RepoSyncProgressEvent) => void
+  listener: (event: RepoSyncProgressEvent) => void,
 ): (() => void) => {
   return getDesktopBridge().repoSync.onEvent(listener);
 };

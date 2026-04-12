@@ -1,16 +1,14 @@
-import { ArrowLeft, FolderGit2, Settings2 } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { FolderGit2, Settings2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 import { RepoSettingsCard } from "@/components/ui/custom/RepoSettingsCard";
 import { ReviewGuidelinesCard } from "@/components/ui/custom/ReviewGuidelinesCard";
 import { DesktopSetupCard } from "@/components/ui/custom/DesktopSetupCard";
 import { TokenSecretsCard } from "@/components/ui/custom/TokenSecretsCard";
-import { Button } from "@/components/ui/button";
 import { PanelHeader } from "@/components/ui/panel-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  buildRepoRoute,
   getRepoDisplayName,
   readRepoPathFromSearchParams,
 } from "@/lib/repoPaths";
@@ -25,24 +23,15 @@ export function Settings() {
     <div className="workspace-shell overflow-y-auto">
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-6 px-4 py-8 lg:px-8">
         <section className="workspace-panel-elevated space-y-5 p-5 sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Button type="button" variant="toolbar" size="toolbar" asChild>
-              <Link to={repoPath ? buildRepoRoute(repoPath) : "/"}>
-                <ArrowLeft className="size-4" />
-                {repoPath ? "Back To Repo" : "Back Home"}
-              </Link>
-            </Button>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill tone="accent" icon={<Settings2 className="size-3" />}>
-                Unified settings
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone="accent" icon={<Settings2 className="size-3" />}>
+              Unified settings
+            </StatusPill>
+            {repoPath ? (
+              <StatusPill tone="neutral" icon={<FolderGit2 className="size-3" />}>
+                {getRepoDisplayName(repoPath)}
               </StatusPill>
-              {repoPath ? (
-                <StatusPill tone="neutral" icon={<FolderGit2 className="size-3" />}>
-                  {getRepoDisplayName(repoPath)}
-                </StatusPill>
-              ) : null}
-            </div>
+            ) : null}
           </div>
 
           <PanelHeader

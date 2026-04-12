@@ -110,6 +110,8 @@ export function useRepoNavigationShortcuts() {
   const repoPath = readRepoPathFromSearchParams(
     new URLSearchParams(location.search),
   );
+  const hasWorkflowBackFallback =
+    route === "review" || route === "settings";
 
   useEffect(() => {
     if (!route) {
@@ -145,7 +147,7 @@ export function useRepoNavigationShortcuts() {
         return;
       }
 
-      if (route === "review") {
+      if (hasWorkflowBackFallback) {
         event.preventDefault();
         navigate(repoPath ? buildRepoRoute(repoPath) : "/", { replace: true });
       }
@@ -153,7 +155,7 @@ export function useRepoNavigationShortcuts() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, repoPath, route]);
+  }, [hasWorkflowBackFallback, navigate, repoPath, route]);
 }
 
 export default useRepoNavigationShortcuts;

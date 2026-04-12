@@ -75,7 +75,7 @@ export const DEFAULT_DESKTOP_REVIEW_SETTINGS: DesktopReviewSettings = {
 
 export const DEFAULT_DESKTOP_REPO_SETTINGS: DesktopRepoSettings = {
   maxCommits: 50,
-  contextLines: 3,
+  contextLines: 10,
   pullRequestGuidelines: "",
 };
 
@@ -225,7 +225,7 @@ export interface RepoSyncProgressEvent {
 export interface GitOdysseyDesktopApi {
   getRepo(
     repoPath: string,
-    repoSettings?: DesktopRepoSettings
+    repoSettings?: DesktopRepoSettings,
   ): Promise<RepoResponse>;
   ingestRepo(input: {
     repoPath: string;
@@ -257,11 +257,11 @@ export interface GitOdysseyDesktopApi {
   getCommit(
     repoPath: string,
     commitSha: string,
-    repoSettings?: DesktopRepoSettings
+    repoSettings?: DesktopRepoSettings,
   ): Promise<CommitResponse>;
   getCommits(
     repoPath: string,
-    repoSettings?: DesktopRepoSettings
+    repoSettings?: DesktopRepoSettings,
   ): Promise<CommitsResponse>;
   compareReviewTarget(input: {
     repoPath: string;
@@ -299,10 +299,7 @@ export interface GitOdysseyDesktopApi {
     sessionId: string;
     customInstructions?: string | null;
   }): Promise<ReviewRun>;
-  getReviewRun(input: {
-    sessionId: string;
-    runId: string;
-  }): Promise<ReviewRun>;
+  getReviewRun(input: { sessionId: string; runId: string }): Promise<ReviewRun>;
   cancelReviewRun(input: {
     sessionId: string;
     runId: string;
@@ -323,16 +320,20 @@ export interface GitOdysseyDesktopBridge {
     getStatus(): Promise<DesktopSettingsStatus>;
     getRepoSettings(repoPath: string): Promise<DesktopRepoSettings>;
     getAdditionalReviewGuidelines(
-      repoPath: string
+      repoPath: string,
     ): Promise<DesktopAdditionalReviewGuidelineState>;
     saveAdditionalReviewGuidelines(
-      input: DesktopAdditionalReviewGuidelineSaveInput
+      input: DesktopAdditionalReviewGuidelineSaveInput,
     ): Promise<DesktopAdditionalReviewGuidelineState>;
-    saveReviewSettings(input: DesktopReviewSettings): Promise<DesktopReviewSettings>;
-    validateAiConfig(input: DesktopAiConfigInput): Promise<DesktopAiValidationResult>;
+    saveReviewSettings(
+      input: DesktopReviewSettings,
+    ): Promise<DesktopReviewSettings>;
+    validateAiConfig(
+      input: DesktopAiConfigInput,
+    ): Promise<DesktopAiValidationResult>;
     saveAiConfig(input: DesktopAiConfigInput): Promise<DesktopSettingsStatus>;
     saveRepoSettings(
-      input: DesktopRepoSettingsSaveInput
+      input: DesktopRepoSettingsSaveInput,
     ): Promise<DesktopRepoSettings>;
   };
   health: {

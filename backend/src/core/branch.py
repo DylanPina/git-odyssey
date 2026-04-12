@@ -12,7 +12,7 @@ class Branch:
         repo_path: str,
         name: str,
         all_commits: dict[str, Commit],
-        context_lines: int = 3,
+        context_lines: int = 10,
         max_commits: Optional[int] = None,
         reference_name: Optional[str] = None,
         target_oid: Optional[pygit2.Oid] = None,

@@ -240,7 +240,7 @@ class SQLReviewSession(Base):
     merge_base_sha: Mapped[str] = mapped_column(String(40))
     base_head_sha: Mapped[str] = mapped_column(String(40))
     head_head_sha: Mapped[str] = mapped_column(String(40))
-    context_lines: Mapped[int] = mapped_column(Integer, default=3)
+    context_lines: Mapped[int] = mapped_column(Integer, default=10)
     review_mode: Mapped[str] = mapped_column(String(32), default="diff")
     instructions_preset: Mapped[str] = mapped_column(String(64), default="default")
     diff_stats: Mapped[dict] = mapped_column(JSON)

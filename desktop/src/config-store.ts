@@ -26,7 +26,7 @@ import {
 
 const DEFAULT_BACKEND_PORT = Number(process.env.GITODYSSEY_BACKEND_PORT ?? "48120");
 const DEFAULT_REPO_MAX_COMMITS = 50;
-const DEFAULT_REPO_CONTEXT_LINES = 3;
+const DEFAULT_REPO_CONTEXT_LINES = 10;
 
 function normalizeGuidelineText(value: unknown): string {
   if (typeof value === "string") {

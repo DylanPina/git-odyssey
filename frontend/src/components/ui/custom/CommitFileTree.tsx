@@ -39,6 +39,12 @@ type CommitFileTreeProps = {
 	codeSearchMatchCounts?: Record<string, number>;
 	desktopWidth?: number;
 	topContent?: ReactNode;
+	bottomAction?: {
+		label: string;
+		ariaLabel?: string;
+		icon: ReactNode;
+		onClick: () => void;
+	};
 	isCollapsed?: boolean;
 	hasActiveSearch?: boolean;
 	forceExpandAll?: boolean;
@@ -89,6 +95,7 @@ export function CommitFileTree({
 	codeSearchMatchCounts = {},
 	desktopWidth,
 	topContent,
+	bottomAction,
 	isCollapsed = false,
 	hasActiveSearch = false,
 	forceExpandAll = false,
@@ -207,7 +214,7 @@ export function CommitFileTree({
 					onClick={() => onSelectFile(node.path)}
 					aria-current={isSelected ? "true" : undefined}
 					title={node.path}
-					>
+				>
 					<span
 						className={cn(
 							"ml-1 size-2 shrink-0 rounded-full",
@@ -247,25 +254,62 @@ export function CommitFileTree({
 			</TooltipContent>
 		</Tooltip>
 	) : null;
-	const desktopWidthStyle =
-		({
-			"--commit-file-tree-width": isCollapsed
-				? COMMIT_FILE_TREE_COLLAPSED_DESKTOP_WIDTH
-				: desktopWidth != null
-					? `${desktopWidth}px`
-					: COMMIT_FILE_TREE_DEFAULT_DESKTOP_WIDTH,
-		} as CSSProperties);
+	const bottomActionLabel = bottomAction?.ariaLabel ?? bottomAction?.label;
+	const expandedBottomAction = bottomAction ? (
+		<div className="border-t border-border-subtle px-2.5 py-2.5">
+			<Button
+				type="button"
+				variant="ghost"
+				className="h-10 w-full justify-start gap-2.5 rounded-[12px] border-transparent bg-transparent px-3 text-sm text-text-secondary shadow-none hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
+				onClick={bottomAction.onClick}
+			>
+				{bottomAction.icon}
+				<span>{bottomAction.label}</span>
+			</Button>
+		</div>
+	) : null;
+	const collapsedBottomAction =
+		bottomAction && bottomActionLabel ? (
+			<div className="pt-3">
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							className="rounded-[12px] border-transparent bg-transparent text-text-secondary shadow-none hover:bg-[rgba(255,255,255,0.04)] hover:text-text-primary"
+							onClick={bottomAction.onClick}
+							aria-label={bottomActionLabel}
+						>
+							{bottomAction.icon}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>{bottomAction.label}</TooltipContent>
+				</Tooltip>
+			</div>
+		) : null;
+	const desktopWidthStyle = {
+		"--commit-file-tree-width": isCollapsed
+			? COMMIT_FILE_TREE_COLLAPSED_DESKTOP_WIDTH
+			: desktopWidth != null
+				? `${desktopWidth}px`
+				: COMMIT_FILE_TREE_DEFAULT_DESKTOP_WIDTH,
+	} as CSSProperties;
 
 	const collapsedDesktopContent = (
 		<div className="flex h-full min-h-0 flex-col items-center justify-start px-2 py-3">
 			{collapseButton}
 
 			<div className="flex flex-1 flex-col items-center justify-center gap-3">
-				{hasActiveSearch ? <span className="size-2 rounded-full bg-accent" /> : null}
+				{hasActiveSearch ? (
+					<span className="size-2 rounded-full bg-accent" />
+				) : null}
 				<span className="font-mono text-[11px] text-text-tertiary [writing-mode:vertical-rl] rotate-180">
 					{files.length}/{totalFileCount}
 				</span>
 			</div>
+
+			{collapsedBottomAction}
 		</div>
 	);
 
@@ -303,6 +347,8 @@ export function CommitFileTree({
 					</div>
 				)}
 			</div>
+
+			{expandedBottomAction}
 		</div>
 	);
 

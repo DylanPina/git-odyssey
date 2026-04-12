@@ -84,7 +84,7 @@ class AIRuntimeValidationRequest(BaseModel):
 class IngestRequest(BaseModel):
     repo_path: str = ""
     max_commits: int = 50
-    context_lines: int = 3
+    context_lines: int = 10
     force: bool = False
     progress_id: str | None = None
 
@@ -149,7 +149,7 @@ class ReviewCompareRequest(BaseModel):
     base_ref: str = ""
     head_ref: str = ""
     commit_sha: str | None = None
-    context_lines: int = 3
+    context_lines: int = 10
 
 
 class ReviewStats(BaseModel):
@@ -176,7 +176,7 @@ class GenerateReviewRequest(BaseModel):
     base_ref: str = ""
     head_ref: str = ""
     commit_sha: str | None = None
-    context_lines: int = 3
+    context_lines: int = 10
 
 
 class ReviewFinding(BaseModel):
@@ -226,7 +226,7 @@ class ReviewSessionCreateRequest(BaseModel):
     base_ref: str = ""
     head_ref: str = ""
     commit_sha: str | None = None
-    context_lines: int = 3
+    context_lines: int = 10
 
 
 class ReviewRunStartRequest(BaseModel):

@@ -25,43 +25,51 @@ describe("RepoSettingsCard", () => {
     apiMocks.getRecentProjects.mockResolvedValue([]);
     apiMocks.getDesktopRepoSettings.mockResolvedValue({
       maxCommits: 50,
-      contextLines: 3,
+      contextLines: 10,
       pullRequestGuidelines: "Check migrations carefully.",
     });
     apiMocks.saveDesktopRepoSettings.mockResolvedValue({
       maxCommits: 50,
-      contextLines: 3,
+      contextLines: 10,
       pullRequestGuidelines: "Check migrations and auth carefully.",
     });
 
     render(
       <MemoryRouter>
         <RepoSettingsCard repoPath="/tmp/example-repo" />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     const textarea = await screen.findByRole("textbox", {
       name: /repo-specific review guidelines/i,
     });
+    const diffContextInput = screen.getByRole("spinbutton", {
+      name: /diff context lines/i,
+    });
+
+    expect(diffContextInput).toHaveValue(10);
     expect(textarea).toHaveValue("Check migrations carefully.");
+    expect(
+      screen.getByText(
+        /diff viewer keeps visible around each change, and the diff context gitodyssey stores for this repo/i,
+      ),
+    ).toBeInTheDocument();
 
     await user.clear(textarea);
     await user.type(textarea, "Check migrations and auth carefully.");
     await user.click(
-      screen.getByRole("button", { name: /save repository settings/i })
+      screen.getByRole("button", { name: /save repository settings/i }),
     );
 
     await waitFor(() => {
       expect(apiMocks.saveDesktopRepoSettings).toHaveBeenCalledWith({
         repoPath: "/tmp/example-repo",
         maxCommits: 50,
-        contextLines: 3,
+        contextLines: 10,
         pullRequestGuidelines: "Check migrations and auth carefully.",
       });
     });
 
-    expect(
-      screen.getByText(/repository settings saved/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/repository settings saved/i)).toBeInTheDocument();
   });
 });

@@ -7,7 +7,7 @@ from services.ingest_service import IngestService
 from services.repo_service import RepoService
 
 DEFAULT_MAX_COMMITS = 50
-DEFAULT_CONTEXT_LINES = 3
+DEFAULT_CONTEXT_LINES = 10
 
 router = APIRouter()
 

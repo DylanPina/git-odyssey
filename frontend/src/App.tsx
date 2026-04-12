@@ -48,11 +48,12 @@ function App() {
 	const workflowRoute = getRepoWorkflowRoute(location.pathname);
 	const showWorkflowActions = workflowRoute === "review";
 	const currentHistoryIndex = getHistoryIndex();
+	const hasWorkflowBackFallback =
+		workflowRoute === "review" || workflowRoute === "settings";
 	const canNavigateBack =
 		workflowRoute === "repo"
 			? false
-			: currentHistoryIndex > 0 ||
-				workflowRoute === "review";
+			: currentHistoryIndex > 0 || hasWorkflowBackFallback;
 	const canNavigateForward = currentHistoryIndex < maxHistoryIndex;
 
 	useEffect(() => {
@@ -85,7 +86,7 @@ function App() {
 			return;
 		}
 
-		if (workflowRoute === "review") {
+		if (hasWorkflowBackFallback) {
 			navigate(repoPath ? buildRepoRoute(repoPath) : "/", { replace: true });
 		}
 	};

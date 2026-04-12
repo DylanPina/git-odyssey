@@ -1,10 +1,14 @@
 import { matchPath } from "react-router-dom";
 
-export type RepoWorkflowRoute = "repo" | "review";
+export type RepoWorkflowRoute = "repo" | "review" | "settings";
 
 export function getRepoWorkflowRoute(pathname: string): RepoWorkflowRoute | null {
   if (matchPath("/repo/review", pathname)) {
     return "review";
+  }
+
+  if (matchPath("/settings", pathname)) {
+    return "settings";
   }
 
   if (matchPath("/repo", pathname)) {

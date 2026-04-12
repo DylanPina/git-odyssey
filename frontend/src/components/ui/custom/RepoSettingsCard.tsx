@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowUpRight, FolderCog, FolderOpen, History, Loader2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  ArrowUpRight,
+  FolderCog,
+  FolderOpen,
+  History,
+  Loader2,
+} from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import {
@@ -53,7 +65,7 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
   const navigate = useNavigate();
   const [recentProjects, setRecentProjects] = useState<GitProjectSummary[]>([]);
   const [formState, setFormState] = useState<RepoSettingsFormState>(() =>
-    buildInitialState()
+    buildInitialState(),
   );
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -63,7 +75,7 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
 
   const repoLabel = useMemo(
     () => (repoPath ? getRepoDisplayName(repoPath) : null),
-    [repoPath]
+    [repoPath],
   );
 
   const loadRecentProjects = useCallback(async () => {
@@ -158,7 +170,9 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
       }
 
       if (contextLines == null) {
-        setError("Context lines must be a whole number that is zero or higher.");
+        setError(
+          "Context lines must be a whole number that is zero or higher.",
+        );
         return;
       }
 
@@ -179,7 +193,7 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
           pullRequestGuidelines: savedSettings.pullRequestGuidelines,
         });
         setFeedback(
-          "Repository settings saved. Indexing defaults apply on the next refresh or reindex, and review guidance applies on the next review run."
+          "Repository settings saved. Indexing defaults apply on the next refresh or reindex, and review guidance applies on the next review run.",
         );
       } catch (saveError) {
         const message =
@@ -196,7 +210,7 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
       formState.maxCommits,
       formState.pullRequestGuidelines,
       repoPath,
-    ]
+    ],
   );
 
   return (
@@ -345,12 +359,13 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
                     }
                   />
                   <p className="text-xs leading-5 text-text-tertiary">
-                    Controls how much repository history GitOdyssey indexes for this repo.
+                    Controls how much repository history GitOdyssey indexes for
+                    this repo.
                   </p>
                 </label>
 
                 <label className="space-y-1.5 text-sm text-text-secondary">
-                  <span>Context lines</span>
+                  <span>Diff context lines</span>
                   <Input
                     type="number"
                     min={0}
@@ -364,7 +379,9 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
                     }
                   />
                   <p className="text-xs leading-5 text-text-tertiary">
-                    Sets how many unchanged diff lines GitOdyssey keeps around each change.
+                    Controls how many unchanged lines the diff viewer keeps
+                    visible around each change, and the diff context GitOdyssey
+                    stores for this repo.
                   </p>
                 </label>
               </div>
@@ -383,8 +400,8 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
                   className="min-h-32"
                 />
                 <p className="text-xs leading-5 text-text-tertiary">
-                  These rules are appended after the app-wide review guidelines for
-                  this repository only.
+                  These rules are appended after the app-wide review guidelines
+                  for this repository only.
                 </p>
               </label>
 
