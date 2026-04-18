@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import json
 from dataclasses import dataclass
+import time
 from typing import Any, Callable, Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -16,6 +18,8 @@ from infrastructure.errors import (
     AIRequestError,
     AIUnsupportedCapabilityError,
 )
+from utils.logger import logger
+from utils.utils import redact_url_credentials
 
 
 @dataclass
@@ -136,6 +140,57 @@ def _parse_retry_after(headers: httpx.Headers) -> float | None:
     return max(0.0, (parsed - datetime.now(timezone.utc)).total_seconds())
 
 
+def _summarize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    if "model" in payload:
+        summary["model"] = payload.get("model")
+    if "temperature" in payload:
+        summary["temperature"] = payload.get("temperature")
+
+    instructions = payload.get("instructions")
+    if isinstance(instructions, str):
+        summary["instructions_chars"] = len(instructions)
+
+    input_value = payload.get("input")
+    if isinstance(input_value, str):
+        summary["input_items"] = 1
+        summary["input_chars"] = len(input_value)
+    elif isinstance(input_value, list):
+        summary["input_items"] = len(input_value)
+        summary["input_chars"] = sum(
+            len(item) for item in input_value if isinstance(item, str)
+        )
+
+    return summary
+
+
+def _summarize_response(path: str, body: Any) -> dict[str, Any]:
+    summary: dict[str, Any] = {"endpoint": path}
+
+    if not isinstance(body, dict):
+        summary["body_type"] = type(body).__name__
+        return summary
+
+    if path == "/v1/responses":
+        output_text = body.get("output_text")
+        if isinstance(output_text, str):
+            summary["output_chars"] = len(output_text)
+        else:
+            summary["output_items"] = len(body.get("output", []) or [])
+    elif path == "/v1/embeddings":
+        data = body.get("data", []) or []
+        if isinstance(data, list):
+            summary["embedding_count"] = len(data)
+            first_item = data[0] if data else None
+            first_embedding = (
+                first_item.get("embedding") if isinstance(first_item, dict) else None
+            )
+            if isinstance(first_embedding, list):
+                summary["embedding_dimensions"] = len(first_embedding)
+
+    return summary
+
+
 class OpenAIWireTransport:
     def __init__(
         self,
@@ -161,12 +216,60 @@ class OpenAIWireTransport:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
+    def _log_request(self, path: str, payload: dict[str, Any]) -> None:
+        url = self._resolve_url(path)
+        logger.info(
+            "AI request provider=%s type=%s url=%s endpoint=%s payload=%s",
+            self.profile.label,
+            self.profile.provider_type,
+            redact_url_credentials(url),
+            path,
+            _summarize_payload(payload),
+        )
+
+    def _log_response(
+        self,
+        path: str,
+        *,
+        status_code: int,
+        elapsed_ms: float,
+        body: Any,
+    ) -> None:
+        logger.info(
+            "AI response provider=%s endpoint=%s status=%s elapsed_ms=%.1f summary=%s",
+            self.profile.label,
+            path,
+            status_code,
+            elapsed_ms,
+            _summarize_response(path, body),
+        )
+
+    def _resolve_url(self, path: str) -> str:
+        base_url = self.profile.base_url or ""
+        if self.profile.provider_type != "openai_compatible":
+            return f"{base_url}{path}"
+
+        parsed = urlparse(base_url)
+        base_path = parsed.path.rstrip("/")
+        if base_path:
+            return base_url
+        return f"{base_url}{path}"
+
     def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        url = f"{self.profile.base_url}{path}"
+        url = self._resolve_url(path)
+        self._log_request(path, payload)
+        started_at = time.monotonic()
 
         try:
             response = self.client.post(url, headers=self._headers(), json=payload)
         except httpx.HTTPError as exc:
+            elapsed_ms = (time.monotonic() - started_at) * 1000
+            logger.exception(
+                "AI request failed provider=%s endpoint=%s elapsed_ms=%.1f",
+                self.profile.label,
+                path,
+                elapsed_ms,
+            )
             raise AIConnectionError(
                 f"Failed to reach provider '{self.profile.label}' at {self.profile.base_url}: {exc}"
             ) from exc
@@ -181,6 +284,14 @@ class OpenAIWireTransport:
                     body = _parse_sse_payload(response.text)
                 else:
                     body = None
+
+        elapsed_ms = (time.monotonic() - started_at) * 1000
+        self._log_response(
+            path,
+            status_code=response.status_code,
+            elapsed_ms=elapsed_ms,
+            body=body,
+        )
 
         if response.status_code >= 400:
             self._raise_response_error(
