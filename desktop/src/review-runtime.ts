@@ -179,6 +179,7 @@ type ChatState = {
   scopeKey: string;
   sessionId: string;
   runId: string | null;
+  modelId: string | null;
   repoPath: string;
   targetMode: "compare" | "commit";
   baseRef: string;
@@ -228,6 +229,15 @@ function normalizeInstructionText(value: unknown): string {
   }
 
   return String(value).trim();
+}
+
+function normalizeReviewChatModelId(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 async function execFileWithInput(
@@ -381,9 +391,19 @@ class ReviewRuntimeManager extends EventEmitter {
     const runId = String(input.runId || "").trim() || null;
     const scopeKey = this.#buildReviewChatScopeKey(sessionId, runId);
     const state = this.#getOrCreateChatState(scopeKey, sessionId, runId);
+    const requestedModelId = this.#resolveRequestedReviewChatModelId(input);
     const runTurn = async () => {
       try {
-        await this.#ensureReviewChatStateInitialized(state, input);
+        if (
+          requestedModelId !== state.modelId &&
+          state.threadId &&
+          state.worktreePath
+        ) {
+          await this.#recreateReviewChatState(state, input);
+        } else {
+          await this.#ensureReviewChatStateInitialized(state, input);
+        }
+
         return await this.#runReviewChatTurn(state, input);
       } catch (error) {
         if (!this.#isMissingThreadError(error)) {
@@ -497,6 +517,16 @@ class ReviewRuntimeManager extends EventEmitter {
     return runId ? `run:${runId}` : `session:${sessionId}`;
   }
 
+  #resolveRequestedReviewChatModelId(input: ReviewChatRequestInput): string {
+    return (
+      normalizeReviewChatModelId(input.modelId) ||
+      normalizeReviewChatModelId(
+        this.configStore.getState().aiRuntimeConfig?.capabilities?.text_generation?.model_id
+      ) ||
+      "gpt-5.4-mini"
+    );
+  }
+
   #getOrCreateChatState(
     scopeKey: string,
     sessionId: string,
@@ -513,6 +543,7 @@ class ReviewRuntimeManager extends EventEmitter {
       scopeKey,
       sessionId,
       runId,
+      modelId: null,
       repoPath: "",
       targetMode: "compare",
       baseRef: "",
@@ -585,7 +616,8 @@ class ReviewRuntimeManager extends EventEmitter {
         }
       : null;
 
-    const codexRuntime = await this.#ensureCodexRuntime();
+    const requestedModelId = this.#resolveRequestedReviewChatModelId(input);
+    const codexRuntime = await this.#ensureCodexRuntime(requestedModelId);
     state.codexHomePath = codexRuntime.codexHome;
     const worktree = await this.#createChatWorktree(state);
     state.worktreePath = worktree.path;
@@ -604,6 +636,7 @@ class ReviewRuntimeManager extends EventEmitter {
     });
 
     state.threadId = thread.thread.id;
+    state.modelId = normalizeReviewChatModelId(thread.model) ?? codexRuntime.model;
     this.threadToChatScopeKey.set(state.threadId, state.scopeKey);
 
     await this.#primeReviewChatThread(
@@ -1054,6 +1087,7 @@ class ReviewRuntimeManager extends EventEmitter {
     state.currentTurnId = null;
     state.worktreePath = null;
     state.codexHomePath = null;
+    state.modelId = null;
     state.initializationPromise = null;
 
     if (options.removeFromRegistry !== false) {
@@ -1257,10 +1291,11 @@ class ReviewRuntimeManager extends EventEmitter {
     await this.#cleanupRun(state);
   }
 
-  async #ensureCodexRuntime(): Promise<CodexRuntime> {
+  async #ensureCodexRuntime(modelOverride: string | null = null): Promise<CodexRuntime> {
     const desktopState = this.configStore.getState();
     const aiRuntimeConfig = desktopState.aiRuntimeConfig;
     const binding = aiRuntimeConfig?.capabilities?.text_generation;
+    const resolvedModelId = modelOverride || binding?.model_id || "gpt-5.4-mini";
     if (binding) {
       const profile = getProfileById(aiRuntimeConfig, binding.provider_profile_id);
       if (profile?.provider_type === "openai" && profile.api_key_secret_ref) {
@@ -1282,7 +1317,7 @@ class ReviewRuntimeManager extends EventEmitter {
 
           return {
             codexHome,
-            model: binding.model_id || "gpt-5.4-mini",
+            model: resolvedModelId,
             modelProvider: "openai",
           };
         }
@@ -1305,7 +1340,7 @@ class ReviewRuntimeManager extends EventEmitter {
 
     return {
       codexHome: globalCodexHome,
-      model: binding?.model_id || null,
+      model: resolvedModelId,
       modelProvider: null,
     };
   }

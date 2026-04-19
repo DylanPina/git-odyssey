@@ -48,6 +48,7 @@ import {
 } from "@/lib/repoPaths";
 import {
   DETACHED_HEAD_LABEL,
+  REVIEW_CHAT_DEFAULT_MODEL_ID,
   REVIEW_DIFF_MIN_WIDTH,
   REVIEW_FILE_TREE_WIDTH_DEFAULT,
   REVIEW_FILE_TREE_WIDTH_MIN,
@@ -126,6 +127,9 @@ export function Review() {
   const [guidelinesError, setGuidelinesError] = useState<string | null>(null);
   const [diffContextLines, setDiffContextLines] = useState(
     DEFAULT_DESKTOP_REPO_SETTINGS.contextLines,
+  );
+  const [configuredChatModelId, setConfiguredChatModelId] = useState<string | null>(
+    REVIEW_CHAT_DEFAULT_MODEL_ID,
   );
   const [chatComposerFocusToken, setChatComposerFocusToken] = useState(0);
 
@@ -270,6 +274,8 @@ export function Review() {
     isChatLoading,
     chatError,
     isChatReady,
+    selectedModelId,
+    setSelectedModelId,
     sendDraft,
     injectSelection,
     injectFinding,
@@ -281,6 +287,7 @@ export function Review() {
     activeRun,
     reviewResult,
     isViewingHistory,
+    initialModelId: configuredChatModelId,
   });
   const handleBaseRefChange = useCallback(
     (nextBaseRef: string) => {
@@ -316,6 +323,7 @@ export function Review() {
           appWide: "",
           repoSpecific: "",
         });
+        setConfiguredChatModelId(REVIEW_CHAT_DEFAULT_MODEL_ID);
         setDiffContextLines(DEFAULT_DESKTOP_REPO_SETTINGS.contextLines);
         setGuidelinesError(null);
         setIsGuidelinesLoading(false);
@@ -338,6 +346,10 @@ export function Review() {
           appWide: settingsStatus.reviewSettings.pullRequestGuidelines,
           repoSpecific: repoSettings.pullRequestGuidelines,
         });
+        setConfiguredChatModelId(
+          settingsStatus.aiRuntimeConfig.capabilities.text_generation?.model_id ??
+            REVIEW_CHAT_DEFAULT_MODEL_ID,
+        );
         setDiffContextLines(repoSettings.contextLines);
       } catch (error) {
         if (cancelled) {
@@ -348,6 +360,7 @@ export function Review() {
           appWide: "",
           repoSpecific: "",
         });
+        setConfiguredChatModelId(REVIEW_CHAT_DEFAULT_MODEL_ID);
         setDiffContextLines(DEFAULT_DESKTOP_REPO_SETTINGS.contextLines);
         setGuidelinesError(getErrorMessage(error));
       } finally {
@@ -844,7 +857,10 @@ export function Review() {
       chatDraft={chatDraft}
       draftCodeContexts={draftCodeContexts}
       draftFindingContexts={draftFindingContexts}
+      selectedModelId={selectedModelId}
+      configuredModelId={configuredChatModelId}
       onChatDraftChange={handleChatDraftChange}
+      onSelectedModelIdChange={setSelectedModelId}
       onSendChatMessage={() => {
         void sendDraft();
       }}
@@ -884,7 +900,10 @@ export function Review() {
           chatDraft={chatDraft}
           draftCodeContexts={draftCodeContexts}
           draftFindingContexts={draftFindingContexts}
+          selectedModelId={selectedModelId}
+          configuredModelId={configuredChatModelId}
           onChatDraftChange={handleChatDraftChange}
+          onSelectedModelIdChange={setSelectedModelId}
           onSendChatMessage={() => {
             void sendDraft();
           }}

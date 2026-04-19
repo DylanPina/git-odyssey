@@ -14,7 +14,11 @@ import type {
 	ReviewResult,
 	ReviewRun,
 } from "@/lib/definitions/review";
-import { getReviewChatStorageKey } from "@/pages/review/review-storage";
+import { REVIEW_CHAT_DEFAULT_MODEL_ID } from "@/pages/review/review-constants";
+import {
+	getReviewChatModelStorageKey,
+	getReviewChatStorageKey,
+} from "@/pages/review/review-storage";
 
 const MAX_TRANSCRIPT_MESSAGES = 6;
 const MAX_SELECTION_LINES = 200;
@@ -25,6 +29,7 @@ type UseReviewChatSessionArgs = {
 	activeRun?: ReviewRun | null;
 	reviewResult?: ReviewResult | null;
 	isViewingHistory?: boolean;
+	initialModelId?: string | null;
 };
 
 type UseReviewChatSessionReturn = {
@@ -36,6 +41,8 @@ type UseReviewChatSessionReturn = {
 	isChatLoading: boolean;
 	chatError: string | null;
 	isChatReady: boolean;
+	selectedModelId: string;
+	setSelectedModelId: (value: string) => void;
 	sendDraft: () => Promise<void>;
 	injectSelection: (selection: DiffSelectionContext) => void;
 	injectFinding: (finding: ReviewFinding) => void;
@@ -61,6 +68,11 @@ function createCodeContextId(selection: DiffSelectionContext) {
 		selection.endLine,
 		selection.endColumn,
 	].join(":");
+}
+
+function normalizeModelId(value: string | null | undefined) {
+	const trimmed = String(value || "").trim();
+	return trimmed || REVIEW_CHAT_DEFAULT_MODEL_ID;
 }
 
 function clipSelectionText(value: string) {
@@ -206,11 +218,49 @@ function persistMessagesToStorage(
 	}
 }
 
+function loadModelIdFromStorage(
+	storageKey: string | null,
+	defaultModelId: string,
+) {
+	if (typeof window === "undefined" || !storageKey) {
+		return defaultModelId;
+	}
+
+	try {
+		const stored = window.localStorage.getItem(storageKey);
+		return stored ? normalizeModelId(stored) : defaultModelId;
+	} catch {
+		return defaultModelId;
+	}
+}
+
+function persistModelIdToStorage(
+	storageKey: string | null,
+	modelId: string,
+	defaultModelId: string,
+) {
+	if (typeof window === "undefined" || !storageKey) {
+		return;
+	}
+
+	try {
+		if (modelId === defaultModelId) {
+			window.localStorage.removeItem(storageKey);
+			return;
+		}
+
+		window.localStorage.setItem(storageKey, modelId);
+	} catch {
+		// Ignore storage issues and keep the in-memory state.
+	}
+}
+
 export function useReviewChatSession({
 	sessionId,
 	activeRun,
 	reviewResult,
 	isViewingHistory = false,
+	initialModelId,
 }: UseReviewChatSessionArgs): UseReviewChatSessionReturn {
 	const historyRunId = isViewingHistory ? activeRun?.id ?? null : null;
 	const storageKey = useMemo(
@@ -221,12 +271,25 @@ export function useReviewChatSession({
 			}),
 		[historyRunId, sessionId],
 	);
+	const modelStorageKey = useMemo(
+		() =>
+			getReviewChatModelStorageKey({
+				sessionId,
+				runId: historyRunId,
+			}),
+		[historyRunId, sessionId],
+	);
+	const defaultModelId = useMemo(
+		() => normalizeModelId(initialModelId),
+		[initialModelId],
+	);
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [draft, setDraft] = useState("");
 	const [draftCodeContexts, setDraftCodeContexts] = useState<ChatCodeContext[]>([]);
 	const [draftFindingContexts, setDraftFindingContexts] = useState<
 		ChatFindingContext[]
 	>([]);
+	const [selectedModelId, setSelectedModelIdState] = useState(defaultModelId);
 	const [isChatLoading, setIsChatLoading] = useState(false);
 	const [chatError, setChatError] = useState<string | null>(null);
 	const isChatReady = Boolean(sessionId);
@@ -240,8 +303,22 @@ export function useReviewChatSession({
 	}, [storageKey]);
 
 	useEffect(() => {
+		setSelectedModelIdState(
+			loadModelIdFromStorage(modelStorageKey, defaultModelId),
+		);
+	}, [defaultModelId, modelStorageKey]);
+
+	useEffect(() => {
 		persistMessagesToStorage(storageKey, chatMessages);
 	}, [chatMessages, storageKey]);
+
+	useEffect(() => {
+		persistModelIdToStorage(modelStorageKey, selectedModelId, defaultModelId);
+	}, [defaultModelId, modelStorageKey, selectedModelId]);
+
+	const setSelectedModelId = useCallback((value: string) => {
+		setSelectedModelIdState(normalizeModelId(value));
+	}, []);
 
 	const clearChatError = useCallback(() => {
 		setChatError(null);
@@ -315,6 +392,7 @@ export function useReviewChatSession({
 			const response = await sendReviewChatMessage({
 				sessionId,
 				runId: historyRunId,
+				modelId: selectedModelId,
 				message: nextDraft,
 				codeContexts: draftCodeContexts,
 				findingContexts: draftFindingContexts,
@@ -346,6 +424,7 @@ export function useReviewChatSession({
 		draftFindingContexts,
 		historyRunId,
 		reviewResult,
+		selectedModelId,
 		sessionId,
 	]);
 
@@ -358,6 +437,8 @@ export function useReviewChatSession({
 		isChatLoading,
 		chatError,
 		isChatReady,
+		selectedModelId,
+		setSelectedModelId,
 		sendDraft,
 		injectSelection,
 		injectFinding,

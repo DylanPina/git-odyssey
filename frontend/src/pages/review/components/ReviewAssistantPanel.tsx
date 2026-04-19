@@ -41,7 +41,10 @@ type ReviewAssistantPanelProps = {
 	chatDraft: string;
 	draftCodeContexts: ChatCodeContext[];
 	draftFindingContexts?: ChatFindingContext[];
+	selectedModelId: string;
+	configuredModelId?: string | null;
 	onChatDraftChange: (value: string) => void;
+	onSelectedModelIdChange: (value: string) => void;
 	onSendChatMessage: () => void;
 	onAddFindingToChat?: (finding: ReviewFinding) => void;
 	onChatCodeContextClick?: (context: ChatCodeContext) => void;
@@ -87,7 +90,10 @@ export function ReviewAssistantPanel({
 	chatDraft,
 	draftCodeContexts,
 	draftFindingContexts = [],
+	selectedModelId,
+	configuredModelId,
 	onChatDraftChange,
+	onSelectedModelIdChange,
 	onSendChatMessage,
 	onAddFindingToChat = () => {},
 	onChatCodeContextClick,
@@ -224,7 +230,10 @@ export function ReviewAssistantPanel({
 						draft={chatDraft}
 						draftCodeContexts={draftCodeContexts}
 						draftFindingContexts={draftFindingContexts}
+						selectedModelId={selectedModelId}
+						configuredModelId={configuredModelId}
 						onDraftChange={onChatDraftChange}
+						onSelectedModelIdChange={onSelectedModelIdChange}
 						onSendMessage={onSendChatMessage}
 						onCodeContextClick={onChatCodeContextClick}
 						onFindingContextClick={onChatFindingContextClick}

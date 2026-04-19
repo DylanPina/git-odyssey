@@ -16,6 +16,7 @@ export const REVIEW_SELECTED_REFS_STORAGE_KEY_PREFIX =
 export const REVIEW_TABS_STORAGE_KEY_PREFIX = "git-odyssey.review.tabs";
 export const REVIEW_TABS_STORAGE_VERSION = 1;
 export const REVIEW_CHAT_STORAGE_KEY_PREFIX = "git-odyssey.review.chat";
+export const REVIEW_CHAT_DEFAULT_MODEL_ID = "gpt-5.4-mini";
 export const REVIEW_ADDITIONAL_GUIDELINES_STORAGE_KEY_PREFIX =
 	"git-odyssey.review.additional_guidelines";
 export const REVIEW_FILE_TREE_WIDTH_STORAGE_KEY =

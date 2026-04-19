@@ -63,6 +63,7 @@ export type ReviewChatTranscriptMessage = {
 export type ReviewChatRequestInput = {
   sessionId: string;
   runId?: string | null;
+  modelId?: string | null;
   message: string;
   codeContexts: ReviewChatCodeContext[];
   findingContexts: ReviewChatFindingContext[];

@@ -9,6 +9,7 @@ import type {
 	ChatMessage,
 } from "@/lib/definitions/chat";
 import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownRenderer";
+import type { ComponentProps } from "react";
 
 function buildCodeContext(
 	overrides: Partial<ChatCodeContext> = {},
@@ -56,22 +57,35 @@ const reviewReferencePaths = [
 	"frontend/src/pages/review/components/ReviewChatPanel.tsx",
 ];
 
+function renderReviewChatPanel(
+	props: Partial<ComponentProps<typeof ReviewChatPanel>> = {},
+) {
+	return render(
+		<ReviewChatPanel
+			messages={[]}
+			draft=""
+			draftCodeContexts={[]}
+			selectedModelId="gpt-5.4-mini"
+			onDraftChange={() => {}}
+			onSelectedModelIdChange={() => {}}
+			onSendMessage={() => {}}
+			{...props}
+		/>,
+	);
+}
+
 describe("ReviewChatPanel", () => {
 	it("sends on Enter and keeps attached draft context visible", async () => {
 		const user = userEvent.setup();
 		const onSendMessage = vi.fn();
 
-		render(
-			<ReviewChatPanel
-				messages={[]}
-				draft="Please summarize the diff"
-				draftCodeContexts={[buildCodeContext()]}
-				onDraftChange={() => {}}
-				onSendMessage={onSendMessage}
-				onCodeContextClick={() => {}}
-				onRemoveDraftCodeContext={() => {}}
-			/>,
-		);
+		renderReviewChatPanel({
+			draft: "Please summarize the diff",
+			draftCodeContexts: [buildCodeContext()],
+			onSendMessage,
+			onCodeContextClick: () => {},
+			onRemoveDraftCodeContext: () => {},
+		});
 
 		await user.type(
 			screen.getByPlaceholderText(/ask ai about this diff/i),
@@ -91,17 +105,11 @@ describe("ReviewChatPanel", () => {
 		const onCodeContextClick = vi.fn();
 		const onRemoveDraftCodeContext = vi.fn();
 
-		render(
-			<ReviewChatPanel
-				messages={[]}
-				draft=""
-				draftCodeContexts={[buildCodeContext()]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-				onCodeContextClick={onCodeContextClick}
-				onRemoveDraftCodeContext={onRemoveDraftCodeContext}
-			/>,
-		);
+		renderReviewChatPanel({
+			draftCodeContexts: [buildCodeContext()],
+			onCodeContextClick,
+			onRemoveDraftCodeContext,
+		});
 
 		await user.click(
 			screen.getByRole("button", {
@@ -123,16 +131,10 @@ describe("ReviewChatPanel", () => {
 		const onCodeContextClick = vi.fn();
 		const context = buildCodeContext();
 
-		render(
-			<ReviewChatPanel
-				messages={[buildMessage({ codeContexts: [context] })]}
-				draft=""
-				draftCodeContexts={[]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-				onCodeContextClick={onCodeContextClick}
-			/>,
-		);
+		renderReviewChatPanel({
+			messages: [buildMessage({ codeContexts: [context] })],
+			onCodeContextClick,
+		});
 
 		await user.click(
 			screen.getByRole("button", {
@@ -148,17 +150,10 @@ describe("ReviewChatPanel", () => {
 		const user = userEvent.setup();
 		const onRemoveDraftFindingContext = vi.fn();
 
-		render(
-			<ReviewChatPanel
-				messages={[]}
-				draft=""
-				draftCodeContexts={[]}
-				draftFindingContexts={[buildFindingContext()]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-				onRemoveDraftFindingContext={onRemoveDraftFindingContext}
-			/>,
-		);
+		renderReviewChatPanel({
+			draftFindingContexts: [buildFindingContext()],
+			onRemoveDraftFindingContext,
+		});
 
 		expect(
 			screen.getByText(/rail state can collapse unexpectedly/i),
@@ -174,15 +169,9 @@ describe("ReviewChatPanel", () => {
 	});
 
 	it("renders attached finding chips inside sent user messages", () => {
-		render(
-			<ReviewChatPanel
-				messages={[buildMessage({ findingContexts: [buildFindingContext()] })]}
-				draft=""
-				draftCodeContexts={[]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-			/>,
-		);
+		renderReviewChatPanel({
+			messages: [buildMessage({ findingContexts: [buildFindingContext()] })],
+		});
 
 		expect(
 			screen.getByText(/rail state can collapse unexpectedly/i),
@@ -193,16 +182,10 @@ describe("ReviewChatPanel", () => {
 		const user = userEvent.setup();
 		const onFindingContextClick = vi.fn();
 
-		render(
-			<ReviewChatPanel
-				messages={[buildMessage({ findingContexts: [buildFindingContext()] })]}
-				draft=""
-				draftCodeContexts={[]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-				onFindingContextClick={onFindingContextClick}
-			/>,
-		);
+		renderReviewChatPanel({
+			messages: [buildMessage({ findingContexts: [buildFindingContext()] })],
+			onFindingContextClick,
+		});
 
 		await user.click(
 			screen.getByRole("button", {
@@ -217,16 +200,10 @@ describe("ReviewChatPanel", () => {
 		const user = userEvent.setup();
 		const onSendMessage = vi.fn();
 
-		render(
-			<ReviewChatPanel
-				messages={[]}
-				draft=""
-				draftCodeContexts={[]}
-				draftFindingContexts={[buildFindingContext()]}
-				onDraftChange={() => {}}
-				onSendMessage={onSendMessage}
-			/>,
-		);
+		renderReviewChatPanel({
+			draftFindingContexts: [buildFindingContext()],
+			onSendMessage,
+		});
 
 		await user.click(screen.getByRole("button", { name: /send/i }));
 
@@ -234,27 +211,21 @@ describe("ReviewChatPanel", () => {
 	});
 
 	it("does not render cited commits for assistant messages", () => {
-		render(
-			<ReviewChatPanel
-				messages={[
-					buildMessage({
-						role: "assistant",
-						content: "The merge branch setup looks correct.",
-						citedCommits: [
-							{
-								sha: "abc12345",
-								similarity: 0.91,
-								message: "Unrelated historical commit",
-							},
-						],
-					}),
-				]}
-				draft=""
-				draftCodeContexts={[]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-			/>,
-		);
+		renderReviewChatPanel({
+			messages: [
+				buildMessage({
+					role: "assistant",
+					content: "The merge branch setup looks correct.",
+					citedCommits: [
+						{
+							sha: "abc12345",
+							similarity: 0.91,
+							message: "Unrelated historical commit",
+						},
+					],
+				}),
+			],
+		});
 
 		expect(
 			screen.getByText(/the merge branch setup looks correct/i),
@@ -269,22 +240,16 @@ describe("ReviewChatPanel", () => {
 			(target: ReviewChatReferenceTarget) => void
 		>();
 
-		render(
-			<ReviewChatPanel
-				messages={[
-					buildMessage({
-						role: "assistant",
-						content: "Start with frontend/src/pages/Review.tsx before checking anything else.",
-					}),
-				]}
-				draft=""
-				draftCodeContexts={[]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-				onAssistantReferenceClick={onAssistantReferenceClick}
-				reviewReferencePaths={reviewReferencePaths}
-			/>,
-		);
+		renderReviewChatPanel({
+			messages: [
+				buildMessage({
+					role: "assistant",
+					content: "Start with frontend/src/pages/Review.tsx before checking anything else.",
+				}),
+			],
+			onAssistantReferenceClick,
+			reviewReferencePaths,
+		});
 
 		await user.click(
 			screen.getByRole("button", {
@@ -304,25 +269,19 @@ describe("ReviewChatPanel", () => {
 			(target: ReviewChatReferenceTarget) => void
 		>();
 
-		render(
-			<ReviewChatPanel
-				messages={[
-					buildMessage({
-						role: "assistant",
-						content: [
-							"See frontend/src/pages/Review.tsx:42-48 for the rail behavior.",
-							"Then compare frontend/src/pages/review/components/ReviewChatPanel.tsx#L18-L26.",
-						].join("\n\n"),
-					}),
-				]}
-				draft=""
-				draftCodeContexts={[]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-				onAssistantReferenceClick={onAssistantReferenceClick}
-				reviewReferencePaths={reviewReferencePaths}
-			/>,
-		);
+		renderReviewChatPanel({
+			messages: [
+				buildMessage({
+					role: "assistant",
+					content: [
+						"See frontend/src/pages/Review.tsx:42-48 for the rail behavior.",
+						"Then compare frontend/src/pages/review/components/ReviewChatPanel.tsx#L18-L26.",
+					].join("\n\n"),
+				}),
+			],
+			onAssistantReferenceClick,
+			reviewReferencePaths,
+		});
 
 		await user.click(
 			screen.getByRole("button", {
@@ -346,27 +305,21 @@ describe("ReviewChatPanel", () => {
 	});
 
 	it("does not auto-link user messages or non-diff assistant paths", () => {
-		render(
-			<ReviewChatPanel
-				messages={[
-					buildMessage({
-						role: "user",
-						content: "Please inspect frontend/src/pages/Review.tsx:42 next.",
-					}),
-					buildMessage({
-						id: "message-2",
-						role: "assistant",
-						content: "The unrelated src/not-in-diff.ts:99 path should stay plain text.",
-					}),
-				]}
-				draft=""
-				draftCodeContexts={[]}
-				onDraftChange={() => {}}
-				onSendMessage={() => {}}
-				onAssistantReferenceClick={() => {}}
-				reviewReferencePaths={reviewReferencePaths}
-			/>,
-		);
+		renderReviewChatPanel({
+			messages: [
+				buildMessage({
+					role: "user",
+					content: "Please inspect frontend/src/pages/Review.tsx:42 next.",
+				}),
+				buildMessage({
+					id: "message-2",
+					role: "assistant",
+					content: "The unrelated src/not-in-diff.ts:99 path should stay plain text.",
+				}),
+			],
+			onAssistantReferenceClick: () => {},
+			reviewReferencePaths,
+		});
 
 		expect(
 			screen.queryByRole("button", {
@@ -379,5 +332,49 @@ describe("ReviewChatPanel", () => {
 			}),
 		).not.toBeInTheDocument();
 		expect(screen.getByText(/src\/not-in-diff\.ts:99/i)).toBeInTheDocument();
+	});
+
+	it("renders a chat-local model selector and lets users choose presets", async () => {
+		const user = userEvent.setup();
+		const onSelectedModelIdChange = vi.fn();
+
+		renderReviewChatPanel({
+			selectedModelId: "gpt-5.4-mini",
+			configuredModelId: "gpt-5.4-mini",
+			onSelectedModelIdChange,
+		});
+
+		await user.click(screen.getByRole("button", { name: /select chat model/i }));
+		await user.click(screen.getByText(/^gpt-5\.4$/i));
+
+		expect(onSelectedModelIdChange).toHaveBeenCalledWith("gpt-5.4");
+	});
+
+	it("accepts custom model ids from the composer selector", async () => {
+		const user = userEvent.setup();
+		const onSelectedModelIdChange = vi.fn();
+
+		renderReviewChatPanel({
+			selectedModelId: "gpt-5.4-mini",
+			onSelectedModelIdChange,
+		});
+
+		await user.click(screen.getByRole("button", { name: /select chat model/i }));
+		await user.clear(screen.getByLabelText(/custom chat model/i));
+		await user.type(screen.getByLabelText(/custom chat model/i), "local-llm-1");
+		await user.click(screen.getByRole("button", { name: /apply/i }));
+
+		expect(onSelectedModelIdChange).toHaveBeenCalledWith("local-llm-1");
+	});
+
+	it("disables the model selector when the composer is unavailable", () => {
+		renderReviewChatPanel({
+			isComposerDisabled: true,
+		});
+
+		expect(
+			screen.getByRole("button", { name: /select chat model/i }),
+		).toBeDisabled();
+		expect(screen.getByRole("button", { name: /send message/i })).toBeDisabled();
 	});
 });

@@ -1,10 +1,19 @@
-import { useEffect, useRef } from "react";
-import { ArrowUp, Loader2, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+	ArrowUp,
+	Check,
+	ChevronDown,
+	Loader2,
+	Sparkles,
+	X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { InlineBanner } from "@/components/ui/inline-banner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	MarkdownRenderer,
@@ -19,13 +28,25 @@ import {
 	formatReviewChatCodeContextLabel,
 	formatReviewChatFindingContextLabel,
 } from "@/pages/review/useReviewChatSession";
+import { REVIEW_CHAT_DEFAULT_MODEL_ID } from "@/pages/review/review-constants";
+import { cn } from "@/lib/utils";
+
+const REVIEW_CHAT_MODEL_PRESETS = [
+	"gpt-5.4-mini",
+	"gpt-5.4",
+	"gpt-5.3-codex",
+	"o4-mini",
+] as const;
 
 type ReviewChatPanelProps = {
 	messages: ChatMessage[];
 	draft: string;
 	draftCodeContexts: ChatCodeContext[];
 	draftFindingContexts?: ChatFindingContext[];
+	selectedModelId: string;
+	configuredModelId?: string | null;
 	onDraftChange: (value: string) => void;
+	onSelectedModelIdChange: (value: string) => void;
 	onSendMessage: () => void;
 	onCodeContextClick?: (context: ChatCodeContext) => void;
 	onFindingContextClick?: (context: ChatFindingContext) => void;
@@ -40,6 +61,168 @@ type ReviewChatPanelProps = {
 	reviewReferencePaths?: readonly string[];
 	reviewReferenceRepoPath?: string | null;
 };
+
+function normalizeModelId(value: string | null | undefined) {
+	const trimmed = String(value || "").trim();
+	return trimmed || REVIEW_CHAT_DEFAULT_MODEL_ID;
+}
+
+function buildModelOptions(
+	configuredModelId?: string | null,
+	selectedModelId?: string | null,
+) {
+	const normalizedConfiguredModelId = normalizeModelId(configuredModelId);
+	const normalizedSelectedModelId = normalizeModelId(selectedModelId);
+	return Array.from(
+		new Set([
+			normalizedConfiguredModelId,
+			normalizedSelectedModelId,
+			...REVIEW_CHAT_MODEL_PRESETS,
+		]),
+	);
+}
+
+function ReviewChatModelSelector({
+	value,
+	configuredModelId,
+	onChange,
+	disabled = false,
+}: {
+	value: string;
+	configuredModelId?: string | null;
+	onChange: (value: string) => void;
+	disabled?: boolean;
+}) {
+	const [open, setOpen] = useState(false);
+	const [customModelDraft, setCustomModelDraft] = useState(value);
+	const modelOptions = useMemo(
+		() => buildModelOptions(configuredModelId, value),
+		[configuredModelId, value],
+	);
+	const normalizedConfiguredModelId = normalizeModelId(configuredModelId);
+
+	useEffect(() => {
+		if (!open) {
+			setCustomModelDraft(value);
+		}
+	}, [open, value]);
+
+	return (
+		<Popover open={open} onOpenChange={setOpen}>
+			<PopoverTrigger asChild>
+				<button
+					type="button"
+					disabled={disabled}
+					aria-label="Select chat model"
+					className={cn(
+						"inline-flex h-8 max-w-[8.75rem] items-center gap-2 rounded-full border px-3 text-[11px] font-medium shadow-[0_10px_24px_rgba(4,8,16,0.28)] backdrop-blur-sm transition-[border-color,background-color,color,box-shadow] duration-150",
+						"border-[rgba(122,162,255,0.22)] bg-[linear-gradient(135deg,rgba(12,16,24,0.94),rgba(21,29,43,0.9))] text-text-primary hover:border-[rgba(122,162,255,0.42)] hover:bg-[linear-gradient(135deg,rgba(16,20,29,0.96),rgba(27,38,55,0.92))]",
+						"focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-50",
+					)}
+				>
+					<span className="min-w-0 truncate">{value}</span>
+					<ChevronDown className="size-3.5 shrink-0 text-text-tertiary" />
+				</button>
+			</PopoverTrigger>
+			<PopoverContent align="end" className="w-[20rem] space-y-3 p-3">
+				<div className="space-y-1">
+					<div className="workspace-section-label">Chat model</div>
+					<p className="text-xs leading-5 text-text-secondary">
+						Applies only to this review chat thread.
+					</p>
+				</div>
+
+				<div className="space-y-1.5">
+					{modelOptions.map((modelId) => {
+						const isSelected = value === modelId;
+						const isConfiguredDefault = modelId === normalizedConfiguredModelId;
+						const isCustomSelection =
+							isSelected &&
+							!REVIEW_CHAT_MODEL_PRESETS.includes(
+								modelId as (typeof REVIEW_CHAT_MODEL_PRESETS)[number],
+							) &&
+							!isConfiguredDefault;
+
+						return (
+							<button
+								key={modelId}
+								type="button"
+								onClick={() => {
+									onChange(modelId);
+									setOpen(false);
+								}}
+								className={cn(
+									"flex w-full items-center justify-between gap-3 rounded-[12px] border px-3 py-2 text-left transition-colors duration-150",
+									isSelected
+										? "border-[rgba(122,162,255,0.36)] bg-[rgba(122,162,255,0.14)] text-text-primary"
+										: "border-border-subtle bg-control/55 text-text-secondary hover:border-border-strong hover:bg-control-hover hover:text-text-primary",
+								)}
+							>
+								<span className="min-w-0">
+									<span className="block truncate text-sm font-medium">
+										{modelId}
+									</span>
+									<span className="block text-[10px] uppercase tracking-[0.16em] text-text-tertiary">
+										{isConfiguredDefault
+											? "Configured default"
+											: isCustomSelection
+												? "Current custom"
+												: "Preset"}
+									</span>
+								</span>
+								<Check
+									className={cn(
+										"size-4 shrink-0",
+										isSelected ? "opacity-100 text-accent" : "opacity-0",
+									)}
+								/>
+							</button>
+						);
+					})}
+				</div>
+
+				<div className="rounded-[14px] border border-border-subtle bg-[rgba(255,255,255,0.03)] p-3">
+					<div className="mb-2 space-y-1">
+						<div className="text-xs font-medium text-text-primary">
+							Custom model
+						</div>
+						<p className="text-xs leading-5 text-text-secondary">
+							Enter any model ID supported by the connected runtime.
+						</p>
+					</div>
+					<div className="flex items-center gap-2">
+						<Input
+							value={customModelDraft}
+							onChange={(event) => setCustomModelDraft(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key !== "Enter") {
+									return;
+								}
+								event.preventDefault();
+								onChange(customModelDraft);
+								setOpen(false);
+							}}
+							placeholder="gpt-5.4-mini"
+							aria-label="Custom chat model"
+							className="h-8 text-xs"
+						/>
+						<Button
+							type="button"
+							size="sm"
+							variant="subtle"
+							onClick={() => {
+								onChange(customModelDraft);
+								setOpen(false);
+							}}
+						>
+							Apply
+						</Button>
+					</div>
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+}
 
 function ReviewChatCodeContextButton({
 	context,
@@ -155,7 +338,10 @@ export function ReviewChatPanel({
 	draft,
 	draftCodeContexts,
 	draftFindingContexts = [],
+	selectedModelId,
+	configuredModelId,
 	onDraftChange,
+	onSelectedModelIdChange,
 	onSendMessage,
 	onCodeContextClick,
 	onFindingContextClick,
@@ -348,25 +534,32 @@ export function ReviewChatPanel({
 							}
 						}}
 						placeholder="Ask AI about this diff"
-						className="min-h-[76px] resize-none pr-12"
+						className="min-h-[76px] resize-none pb-11 pr-[10.75rem]"
 						disabled={isLoading || isComposerDisabled}
 					/>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								onClick={handleSend}
-								disabled={!canSendMessage || isLoading}
-								variant="toolbar"
-								size="icon-sm"
-								className="absolute bottom-2 right-2"
-								aria-label="Send message"
-							>
-								<ArrowUp className="size-3.5" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Send</TooltipContent>
-					</Tooltip>
+					<div className="absolute right-2 bottom-2 flex items-center gap-2">
+						<ReviewChatModelSelector
+							value={selectedModelId}
+							configuredModelId={configuredModelId}
+							onChange={onSelectedModelIdChange}
+							disabled={isLoading || isComposerDisabled}
+						/>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									type="button"
+									onClick={handleSend}
+									disabled={!canSendMessage || isLoading}
+									variant="toolbar"
+									size="icon-sm"
+									aria-label="Send message"
+								>
+									<ArrowUp className="size-3.5" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Send</TooltipContent>
+						</Tooltip>
+					</div>
 				</div>
 				<p className="mt-1 text-[10px] text-text-tertiary">
 					Press Enter to send. Use Shift+Enter for a new line.

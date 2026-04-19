@@ -64,7 +64,9 @@ function ControlledAssistantPanel({
 			chatMessages={[]}
 			chatDraft=""
 			draftCodeContexts={[]}
+			selectedModelId="gpt-5.4-mini"
 			onChatDraftChange={() => {}}
+			onSelectedModelIdChange={() => {}}
 			onSendChatMessage={() => {}}
 			onChatCodeContextClick={() => {}}
 			onRemoveDraftCodeContext={() => {}}

@@ -215,6 +215,7 @@ export interface ReviewChatTranscriptMessage {
 export interface ReviewChatRequest {
 	sessionId: string;
 	runId?: string | null;
+	modelId?: string | null;
 	message: string;
 	codeContexts: ChatCodeContext[];
 	findingContexts: ChatFindingContext[];

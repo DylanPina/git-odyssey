@@ -4,8 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendReviewChatMessage } from "@/api/api";
 import type { ChatMessage } from "@/lib/definitions/chat";
 import type { ReviewResult, ReviewRun } from "@/lib/definitions/review";
+import { REVIEW_CHAT_DEFAULT_MODEL_ID } from "@/pages/review/review-constants";
 import { useReviewChatSession } from "@/pages/review/useReviewChatSession";
-import { getReviewChatStorageKey } from "@/pages/review/review-storage";
+import {
+	getReviewChatModelStorageKey,
+	getReviewChatStorageKey,
+} from "@/pages/review/review-storage";
 
 vi.mock("@/api/api", () => ({
 	sendReviewChatMessage: vi.fn(),
@@ -77,6 +81,8 @@ function buildReviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult 
 }
 
 describe("useReviewChatSession", () => {
+	const initialModelId = "gpt-5.4";
+
 	beforeEach(() => {
 		clearTestStorage();
 		vi.mocked(sendReviewChatMessage).mockReset();
@@ -89,6 +95,10 @@ describe("useReviewChatSession", () => {
 	it("loads separate conversations for session scope and history run scope", async () => {
 		const sessionKey = getReviewChatStorageKey({ sessionId: "session-1" });
 		const historyKey = getReviewChatStorageKey({ runId: "run-history" });
+		const sessionModelKey = getReviewChatModelStorageKey({
+			sessionId: "session-1",
+		});
+		const historyModelKey = getReviewChatModelStorageKey({ runId: "run-history" });
 
 		localStorage.setItem(
 			sessionKey!,
@@ -98,6 +108,8 @@ describe("useReviewChatSession", () => {
 			historyKey!,
 			JSON.stringify([buildStoredMessage({ id: "message-2", content: "history chat" })]),
 		);
+		localStorage.setItem(sessionModelKey!, "gpt-5.4-mini");
+		localStorage.setItem(historyModelKey!, "gpt-5.3-codex");
 
 		const { result, rerender } = renderHook(
 			(props: {
@@ -109,6 +121,7 @@ describe("useReviewChatSession", () => {
 					activeRun: props.activeRun,
 					reviewResult: null,
 					isViewingHistory: props.isViewingHistory,
+					initialModelId,
 				}),
 			{
 				initialProps: {
@@ -121,6 +134,7 @@ describe("useReviewChatSession", () => {
 		await waitFor(() => {
 			expect(result.current.chatMessages[0]?.content).toBe("session chat");
 		});
+		expect(result.current.selectedModelId).toBe("gpt-5.4-mini");
 
 		rerender({
 			activeRun: buildReviewRun({ id: "run-history", session_id: "session-1" }),
@@ -129,6 +143,85 @@ describe("useReviewChatSession", () => {
 
 		await waitFor(() => {
 			expect(result.current.chatMessages[0]?.content).toBe("history chat");
+		});
+		expect(result.current.selectedModelId).toBe("gpt-5.3-codex");
+	});
+
+	it("defaults to the configured model and persists per-scope overrides", async () => {
+		const { result, rerender } = renderHook(
+			(props: {
+				activeRun: ReviewRun | null;
+				isViewingHistory: boolean;
+			}) =>
+				useReviewChatSession({
+					sessionId: "session-1",
+					activeRun: props.activeRun,
+					reviewResult: null,
+					isViewingHistory: props.isViewingHistory,
+					initialModelId,
+				}),
+			{
+				initialProps: {
+					activeRun: buildReviewRun(),
+					isViewingHistory: false,
+				},
+			},
+		);
+
+		expect(result.current.selectedModelId).toBe(initialModelId);
+
+		act(() => {
+			result.current.setSelectedModelId("gpt-5.4-mini");
+		});
+
+		await waitFor(() => {
+			expect(
+				localStorage.getItem(
+					getReviewChatModelStorageKey({ sessionId: "session-1" })!,
+				),
+			).toBe("gpt-5.4-mini");
+		});
+
+		rerender({
+			activeRun: buildReviewRun({ id: "run-history", session_id: "session-1" }),
+			isViewingHistory: true,
+		});
+
+		await waitFor(() => {
+			expect(result.current.selectedModelId).toBe(initialModelId);
+		});
+
+		act(() => {
+			result.current.setSelectedModelId("gpt-5.3-codex");
+		});
+
+		await waitFor(() => {
+			expect(
+				localStorage.getItem(
+					getReviewChatModelStorageKey({ runId: "run-history" })!,
+				),
+			).toBe("gpt-5.3-codex");
+		});
+
+		rerender({
+			activeRun: buildReviewRun(),
+			isViewingHistory: false,
+		});
+
+		await waitFor(() => {
+			expect(result.current.selectedModelId).toBe("gpt-5.4-mini");
+		});
+
+		act(() => {
+			result.current.setSelectedModelId(initialModelId);
+		});
+
+		await waitFor(() => {
+			expect(
+				localStorage.getItem(
+					getReviewChatModelStorageKey({ sessionId: "session-1" })!,
+				),
+			).toBeNull();
 		});
 	});
 
@@ -158,6 +251,7 @@ describe("useReviewChatSession", () => {
 				activeRun,
 				reviewResult,
 				isViewingHistory: false,
+				initialModelId,
 			}),
 		);
 
@@ -199,6 +293,7 @@ describe("useReviewChatSession", () => {
 		expect(vi.mocked(sendReviewChatMessage).mock.calls[0][0]).toEqual({
 			sessionId: "session-1",
 			runId: null,
+			modelId: initialModelId,
 			message: "What is the main regression risk here?",
 			codeContexts: [
 				expect.objectContaining({
@@ -227,6 +322,7 @@ describe("useReviewChatSession", () => {
 			reviewContext: {
 				runStatus: "completed",
 				summary: "The review found one risky state transition.",
+				appliedInstructions: null,
 				findings: reviewResult.findings,
 			},
 		});
@@ -270,6 +366,7 @@ describe("useReviewChatSession", () => {
 				activeRun: historyRun,
 				reviewResult: historyResult,
 				isViewingHistory: true,
+				initialModelId,
 			}),
 		);
 
@@ -285,6 +382,7 @@ describe("useReviewChatSession", () => {
 		expect(vi.mocked(sendReviewChatMessage).mock.calls[0][0]).toEqual({
 			sessionId: "session-1",
 			runId: "run-history",
+			modelId: initialModelId,
 			message: "Explain the historical finding.",
 			codeContexts: [],
 			findingContexts: [expect.objectContaining(historyResult.findings[0])],
@@ -292,6 +390,7 @@ describe("useReviewChatSession", () => {
 			reviewContext: {
 				runStatus: "completed",
 				summary: "Historical summary",
+				appliedInstructions: null,
 				findings: historyResult.findings,
 			},
 		});
@@ -308,6 +407,7 @@ describe("useReviewChatSession", () => {
 				sessionId: "session-1",
 				activeRun: buildReviewRun(),
 				reviewResult,
+				initialModelId,
 			}),
 		);
 
@@ -322,6 +422,7 @@ describe("useReviewChatSession", () => {
 		expect(vi.mocked(sendReviewChatMessage).mock.calls[0][0]).toEqual({
 			sessionId: "session-1",
 			runId: null,
+			modelId: initialModelId,
 			message: "",
 			codeContexts: [],
 			findingContexts: [expect.objectContaining(reviewResult.findings[0])],
@@ -329,8 +430,19 @@ describe("useReviewChatSession", () => {
 			reviewContext: {
 				runStatus: "completed",
 				summary: "The review found one risky state transition.",
+				appliedInstructions: null,
 				findings: reviewResult.findings,
 			},
 		});
+	});
+
+	it("falls back to the default chat model when no configured model is provided", () => {
+		const { result } = renderHook(() =>
+			useReviewChatSession({
+				sessionId: "session-1",
+			}),
+		);
+
+		expect(result.current.selectedModelId).toBe(REVIEW_CHAT_DEFAULT_MODEL_ID);
 	});
 });

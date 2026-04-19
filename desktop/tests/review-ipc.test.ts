@@ -78,6 +78,7 @@ test("preload exposes review IPC bridge methods", async () => {
   await exposed.gitOdysseyDesktop.api.sendReviewChatMessage({
     sessionId: "rev_sess_123",
     runId: null,
+    modelId: "gpt-5.4-mini",
     message: "Explain the diff",
     codeContexts: [],
     messages: [],
@@ -158,6 +159,7 @@ test("preload exposes review IPC bridge methods", async () => {
     {
       sessionId: "rev_sess_123",
       runId: null,
+      modelId: "gpt-5.4-mini",
       message: "Explain the diff",
       codeContexts: [],
       messages: [],
