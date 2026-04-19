@@ -113,6 +113,23 @@ test("preload exposes review IPC bridge methods", async () => {
   await exposed.gitOdysseyDesktop.settings.saveReviewSettings({
     pullRequestGuidelines: "Focus on auth",
   });
+  await exposed.gitOdysseyDesktop.settings.saveAiProfile({
+    name: "Local runtime",
+    config: {
+      schema_version: 1,
+      profiles: [],
+      capabilities: {
+        text_generation: {
+          provider_profile_id: "openai-default",
+          model_id: "gpt-5.4-mini",
+          temperature: 0.2,
+        },
+        embeddings: null,
+      },
+    },
+    secretValues: {},
+  });
+  await exposed.gitOdysseyDesktop.settings.deleteAiProfile("profile_123");
   const unsubscribe = exposed.gitOdysseyDesktop.review.onEvent(() => {});
   unsubscribe();
 
@@ -193,6 +210,29 @@ test("preload exposes review IPC bridge methods", async () => {
       pullRequestGuidelines: "Focus on auth",
     },
   ]);
+  assert.deepEqual(invocations[13], [
+    "git-odyssey:settings:save-ai-profile",
+    {
+      name: "Local runtime",
+      config: {
+        schema_version: 1,
+        profiles: [],
+        capabilities: {
+          text_generation: {
+            provider_profile_id: "openai-default",
+            model_id: "gpt-5.4-mini",
+            temperature: 0.2,
+          },
+          embeddings: null,
+        },
+      },
+      secretValues: {},
+    },
+  ]);
+  assert.deepEqual(invocations[14], [
+    "git-odyssey:settings:delete-ai-profile",
+    "profile_123",
+  ]);
   assert.equal(listeners[0][0], "git-odyssey:review:event");
 });
 
@@ -261,6 +301,23 @@ test("main process review handlers forward requests to the backend", async () =>
     saveReviewSettings(input) {
       this.state.reviewSettings = input;
       return input;
+    }
+
+    saveAiProfile(input) {
+      this.state.savedAiProfiles = this.state.savedAiProfiles ?? [];
+      this.state.savedAiProfiles.push({
+        id: input.id ?? "profile_123",
+        name: input.name,
+        config: input.config,
+        secretValues: input.secretValues,
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+    }
+
+    deleteAiProfile(profileId) {
+      this.state.savedAiProfiles = (this.state.savedAiProfiles ?? []).filter(
+        (profile) => profile.id !== profileId
+      );
     }
 
     save() {}
@@ -469,6 +526,8 @@ test("main process review handlers forward requests to the backend", async () =>
     "git-odyssey:settings:save-additional-review-guidelines"
   );
   const saveReviewSettingsHandler = handlers.get("git-odyssey:settings:save-review-settings");
+  const saveAiProfileHandler = handlers.get("git-odyssey:settings:save-ai-profile");
+  const deleteAiProfileHandler = handlers.get("git-odyssey:settings:delete-ai-profile");
   const saveRepoSettingsHandler = handlers.get("git-odyssey:settings:save-repo-settings");
   const input = {
     repoPath: "/tmp/example-repo",
@@ -537,6 +596,23 @@ test("main process review handlers forward requests to the backend", async () =>
   const savedReviewSettings = await saveReviewSettingsHandler({}, {
     pullRequestGuidelines: "Focus on auth",
   });
+  await saveAiProfileHandler({}, {
+    name: "Local runtime",
+    config: {
+      schema_version: 1,
+      profiles: [],
+      capabilities: {
+        text_generation: {
+          provider_profile_id: "openai-default",
+          model_id: "gpt-5.4-mini",
+          temperature: 0.2,
+        },
+        embeddings: null,
+      },
+    },
+    secretValues: {},
+  });
+  await deleteAiProfileHandler({}, "profile_123");
   await saveRepoSettingsHandler({}, {
     repoPath: "/tmp/example-repo",
     maxCommits: 50,

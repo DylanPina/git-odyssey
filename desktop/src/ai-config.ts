@@ -36,6 +36,7 @@ function buildDefaultAiRuntimeConfig(): AIRuntimeConfig {
         provider_profile_id: DEFAULT_OPENAI_PROFILE_ID,
         model_id: DEFAULT_TEXT_MODEL,
         temperature: 0.2,
+        reasoning_effort: null,
       },
       embeddings: {
         provider_profile_id: DEFAULT_OPENAI_PROFILE_ID,
@@ -125,6 +126,11 @@ function normalizeAiRuntimeConfig(rawConfig: any): AIRuntimeConfig {
         temperature: Number.isFinite(Number(textBinding.temperature))
           ? Number(textBinding.temperature)
           : fallback.capabilities.text_generation?.temperature ?? 0.2,
+        reasoning_effort:
+          typeof textBinding.reasoning_effort === "string" &&
+          textBinding.reasoning_effort
+            ? textBinding.reasoning_effort
+            : null,
       },
       embeddings:
         embeddingsBinding === null

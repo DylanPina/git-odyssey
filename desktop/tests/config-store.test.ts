@@ -25,7 +25,7 @@ test("getRepoSettings returns defaults for repositories without overrides", () =
 
     assert.deepEqual(store.getRepoSettings(repoPath), {
       maxCommits: 50,
-      contextLines: 3,
+      contextLines: 10,
       pullRequestGuidelines: "",
     });
   } finally {
@@ -101,7 +101,7 @@ test("repo settings loaded from disk are normalized back to safe defaults", () =
     const store = new DesktopConfigStore({ rootPath });
     assert.deepEqual(store.getRepoSettings(repoPath), {
       maxCommits: 50,
-      contextLines: 3,
+      contextLines: 10,
       pullRequestGuidelines: "Watch auth edges.",
     });
   } finally {
@@ -126,6 +126,247 @@ test("saveReviewSettings persists trimmed app-wide guidelines across reloads", (
     assert.deepEqual(reloadedStore.getReviewSettings(), {
       pullRequestGuidelines: "Prioritize auth and data loss regressions.",
     });
+  } finally {
+    cleanupRootPath(rootPath);
+  }
+});
+
+test("saveAiProfile persists saved AI profiles across store reloads", () => {
+  const rootPath = createRootPath();
+
+  try {
+    const store = new DesktopConfigStore({ rootPath });
+    const savedProfile = store.saveAiProfile({
+      name: "Local llama",
+      config: {
+        schema_version: 1,
+        profiles: [
+          {
+            id: "text-provider",
+            provider_type: "openai_compatible",
+            label: "Local llama",
+            base_url: "http://127.0.0.1:11434/v1/responses",
+            auth_mode: "bearer",
+            api_key_secret_ref: "provider:text-provider:api-key",
+            supports_text_generation: true,
+            supports_embeddings: false,
+          },
+        ],
+        capabilities: {
+          text_generation: {
+            provider_profile_id: "text-provider",
+            model_id: "llama-3.1",
+            temperature: 0.3,
+          },
+          embeddings: null,
+        },
+      },
+      secretValues: {
+        "provider:text-provider:api-key": "local-secret",
+      },
+    });
+
+    const reloadedStore = new DesktopConfigStore({ rootPath });
+    const reloadedProfiles = reloadedStore.getStatus({ secretRefs: {} }).savedAiProfiles;
+
+    assert.equal(reloadedProfiles.length, 1);
+    assert.equal(reloadedProfiles[0].id, savedProfile.id);
+    assert.equal(reloadedProfiles[0].name, "Local llama");
+    assert.equal(
+      reloadedProfiles[0].secretValues["provider:text-provider:api-key"],
+      "local-secret"
+    );
+    assert.equal(
+      reloadedProfiles[0].config.capabilities.text_generation?.model_id,
+      "llama-3.1"
+    );
+  } finally {
+    cleanupRootPath(rootPath);
+  }
+});
+
+test("saveAiProfile updates an existing saved AI profile by id", () => {
+  const rootPath = createRootPath();
+
+  try {
+    const store = new DesktopConfigStore({ rootPath });
+    const createdProfile = store.saveAiProfile({
+      name: "Claude profile",
+      config: {
+        schema_version: 1,
+        profiles: [
+          {
+            id: "text-provider",
+            provider_type: "openai_compatible",
+            label: "Claude profile",
+            base_url: "https://example.com/v1/responses",
+            auth_mode: "bearer",
+            api_key_secret_ref: "provider:text-provider:api-key",
+            supports_text_generation: true,
+            supports_embeddings: false,
+          },
+        ],
+        capabilities: {
+          text_generation: {
+            provider_profile_id: "text-provider",
+            model_id: "claude-sonnet",
+            temperature: 0.2,
+          },
+          embeddings: null,
+        },
+      },
+      secretValues: {
+        "provider:text-provider:api-key": "before",
+      },
+    });
+
+    const updatedProfile = store.saveAiProfile({
+      id: createdProfile.id,
+      name: "Claude profile",
+      config: {
+        schema_version: 1,
+        profiles: [
+          {
+            id: "text-provider",
+            provider_type: "openai_compatible",
+            label: "Claude profile",
+            base_url: "https://example.com/v1/responses",
+            auth_mode: "bearer",
+            api_key_secret_ref: "provider:text-provider:api-key",
+            supports_text_generation: true,
+            supports_embeddings: false,
+          },
+        ],
+        capabilities: {
+          text_generation: {
+            provider_profile_id: "text-provider",
+            model_id: "claude-opus",
+            temperature: 0.1,
+          },
+          embeddings: null,
+        },
+      },
+      secretValues: {
+        "provider:text-provider:api-key": "after",
+      },
+    });
+
+    const savedProfiles = store.getStatus({ secretRefs: {} }).savedAiProfiles;
+    assert.equal(savedProfiles.length, 1);
+    assert.equal(updatedProfile.id, createdProfile.id);
+    assert.equal(savedProfiles[0].config.capabilities.text_generation?.model_id, "claude-opus");
+    assert.equal(savedProfiles[0].secretValues["provider:text-provider:api-key"], "after");
+  } finally {
+    cleanupRootPath(rootPath);
+  }
+});
+
+test("deleteAiProfile removes a saved AI profile", () => {
+  const rootPath = createRootPath();
+
+  try {
+    const store = new DesktopConfigStore({ rootPath });
+    const savedProfile = store.saveAiProfile({
+      name: "Delete me",
+      config: {
+        schema_version: 1,
+        profiles: [
+          {
+            id: "text-provider",
+            provider_type: "openai_compatible",
+            label: "Delete me",
+            base_url: "https://example.com/v1/responses",
+            auth_mode: "bearer",
+            api_key_secret_ref: "provider:text-provider:api-key",
+            supports_text_generation: true,
+            supports_embeddings: false,
+          },
+        ],
+        capabilities: {
+          text_generation: {
+            provider_profile_id: "text-provider",
+            model_id: "gpt-test",
+            temperature: 0.2,
+          },
+          embeddings: null,
+        },
+      },
+      secretValues: {
+        "provider:text-provider:api-key": "secret",
+      },
+    });
+
+    store.deleteAiProfile(savedProfile.id);
+
+    assert.deepEqual(store.getStatus({ secretRefs: {} }).savedAiProfiles, []);
+  } finally {
+    cleanupRootPath(rootPath);
+  }
+});
+
+test("saved AI profiles loaded from disk are normalized safely", () => {
+  const rootPath = createRootPath();
+
+  try {
+    const configPath = path.join(rootPath, "desktop-config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          backendPort: 48120,
+          databaseUrl: "postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey",
+          databaseSslMode: "disable",
+          dataDir: path.join(rootPath, "data"),
+          logDir: path.join(rootPath, "logs"),
+          aiRuntimeConfig: undefined,
+          savedAiProfiles: [
+            {
+              id: " profile-1 ",
+              name: "  Local profile  ",
+              config: {
+                schema_version: 1,
+                profiles: [],
+                capabilities: {
+                  text_generation: {
+                    provider_profile_id: "",
+                    model_id: "",
+                    temperature: "not-a-number",
+                  },
+                  embeddings: undefined,
+                },
+              },
+              secretValues: {
+                " profile-secret ": 12345,
+              },
+            },
+            {
+              id: "",
+              name: "",
+            },
+          ],
+          firstRunCompleted: false,
+          recentProjects: [],
+          repoSettings: {},
+        },
+        null,
+        2
+      )
+    );
+
+    const store = new DesktopConfigStore({ rootPath });
+    const savedProfiles = store.getStatus({ secretRefs: {} }).savedAiProfiles;
+
+    assert.equal(savedProfiles.length, 1);
+    assert.equal(savedProfiles[0].id, "profile-1");
+    assert.equal(savedProfiles[0].name, "Local profile");
+    assert.equal(
+      savedProfiles[0].config.capabilities.text_generation?.provider_profile_id,
+      "openai-default"
+    );
+    assert.equal(
+      savedProfiles[0].secretValues["profile-secret"],
+      "12345"
+    );
   } finally {
     cleanupRootPath(rootPath);
   }

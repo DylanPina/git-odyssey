@@ -34,7 +34,7 @@ export function ReviewGuidelinesCard({
 
   useEffect(() => {
     setFormState(buildInitialState(desktopSettingsStatus));
-  }, [desktopSettingsStatus?.reviewSettings.pullRequestGuidelines]);
+  }, [desktopSettingsStatus]);
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -47,9 +47,7 @@ export function ReviewGuidelinesCard({
         pullRequestGuidelines: formState.pullRequestGuidelines,
       });
       setFormState(savedSettings);
-      setFeedback(
-        "App-wide review guidelines saved. They will be prepended to future review runs."
-      );
+      setFeedback("Saved. These guidelines will prepend future review runs.");
     } catch (saveError) {
       const message =
         saveError instanceof Error
@@ -65,12 +63,11 @@ export function ReviewGuidelinesCard({
     <section className="workspace-panel-elevated space-y-5 p-5 sm:p-6">
       <PanelHeader
         eyebrow="Review Guidelines"
-        title="App-wide pull request guidance"
-        description="These rules are applied to every Codex review before any repo-specific guidance or one-off run notes."
+        title="App-wide review guidance"
+        description="Set the default review rules that apply before repo-specific guidance or one-off run notes."
       />
 
       {error ? <InlineBanner tone="danger" title={error} /> : null}
-      {feedback ? <InlineBanner tone="success" title={feedback} /> : null}
 
       <form className="space-y-4" onSubmit={handleSave}>
         <label className="space-y-1.5 text-sm text-text-secondary">
@@ -105,6 +102,11 @@ export function ReviewGuidelinesCard({
               "Save Review Guidelines"
             )}
           </Button>
+          {feedback ? (
+            <div className="flex items-center text-sm text-[#d5f2df]">
+              {feedback}
+            </div>
+          ) : null}
         </div>
       </form>
     </section>

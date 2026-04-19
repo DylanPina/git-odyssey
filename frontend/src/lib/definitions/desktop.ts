@@ -36,6 +36,12 @@ export interface DesktopServiceHealth {
 
 export type ProviderType = "openai" | "openai_compatible";
 export type AuthMode = "bearer" | "none";
+export type ReasoningEffort =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
 
 export interface DesktopReviewSettings {
   pullRequestGuidelines: string;
@@ -94,6 +100,7 @@ export interface TextGenerationBinding {
   provider_profile_id: string;
   model_id: string;
   temperature: number;
+  reasoning_effort?: ReasoningEffort | null;
 }
 
 export interface EmbeddingsBinding {
@@ -108,6 +115,21 @@ export interface AIRuntimeConfig {
     text_generation: TextGenerationBinding;
     embeddings: EmbeddingsBinding | null;
   };
+}
+
+export interface DesktopAiSavedProfile {
+  id: string;
+  name: string;
+  config: AIRuntimeConfig;
+  secretValues: Record<string, string>;
+  updatedAt: string;
+}
+
+export interface DesktopAiProfileSaveInput {
+  id?: string | null;
+  name: string;
+  config: AIRuntimeConfig;
+  secretValues: Record<string, string>;
 }
 
 export interface AICapabilityStatus {
@@ -129,6 +151,7 @@ export interface DesktopSettingsStatus {
   logDir: string;
   databaseUrlConfigured: boolean;
   aiRuntimeConfig: AIRuntimeConfig;
+  savedAiProfiles: DesktopAiSavedProfile[];
   reviewSettings: DesktopReviewSettings;
   ai: {
     textGeneration: AICapabilityStatus;
@@ -331,6 +354,10 @@ export interface GitOdysseyDesktopBridge {
     validateAiConfig(
       input: DesktopAiConfigInput,
     ): Promise<DesktopAiValidationResult>;
+    saveAiProfile(
+      input: DesktopAiProfileSaveInput,
+    ): Promise<DesktopSettingsStatus>;
+    deleteAiProfile(profileId: string): Promise<DesktopSettingsStatus>;
     saveAiConfig(input: DesktopAiConfigInput): Promise<DesktopSettingsStatus>;
     saveRepoSettings(
       input: DesktopRepoSettingsSaveInput,

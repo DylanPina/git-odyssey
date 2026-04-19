@@ -193,7 +193,7 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
           pullRequestGuidelines: savedSettings.pullRequestGuidelines,
         });
         setFeedback(
-          "Repository settings saved. Indexing defaults apply on the next refresh or reindex, and review guidance applies on the next review run.",
+          "Saved. Indexing applies on the next refresh or reindex, and review guidance applies on the next run.",
         );
       } catch (saveError) {
         const message =
@@ -217,8 +217,8 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
     <section className="workspace-panel-elevated space-y-5 p-5 sm:p-6">
       <PanelHeader
         eyebrow="Repository Settings"
-        title="Per-repo indexing defaults and review guidance"
-        description="These values control how much history GitOdyssey indexes for this repository, how much surrounding diff context it stores, and which repo-specific review rules are appended after the app-wide baseline."
+        title="Per-repo indexing and review defaults"
+        description="Adjust history depth, diff context, and repo-specific review guidance for the selected repository."
         actions={
           <StatusPill tone={repoPath ? "accent" : "neutral"}>
             {repoPath ? "Repo selected" : "No repo selected"}
@@ -227,7 +227,6 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
       />
 
       {error ? <InlineBanner tone="danger" title={error} /> : null}
-      {feedback ? <InlineBanner tone="success" title={feedback} /> : null}
 
       {!repoPath ? (
         <div className="space-y-4">
@@ -416,6 +415,11 @@ export function RepoSettingsCard({ repoPath }: { repoPath?: string | null }) {
                     "Save Repository Settings"
                   )}
                 </Button>
+                {feedback ? (
+                  <div className="flex items-center text-sm text-[#d5f2df]">
+                    {feedback}
+                  </div>
+                ) : null}
               </div>
             </form>
           )}

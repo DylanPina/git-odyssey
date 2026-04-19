@@ -21,6 +21,7 @@ import type {
   DesktopAdditionalReviewGuidelineSaveInput,
   DesktopAdditionalReviewGuidelineState,
   DesktopAiConfigInput,
+  DesktopAiProfileSaveInput,
   DesktopAiValidationResult,
   DesktopReviewSettings,
   DesktopRepoSettings,
@@ -277,6 +278,18 @@ export const validateDesktopAiConfig = async (
   input: DesktopAiConfigInput,
 ): Promise<DesktopAiValidationResult> => {
   return getDesktopBridge().settings.validateAiConfig(input);
+};
+
+export const saveDesktopAiProfile = async (
+  input: DesktopAiProfileSaveInput,
+): Promise<DesktopSettingsStatus> => {
+  return getDesktopBridge().settings.saveAiProfile(input);
+};
+
+export const deleteDesktopAiProfile = async (
+  profileId: string,
+): Promise<DesktopSettingsStatus> => {
+  return getDesktopBridge().settings.deleteAiProfile(profileId);
 };
 
 export const saveDesktopAiConfig = async (

@@ -16,15 +16,18 @@ class AIEngine:
         client: ResponsesTextClient,
         model: str = "gpt-5.4-mini",
         temperature: float = 0.2,
+        reasoning_effort: str | None = None,
     ):
         self.client = client
         self.model = model
         self.temperature = temperature
+        self.reasoning_effort = reasoning_effort
 
     def _invoke(self, instructions: str, input_text: str) -> str:
         return self.client.generate(
             model=self.model,
             temperature=self.temperature,
+            reasoning_effort=self.reasoning_effort,
             instructions=instructions,
             input_text=input_text,
         )

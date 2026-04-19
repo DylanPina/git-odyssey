@@ -1,7 +1,10 @@
 import fs = require("node:fs");
+import crypto = require("node:crypto");
 import path = require("node:path");
 
 import type {
+  DesktopAiProfileSaveInput,
+  DesktopAiSavedProfile,
   CredentialStatus,
   DesktopConfigPatch,
   DesktopConfigState,
@@ -103,6 +106,75 @@ function normalizeRepoSettingsMap(
   return normalizedEntries;
 }
 
+function normalizeSecretValues(
+  rawSecretValues: unknown
+): Record<string, string> {
+  const secretValues =
+    rawSecretValues && typeof rawSecretValues === "object"
+      ? (rawSecretValues as Record<string, unknown>)
+      : {};
+  const normalizedEntries: Record<string, string> = {};
+
+  for (const [secretRef, value] of Object.entries(secretValues)) {
+    const normalizedSecretRef = normalizeGuidelineText(secretRef);
+    if (!normalizedSecretRef) {
+      continue;
+    }
+
+    if (typeof value === "string") {
+      normalizedEntries[normalizedSecretRef] = value;
+      continue;
+    }
+
+    if (value != null) {
+      normalizedEntries[normalizedSecretRef] = String(value);
+    }
+  }
+
+  return normalizedEntries;
+}
+
+function normalizeSavedAiProfile(
+  rawProfile: unknown
+): DesktopAiSavedProfile | null {
+  const profile =
+    rawProfile && typeof rawProfile === "object"
+      ? (rawProfile as Record<string, unknown>)
+      : null;
+  if (!profile) {
+    return null;
+  }
+
+  const id = normalizeGuidelineText(profile.id);
+  const name = normalizeGuidelineText(profile.name);
+  if (!id || !name) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    config: normalizeAiRuntimeConfig(profile.config),
+    secretValues: normalizeSecretValues(profile.secretValues),
+    updatedAt:
+      typeof profile.updatedAt === "string" && profile.updatedAt
+        ? profile.updatedAt
+        : new Date().toISOString(),
+  };
+}
+
+function normalizeSavedAiProfiles(
+  rawProfiles: unknown
+): DesktopAiSavedProfile[] {
+  if (!Array.isArray(rawProfiles)) {
+    return [];
+  }
+
+  return rawProfiles
+    .map((profile) => normalizeSavedAiProfile(profile))
+    .filter((profile): profile is DesktopAiSavedProfile => profile !== null);
+}
+
 class DesktopConfigStore {
   rootPath: string;
   configPath: string;
@@ -127,6 +199,7 @@ class DesktopConfigStore {
       dataDir,
       logDir,
       aiRuntimeConfig: buildDefaultAiRuntimeConfig(),
+      savedAiProfiles: [],
       reviewSettings: normalizeReviewSettings(),
       firstRunCompleted: false,
       recentProjects: [],
@@ -197,6 +270,9 @@ class DesktopConfigStore {
         aiRuntimeConfig: normalizeAiRuntimeConfig(
           parsed.aiRuntimeConfig ?? defaults.aiRuntimeConfig
         ),
+        savedAiProfiles: normalizeSavedAiProfiles(
+          parsed.savedAiProfiles ?? defaults.savedAiProfiles
+        ),
         reviewSettings: normalizeReviewSettings(
           parsed.reviewSettings ?? defaults.reviewSettings
         ),
@@ -228,6 +304,9 @@ class DesktopConfigStore {
       ...partial,
       aiRuntimeConfig: normalizeAiRuntimeConfig(
         partial.aiRuntimeConfig ?? this.state.aiRuntimeConfig
+      ),
+      savedAiProfiles: normalizeSavedAiProfiles(
+        partial.savedAiProfiles ?? this.state.savedAiProfiles
       ),
       reviewSettings: normalizeReviewSettings(
         partial.reviewSettings ?? this.state.reviewSettings
@@ -301,6 +380,62 @@ class DesktopConfigStore {
     return nextSettings;
   }
 
+  saveAiProfile(input: DesktopAiProfileSaveInput): DesktopAiSavedProfile {
+    const profileName = normalizeGuidelineText(input?.name);
+    if (!profileName) {
+      throw new Error("A profile name is required.");
+    }
+
+    const profileId = normalizeGuidelineText(input?.id) || crypto.randomUUID();
+    const normalizedConfig = normalizeAiRuntimeConfig(input?.config);
+    const secretValues = normalizeSecretValues(input?.secretValues);
+    const existingProfiles = normalizeSavedAiProfiles(this.state.savedAiProfiles);
+    const existingIndex = existingProfiles.findIndex(
+      (profile) => profile.id === profileId
+    );
+
+    if (
+      existingProfiles.some(
+        (profile, index) =>
+          index !== existingIndex &&
+          profile.name.toLowerCase() === profileName.toLowerCase()
+      )
+    ) {
+      throw new Error(`A saved profile named '${profileName}' already exists.`);
+    }
+
+    const nextProfile: DesktopAiSavedProfile = {
+      id: profileId,
+      name: profileName,
+      config: normalizedConfig,
+      secretValues,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const nextProfiles =
+      existingIndex >= 0
+        ? existingProfiles.map((profile, index) =>
+            index === existingIndex ? nextProfile : profile
+          )
+        : [nextProfile, ...existingProfiles];
+
+    this.save({ savedAiProfiles: nextProfiles });
+    return nextProfile;
+  }
+
+  deleteAiProfile(profileId: string): void {
+    const normalizedProfileId = normalizeGuidelineText(profileId);
+    if (!normalizedProfileId) {
+      throw new Error("A profile id is required to delete a saved profile.");
+    }
+
+    const nextProfiles = normalizeSavedAiProfiles(this.state.savedAiProfiles).filter(
+      (profile) => profile.id !== normalizedProfileId
+    );
+
+    this.save({ savedAiProfiles: nextProfiles });
+  }
+
   saveRepoSettings(input: DesktopRepoSettingsSaveInput): DesktopRepoSettings {
     const normalizedRepoPath = normalizePath(input?.repoPath);
     if (!normalizedRepoPath) {
@@ -326,6 +461,7 @@ class DesktopConfigStore {
       logDir: this.state.logDir,
       databaseUrlConfigured: Boolean(this.state.databaseUrl),
       aiRuntimeConfig,
+      savedAiProfiles: normalizeSavedAiProfiles(this.state.savedAiProfiles),
       reviewSettings: this.getReviewSettings(),
       ai: {
         textGeneration: summarizeCapability(

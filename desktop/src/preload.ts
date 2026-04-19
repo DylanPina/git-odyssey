@@ -4,6 +4,7 @@ import type {
   DesktopAdditionalReviewGuidelineSaveInput,
   DesktopAdditionalReviewGuidelineState,
   DesktopAiConfigInput,
+  DesktopAiProfileSaveInput,
   DesktopReviewSettings,
   DesktopRepoSettings,
   DesktopRepoSettingsSaveInput,
@@ -142,6 +143,10 @@ const bridge = {
       invoke("git-odyssey:settings:save-review-settings", input),
     validateAiConfig: (input: DesktopAiConfigInput) =>
       invoke("git-odyssey:settings:validate-ai-config", input),
+    saveAiProfile: (input: DesktopAiProfileSaveInput) =>
+      invoke("git-odyssey:settings:save-ai-profile", input),
+    deleteAiProfile: (profileId: string) =>
+      invoke("git-odyssey:settings:delete-ai-profile", profileId),
     saveAiConfig: (input: DesktopAiConfigInput) =>
       invoke("git-odyssey:settings:save-ai-config", input),
     saveRepoSettings: (input: DesktopRepoSettingsSaveInput) =>

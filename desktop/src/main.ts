@@ -334,6 +334,16 @@ function registerIpcHandlers(): void {
     });
   });
 
+  ipcMain.handle("git-odyssey:settings:save-ai-profile", async (_event, input) => {
+    requireConfigStore().saveAiProfile(input);
+    return getSettingsStatus();
+  });
+
+  ipcMain.handle("git-odyssey:settings:delete-ai-profile", async (_event, profileId) => {
+    requireConfigStore().deleteAiProfile(profileId);
+    return getSettingsStatus();
+  });
+
   ipcMain.handle("git-odyssey:settings:save-ai-config", async (_event, input) => {
     await requireKeychain().saveAiConfig(input);
     requireConfigStore().save({

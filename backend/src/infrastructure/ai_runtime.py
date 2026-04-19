@@ -72,6 +72,9 @@ def validate_provider_base_url(base_url: str, provider_type: ProviderType) -> st
     return normalized
 
 
+ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
+
+
 class ProviderProfileConfig(BaseModel):
     id: str
     provider_type: ProviderType
@@ -124,6 +127,7 @@ class TextGenerationBinding(BaseModel):
     provider_profile_id: str
     model_id: str
     temperature: float = 0.2
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class EmbeddingsBinding(BaseModel):

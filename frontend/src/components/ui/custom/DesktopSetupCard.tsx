@@ -1,19 +1,27 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { CircleHelp, Loader2, RefreshCw } from "lucide-react";
 
-import { saveDesktopAiConfig, validateDesktopAiConfig } from "@/api/api";
+import {
+	deleteDesktopAiProfile,
+	saveDesktopAiConfig,
+	saveDesktopAiProfile,
+	validateDesktopAiConfig,
+} from "@/api/api";
 import { Button } from "@/components/ui/button";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { Input } from "@/components/ui/input";
 import { PanelHeader } from "@/components/ui/panel-header";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
 	AIRuntimeConfig,
 	AuthMode,
+	DesktopAiSavedProfile,
 	DesktopAiValidationResult,
 	DesktopHealthStatus,
 	DesktopSettingsStatus,
 	ProviderType,
+	ReasoningEffort,
 } from "@/lib/definitions/desktop";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +53,10 @@ type CapabilityFormState = {
 };
 
 type SetupFormState = {
-	text: CapabilityFormState & { temperature: string };
+	text: CapabilityFormState & {
+		temperature: string;
+		reasoningEffort: ReasoningEffort | "default";
+	};
 	embeddingsEnabled: boolean;
 	embeddings: CapabilityFormState;
 };
@@ -88,6 +99,7 @@ function getProfile(
 
 function buildInitialState(
 	config: AIRuntimeConfig | null | undefined,
+	secretValues: Record<string, string> = {},
 ): SetupFormState {
 	const textBinding = config?.capabilities.text_generation;
 	const textProfile = getProfile(config, textBinding?.provider_profile_id);
@@ -103,9 +115,13 @@ function buildInitialState(
 			label: textProfile?.label ?? "OpenAI",
 			baseUrl: textProfile?.base_url ?? OPENAI_BASE_URL,
 			authMode: textProfile?.auth_mode ?? "bearer",
-			apiKey: "",
+			apiKey:
+				(textProfile?.api_key_secret_ref &&
+					secretValues[textProfile.api_key_secret_ref]) ??
+				"",
 			modelId: textBinding?.model_id ?? "gpt-5.4-mini",
 			temperature: String(textBinding?.temperature ?? 0.2),
+			reasoningEffort: textBinding?.reasoning_effort ?? "default",
 		},
 		embeddingsEnabled: Boolean(embeddingsBinding),
 		embeddings: {
@@ -113,10 +129,20 @@ function buildInitialState(
 			label: embeddingsProfile?.label ?? "OpenAI",
 			baseUrl: embeddingsProfile?.base_url ?? OPENAI_BASE_URL,
 			authMode: embeddingsProfile?.auth_mode ?? "bearer",
-			apiKey: "",
+			apiKey:
+				(embeddingsProfile?.api_key_secret_ref &&
+					secretValues[embeddingsProfile.api_key_secret_ref]) ??
+				"",
 			modelId: embeddingsBinding?.model_id ?? "text-embedding-3-small",
 		},
 	};
+}
+
+function getSavedProfileById(
+	savedProfiles: DesktopAiSavedProfile[],
+	profileId: string,
+) {
+	return savedProfiles.find((profile) => profile.id === profileId) ?? null;
 }
 
 function buildProfileConfig(
@@ -225,6 +251,10 @@ function buildAiConfigInput(state: SetupFormState) {
 					provider_profile_id: textProfileId,
 					model_id: state.text.modelId.trim(),
 					temperature: Number(state.text.temperature) || 0.2,
+					reasoning_effort:
+						state.text.reasoningEffort === "default"
+							? null
+							: state.text.reasoningEffort,
 				},
 				embeddings: embeddingsBinding,
 			},
@@ -260,11 +290,17 @@ function validationSummary(
 	}
 
 	return (
-		<InlineBanner
-			tone={result.ready ? "success" : "warning"}
-			title={title}
-			description={result.message ?? "No validation details were returned."}
-		/>
+		<div className="workspace-panel flex items-start justify-between gap-3 px-4 py-4">
+			<div className="min-w-0 space-y-1">
+				<div className="text-sm font-medium text-text-primary">{title}</div>
+				<p className="text-sm leading-6 text-text-secondary">
+					{result.message ?? "No validation details were returned."}
+				</p>
+			</div>
+			<StatusPill tone={result.ready ? "success" : "warning"}>
+				{result.ready ? "Ready" : "Check"}
+			</StatusPill>
+		</div>
 	);
 }
 
@@ -274,21 +310,33 @@ function CapabilityFields({
 	value,
 	onChange,
 	showTemperature = false,
-	showDisableHint = false,
+	showReasoningEffort = false,
+	modelPlaceholder = "gpt-5.4-mini",
+	endpointPlaceholder = "http://127.0.0.1:11434/v1/responses",
 }: {
 	title: string;
 	description: string;
-	value: CapabilityFormState & { temperature?: string };
+	value: CapabilityFormState & {
+		temperature?: string;
+		reasoningEffort?: ReasoningEffort | "default";
+	};
 	onChange: (
-		next: Partial<CapabilityFormState & { temperature?: string }>,
+		next: Partial<
+			CapabilityFormState & {
+				temperature?: string;
+				reasoningEffort?: ReasoningEffort | "default";
+			}
+		>,
 	) => void;
 	showTemperature?: boolean;
-	showDisableHint?: boolean;
+	showReasoningEffort?: boolean;
+	modelPlaceholder?: string;
+	endpointPlaceholder?: string;
 }) {
 	const isCompatible = value.providerType === "openai_compatible";
 
 	return (
-		<section className="workspace-panel space-y-4 p-4">
+		<section className="workspace-panel space-y-4 p-4 sm:p-5">
 			<PanelHeader
 				title={title}
 				description={description}
@@ -308,7 +356,10 @@ function CapabilityFields({
 						onChange={(event) =>
 							onChange({
 								providerType: event.target.value as ProviderType,
-								label: event.target.value === "openai" ? "OpenAI" : value.label,
+								label:
+									event.target.value === "openai"
+										? "OpenAI"
+										: value.label || "Custom Provider",
 								baseUrl:
 									event.target.value === "openai"
 										? OPENAI_BASE_URL
@@ -328,7 +379,7 @@ function CapabilityFields({
 					<Input
 						value={value.modelId}
 						onChange={(event) => onChange({ modelId: event.target.value })}
-						placeholder="gpt-5.4-mini"
+						placeholder={modelPlaceholder}
 					/>
 				</label>
 
@@ -345,14 +396,43 @@ function CapabilityFields({
 					</label>
 				) : null}
 
-				{isCompatible ? (
+				{showReasoningEffort ? (
 					<label className="space-y-1.5 text-sm text-text-secondary">
-						<span>Label</span>
-						<Input
-							value={value.label}
-							onChange={(event) => onChange({ label: event.target.value })}
-							placeholder="Local LLM"
-						/>
+						<span className="flex items-center gap-1.5">
+							<span>Reasoning Effort</span>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<button
+										type="button"
+										className="inline-flex size-4 items-center justify-center rounded-full text-text-tertiary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+										aria-label="Reasoning effort help"
+									>
+										<CircleHelp className="size-3.5" />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent className="max-w-64 leading-5">
+									Uses `reasoning.effort` for Responses API requests. Some
+									OpenAI-compatible endpoints may ignore or reject it.
+								</TooltipContent>
+							</Tooltip>
+						</span>
+						<select
+							className="workspace-native-select"
+							value={value.reasoningEffort ?? "default"}
+							onChange={(event) =>
+								onChange({
+									reasoningEffort: event.target
+										.value as ReasoningEffort | "default",
+								})
+							}
+						>
+							<option value="default">Provider default</option>
+							<option value="minimal">Minimal</option>
+							<option value="low">Low</option>
+							<option value="medium">Medium</option>
+							<option value="high">High</option>
+							<option value="xhigh">X-High</option>
+						</select>
 					</label>
 				) : null}
 
@@ -362,7 +442,7 @@ function CapabilityFields({
 						<Input
 							value={value.baseUrl}
 							onChange={(event) => onChange({ baseUrl: event.target.value })}
-							placeholder="http://127.0.0.1:11434/v1/responses"
+							placeholder={endpointPlaceholder}
 						/>
 					</label>
 				) : null}
@@ -390,11 +470,18 @@ function CapabilityFields({
 							type="password"
 							value={value.apiKey}
 							onChange={(event) => onChange({ apiKey: event.target.value })}
-							placeholder="Leave blank to reuse the saved key during validation and save"
+							placeholder="sk-..."
 						/>
 					</label>
 				) : null}
 			</div>
+
+			{!isCompatible ? (
+				<div className="rounded-[16px] border border-border-subtle bg-[rgba(255,255,255,0.03)] px-3 py-3 text-sm leading-6 text-text-secondary">
+					OpenAI uses the default base URL and bearer auth, so you only need to
+					manage the model, temperature, reasoning effort, and key here.
+				</div>
+			) : null}
 		</section>
 	);
 }
@@ -411,14 +498,56 @@ export function DesktopSetupCard({
 	);
 	const [isSaving, setIsSaving] = useState(false);
 	const [isValidating, setIsValidating] = useState(false);
+	const [isSavingProfile, setIsSavingProfile] = useState(false);
+	const [isDeletingProfile, setIsDeletingProfile] = useState(false);
+	const [profileAction, setProfileAction] = useState<"create" | "update" | null>(
+		null,
+	);
 	const [feedback, setFeedback] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
+	const [profileError, setProfileError] = useState<string | null>(null);
+	const [savedProfiles, setSavedProfiles] = useState<DesktopAiSavedProfile[]>(
+		() => desktopSettingsStatus?.savedAiProfiles ?? [],
+	);
+	const [selectedProfileId, setSelectedProfileId] = useState("");
+	const [newProfileName, setNewProfileName] = useState("");
 	const [validationResult, setValidationResult] =
 		useState<DesktopAiValidationResult | null>(null);
 
 	useEffect(() => {
 		setFormState(buildInitialState(desktopSettingsStatus?.aiRuntimeConfig));
+		setSelectedProfileId("");
+		setProfileFeedback(null);
+		setProfileError(null);
 	}, [desktopSettingsStatus?.aiRuntimeConfig]);
+
+	useEffect(() => {
+		const nextSavedProfiles = desktopSettingsStatus?.savedAiProfiles ?? [];
+		setSavedProfiles(nextSavedProfiles);
+		setSelectedProfileId((current) =>
+			nextSavedProfiles.some((profile) => profile.id === current) ? current : "",
+		);
+	}, [desktopSettingsStatus?.savedAiProfiles]);
+
+	const selectedProfile = getSavedProfileById(savedProfiles, selectedProfileId);
+
+	const updateFormState = (
+		updater: (current: SetupFormState) => SetupFormState,
+	) => {
+		setFormState((current) => updater(current));
+		setFeedback(null);
+		setError(null);
+		setProfileFeedback(null);
+		setProfileError(null);
+		setValidationResult(null);
+	};
+
+	const applySavedProfilesStatus = (status: DesktopSettingsStatus) => {
+		const nextSavedProfiles = status.savedAiProfiles ?? [];
+		setSavedProfiles(nextSavedProfiles);
+		return nextSavedProfiles;
+	};
 
 	const runValidation = async () => {
 		const input = buildAiConfigInput(formState);
@@ -441,7 +570,7 @@ export function DesktopSetupCard({
 				);
 			}
 
-			setFeedback("Validation passed. This configuration is ready to save.");
+			setFeedback("Draft validated. You can save when you're ready.");
 			return input;
 		} catch (validationError) {
 			const message =
@@ -462,20 +591,16 @@ export function DesktopSetupCard({
 		setFeedback(null);
 
 		try {
-			const input = await runValidation();
-			if (!input) {
-				return;
-			}
+			const input = buildAiConfigInput(formState);
 
 			await saveDesktopAiConfig(input);
-			setFeedback(
-				"AI configuration saved locally. Restarting local services...",
-			);
+			setFeedback("Configuration saved. Runtime status refreshed.");
 			setFormState((current) => ({
 				...current,
 				text: { ...current.text, apiKey: "" },
 				embeddings: { ...current.embeddings, apiKey: "" },
 			}));
+			setSelectedProfileId("");
 			await onCredentialsSaved();
 		} catch (saveError) {
 			const message =
@@ -485,6 +610,119 @@ export function DesktopSetupCard({
 			setError(message);
 		} finally {
 			setIsSaving(false);
+		}
+	};
+
+	const handleLoadProfile = () => {
+		if (!selectedProfile) {
+			return;
+		}
+
+		setFormState(
+			buildInitialState(selectedProfile.config, selectedProfile.secretValues),
+		);
+		setFeedback(null);
+		setError(null);
+		setProfileError(null);
+		setProfileFeedback(`Loaded '${selectedProfile.name}' into the draft.`);
+		setValidationResult(null);
+	};
+
+	const handleSaveProfile = async () => {
+		const profileName = newProfileName.trim();
+		if (!profileName) {
+			setProfileError("Enter a profile name before saving a new profile.");
+			setProfileFeedback(null);
+			return;
+		}
+
+		setIsSavingProfile(true);
+		setProfileAction("create");
+		setProfileError(null);
+		setProfileFeedback(null);
+
+		try {
+			const status = await saveDesktopAiProfile({
+				name: profileName,
+				...buildAiConfigInput(formState),
+			});
+			const nextSavedProfiles = applySavedProfilesStatus(status);
+			const createdProfile =
+				nextSavedProfiles.find(
+					(profile) => profile.name.toLowerCase() === profileName.toLowerCase(),
+				) ?? null;
+			setSelectedProfileId(createdProfile?.id ?? "");
+			setNewProfileName("");
+			setProfileFeedback(`Saved '${profileName}' as a profile.`);
+		} catch (saveProfileError) {
+			const message =
+				saveProfileError instanceof Error
+					? saveProfileError.message
+					: "Failed to save the AI profile.";
+			setProfileError(message);
+		} finally {
+			setIsSavingProfile(false);
+			setProfileAction(null);
+		}
+	};
+
+	const handleUpdateProfile = async () => {
+		if (!selectedProfile) {
+			setProfileError("Select a saved profile before updating it.");
+			setProfileFeedback(null);
+			return;
+		}
+
+		setIsSavingProfile(true);
+		setProfileAction("update");
+		setProfileError(null);
+		setProfileFeedback(null);
+
+		try {
+			const status = await saveDesktopAiProfile({
+				id: selectedProfile.id,
+				name: selectedProfile.name,
+				...buildAiConfigInput(formState),
+			});
+			applySavedProfilesStatus(status);
+			setProfileFeedback(`Updated '${selectedProfile.name}'.`);
+		} catch (updateProfileError) {
+			const message =
+				updateProfileError instanceof Error
+					? updateProfileError.message
+					: "Failed to update the AI profile.";
+			setProfileError(message);
+		} finally {
+			setIsSavingProfile(false);
+			setProfileAction(null);
+		}
+	};
+
+	const handleDeleteProfile = async () => {
+		if (!selectedProfile) {
+			setProfileError("Select a saved profile before deleting it.");
+			setProfileFeedback(null);
+			return;
+		}
+
+		setIsDeletingProfile(true);
+		setProfileError(null);
+		setProfileFeedback(null);
+
+		try {
+			const deletedProfileName = selectedProfile.name;
+			const status = await deleteDesktopAiProfile(selectedProfile.id);
+			applySavedProfilesStatus(status);
+			setSelectedProfileId("");
+			setProfileFeedback(`Deleted '${deletedProfileName}'.`);
+		} catch (deleteProfileError) {
+			const message =
+				deleteProfileError instanceof Error
+					? deleteProfileError.message
+					: "Failed to delete the AI profile.";
+			setProfileError(message);
+		} finally {
+			setIsDeletingProfile(false);
 		}
 	};
 
@@ -511,24 +749,147 @@ export function DesktopSetupCard({
 			/>
 
 			<form className="space-y-4" onSubmit={handleSave}>
+				<section className="workspace-panel space-y-4 p-4 sm:p-5">
+					<PanelHeader
+						title="Saved Profiles"
+						description="Save reusable AI runtime drafts, then load them back into the form without changing the active runtime until you explicitly save."
+						actions={
+							<StatusPill tone={savedProfiles.length > 0 ? "accent" : "neutral"}>
+								{savedProfiles.length} saved
+							</StatusPill>
+						}
+					/>
+
+					<div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+						<label className="space-y-1.5 text-sm text-text-secondary">
+							<span>Saved profiles</span>
+							<select
+								className="workspace-native-select"
+								value={selectedProfileId}
+								onChange={(event) => {
+									setSelectedProfileId(event.target.value);
+									setProfileError(null);
+									setProfileFeedback(null);
+								}}
+							>
+								<option value="">Choose a saved profile</option>
+								{savedProfiles.map((profile) => (
+									<option key={profile.id} value={profile.id}>
+										{profile.name}
+									</option>
+								))}
+							</select>
+						</label>
+
+						<div className="flex flex-col gap-3 self-end sm:flex-row">
+							<Button
+								type="button"
+								variant="subtle"
+								disabled={!selectedProfile}
+								onClick={handleLoadProfile}
+							>
+								Load
+							</Button>
+							<Button
+								type="button"
+								variant="toolbar"
+								disabled={!selectedProfile || isSavingProfile}
+								onClick={() => void handleUpdateProfile()}
+							>
+								{isSavingProfile && profileAction === "update" ? (
+									<>
+										<Loader2 className="size-4 animate-spin" />
+										Updating
+									</>
+								) : (
+									"Update"
+								)}
+							</Button>
+							<Button
+								type="button"
+								variant="destructive"
+								disabled={!selectedProfile || isDeletingProfile || isSavingProfile}
+								onClick={() => void handleDeleteProfile()}
+							>
+								{isDeletingProfile ? (
+									<>
+										<Loader2 className="size-4 animate-spin" />
+										Deleting
+									</>
+								) : (
+									"Delete"
+								)}
+							</Button>
+						</div>
+					</div>
+
+					<div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+						<label className="space-y-1.5 text-sm text-text-secondary">
+							<span>New profile name</span>
+							<Input
+								value={newProfileName}
+								onChange={(event) => {
+									setNewProfileName(event.target.value);
+									setProfileError(null);
+									setProfileFeedback(null);
+								}}
+								placeholder="Weekend local runtime"
+							/>
+						</label>
+
+						<Button
+							type="button"
+							variant="accent"
+							className="self-end"
+							disabled={isSavingProfile || isDeletingProfile}
+							onClick={() => void handleSaveProfile()}
+						>
+							{isSavingProfile && profileAction === "create" ? (
+								<>
+									<Loader2 className="size-4 animate-spin" />
+									Saving
+								</>
+							) : (
+								"Save as New Profile"
+							)}
+						</Button>
+					</div>
+
+					{selectedProfile ? (
+						<p className="text-xs leading-5 text-text-tertiary">
+							Selected profile: {selectedProfile.name}. Load applies it to the
+							draft. Update overwrites that saved profile with the current draft.
+						</p>
+					) : null}
+
+					{profileFeedback ? (
+						<div className="text-sm font-medium text-[#d5f2df]">
+							{profileFeedback}
+						</div>
+					) : null}
+					{profileError ? <InlineBanner tone="danger" title={profileError} /> : null}
+				</section>
+
 				<CapabilityFields
 					title="Chat And Summaries"
-					description="Choose the provider and model GitOdyssey should use for Responses-based text generation."
+					description="Choose the text-generation provider GitOdyssey should use for the main runtime."
 					value={formState.text}
 					onChange={(next) =>
-						setFormState((current) => ({
+						updateFormState((current) => ({
 							...current,
 							text: { ...current.text, ...next },
 						}))
 					}
 					showTemperature
-					showDisableHint
+					showReasoningEffort
+					modelPlaceholder="gpt-5.4-mini"
+					endpointPlaceholder="http://127.0.0.1:11434/v1/responses"
 				/>
 
-				<section className="workspace-panel space-y-4 p-4">
+				<section className="workspace-panel space-y-4 p-4 sm:p-5">
 					<PanelHeader
-						title="Embeddings"
-						description="Enable semantic search and retrieval with a provider that exposes `/v1/embeddings`."
+						title="Semantic Search"
+						description="Turn embeddings on only if you want repo indexing and retrieval."
 						actions={
 							<StatusPill
 								tone={formState.embeddingsEnabled ? "accent" : "neutral"}
@@ -537,105 +898,129 @@ export function DesktopSetupCard({
 							</StatusPill>
 						}
 					/>
-					<label className="flex items-center gap-3 text-sm text-text-secondary">
+					<label className="flex items-start gap-3 text-sm text-text-secondary">
 						<input
 							type="checkbox"
-							className="workspace-checkbox"
+							className="workspace-checkbox mt-0.5"
 							checked={formState.embeddingsEnabled}
 							onChange={(event) =>
-								setFormState((current) => ({
+								updateFormState((current) => ({
 									...current,
 									embeddingsEnabled: event.target.checked,
 								}))
 							}
 						/>
-						Enable semantic search
+						<span className="space-y-1">
+							<span className="block font-medium text-text-primary">
+								Enable semantic search
+							</span>
+							<span className="block leading-6 text-text-secondary">
+								Requires an OpenAI-compatible endpoint that exposes
+								`/v1/embeddings`.
+							</span>
+						</span>
 					</label>
 				</section>
 
 				{formState.embeddingsEnabled ? (
 					<CapabilityFields
-						title="Semantic Search"
-						description="Choose the embeddings endpoint GitOdyssey should use for repo indexing and retrieval."
+						title="Embeddings Endpoint"
+						description="Choose the embeddings model and endpoint used for repo indexing."
 						value={formState.embeddings}
 						onChange={(next) =>
-							setFormState((current) => ({
+							updateFormState((current) => ({
 								...current,
 								embeddings: { ...current.embeddings, ...next },
 							}))
 						}
+						modelPlaceholder="text-embedding-3-small"
+						endpointPlaceholder="http://127.0.0.1:11434/v1/embeddings"
 					/>
 				) : null}
 
-				<div className="flex flex-col gap-3 pt-1 sm:flex-row sm:flex-wrap">
-					<Button
-						type="button"
-						variant="subtle"
-						disabled={isValidating || isSaving}
-						onClick={() => void runValidation()}
-					>
-						{isValidating ? (
-							<>
-								<Loader2 className="size-4 animate-spin" />
-								Validating
-							</>
-						) : (
-							"Validate Endpoints"
-						)}
-					</Button>
-					<Button
-						type="submit"
-						variant="accent"
-						disabled={isSaving || isValidating}
-					>
-						{isSaving ? (
-							<>
-								<Loader2 className="size-4 animate-spin" />
-								Saving
-							</>
-						) : (
-							"Validate And Save"
-						)}
-					</Button>
-					<Button
-						type="button"
-						variant="toolbar"
-						onClick={() => void onCredentialsSaved()}
-					>
-						<RefreshCw className="size-4" />
-						Refresh Health
-					</Button>
-				</div>
+				<section className="workspace-panel space-y-4 p-4 sm:p-5">
+					<div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+						<div className="space-y-1">
+							<div className="workspace-section-label">Actions</div>
+							<p className="text-sm leading-6 text-text-secondary">
+								Save directly, or validate the current draft before you
+								commit it.
+							</p>
+						</div>
+						{feedback ? (
+							<div className="text-sm font-medium text-[#d5f2df]">
+								{feedback}
+							</div>
+						) : null}
+					</div>
+
+					<div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+						<Button
+							type="submit"
+							variant="accent"
+							disabled={isSaving || isValidating}
+						>
+							{isSaving ? (
+								<>
+									<Loader2 className="size-4 animate-spin" />
+									Saving
+								</>
+							) : (
+								"Save Configuration"
+							)}
+						</Button>
+						<Button
+							type="button"
+							variant="subtle"
+							disabled={isValidating || isSaving}
+							onClick={() => void runValidation()}
+						>
+							{isValidating ? (
+								<>
+									<Loader2 className="size-4 animate-spin" />
+									Validating
+								</>
+							) : (
+								"Validate Endpoints"
+							)}
+						</Button>
+						<Button
+							type="button"
+							variant="toolbar"
+							onClick={() => void onCredentialsSaved()}
+						>
+							<RefreshCw className="size-4" />
+							Refresh Health
+						</Button>
+					</div>
+
+					{error ? <InlineBanner tone="danger" title={error} /> : null}
+				</section>
+
+				{validationResult ? (
+					<section className="space-y-3">
+						<div className="workspace-section-label">
+							Draft Validation Results
+						</div>
+						<div className="grid gap-3 md:grid-cols-2">
+							{validationSummary(
+								"Text generation validation",
+								validationResult.text_generation,
+							)}
+							{formState.embeddingsEnabled
+								? validationSummary(
+										"Embeddings validation",
+										validationResult.embeddings,
+									)
+								: null}
+						</div>
+					</section>
+				) : null}
 			</form>
 
-			{feedback ? <InlineBanner tone="success" title={feedback} /> : null}
-			{error ? <InlineBanner tone="danger" title={error} /> : null}
-
-			{validationResult ? (
-				<section className="space-y-3">
-					<div className="workspace-section-label">
-						Draft Validation Results
-					</div>
-					<div className="grid gap-3 md:grid-cols-2">
-						{validationSummary(
-							"Text generation validation",
-							validationResult.text_generation,
-						)}
-						{formState.embeddingsEnabled
-							? validationSummary(
-									"Embeddings validation",
-									validationResult.embeddings,
-								)
-							: null}
-					</div>
-				</section>
-			) : null}
-
 			<section className="space-y-3">
-				<div className="workspace-section-label">
-					Current Saved Runtime Health
-				</div>
-				<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+				<div className="workspace-section-label">Saved Runtime Health</div>
+				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
 					<HealthPill
 						label="Chat"
 						summary={capabilitySummary(
@@ -667,48 +1052,10 @@ export function DesktopSetupCard({
 					/>
 				</div>
 				<p className="text-xs leading-5 text-text-tertiary">
-					These cards reflect the configuration currently saved and running in
-					the local backend, not the unsaved draft above.
+					These reflect the configuration currently saved and running, not
+					the unsaved draft in the form.
 				</p>
 			</section>
-
-			{(desktopHealth?.backend.message ||
-				desktopHealth?.postgres.message ||
-				desktopHealth?.ai.embeddings.reindexRequired) && (
-				<section className="space-y-3">
-					{desktopHealth?.backend.message ? (
-						<InlineBanner
-							tone="info"
-							title="Backend note"
-							description={desktopHealth.backend.message}
-						/>
-					) : null}
-					{desktopHealth?.postgres.message ? (
-						<InlineBanner
-							tone="info"
-							title="Postgres note"
-							description={desktopHealth.postgres.message}
-						/>
-					) : null}
-					{desktopHealth?.ai.embeddings.reindexRequired ? (
-						<InlineBanner
-							tone="warning"
-							title="Semantic search needs a reindex"
-							description="The active embeddings profile differs from the profile stored on at least one repository."
-						/>
-					) : null}
-				</section>
-			)}
-
-			{desktopSettingsStatus?.logDir ? (
-				<section className="space-y-3">
-					<InlineBanner
-						tone="info"
-						title="AI call logs"
-						description={`Backend AI requests and responses are written to ${desktopSettingsStatus.logDir}/backend.log.`}
-					/>
-				</section>
-			) : null}
 		</div>
 	);
 }

@@ -163,6 +163,7 @@ def get_ai_engine() -> AIEngine:
         client=get_text_client(),
         model=binding.model_id,
         temperature=binding.temperature,
+        reasoning_effort=binding.reasoning_effort,
     )
 
 

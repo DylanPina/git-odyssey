@@ -36,6 +36,7 @@ class ResponsesTextClient(Protocol):
         instructions: str,
         input_text: str,
         temperature: float,
+        reasoning_effort: str | None = None,
     ) -> str:
         """Generate text using the provider's Responses-compatible endpoint."""
 
@@ -146,6 +147,9 @@ def _summarize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         summary["model"] = payload.get("model")
     if "temperature" in payload:
         summary["temperature"] = payload.get("temperature")
+    reasoning = payload.get("reasoning")
+    if isinstance(reasoning, dict) and "effort" in reasoning:
+        summary["reasoning_effort"] = reasoning.get("effort")
 
     instructions = payload.get("instructions")
     if isinstance(instructions, str):
@@ -347,6 +351,7 @@ class OpenAIWireResponsesClient:
         instructions: str,
         input_text: str,
         temperature: float,
+        reasoning_effort: str | None = None,
     ) -> str:
         payload = {
             "model": model,
@@ -355,6 +360,8 @@ class OpenAIWireResponsesClient:
             "temperature": temperature,
             "store": False,
         }
+        if reasoning_effort:
+            payload["reasoning"] = {"effort": reasoning_effort}
         response = self.transport.post_json("/v1/responses", payload)
 
         output_text = response.get("output_text")
