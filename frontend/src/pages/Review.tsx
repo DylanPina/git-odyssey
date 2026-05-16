@@ -33,7 +33,10 @@ import {
   normalizeDiffFileStatus,
 } from "@/lib/diff";
 import type { ChatCodeContext } from "@/lib/definitions/chat";
-import { DEFAULT_DESKTOP_REPO_SETTINGS } from "@/lib/definitions/desktop";
+import {
+  DEFAULT_DESKTOP_REPO_SETTINGS,
+  type GoogleAITarget,
+} from "@/lib/definitions/desktop";
 import type {
   ReviewFinding,
   ReviewHistoryEntry,
@@ -48,7 +51,6 @@ import {
 } from "@/lib/repoPaths";
 import {
   DETACHED_HEAD_LABEL,
-  REVIEW_CHAT_DEFAULT_MODEL_ID,
   REVIEW_DIFF_MIN_WIDTH,
   REVIEW_FILE_TREE_WIDTH_DEFAULT,
   REVIEW_FILE_TREE_WIDTH_MIN,
@@ -128,9 +130,8 @@ export function Review() {
   const [diffContextLines, setDiffContextLines] = useState(
     DEFAULT_DESKTOP_REPO_SETTINGS.contextLines,
   );
-  const [configuredChatModelId, setConfiguredChatModelId] = useState<string | null>(
-    REVIEW_CHAT_DEFAULT_MODEL_ID,
-  );
+  const [configuredChatTarget, setConfiguredChatTarget] =
+    useState<GoogleAITarget | null>(null);
   const [chatComposerFocusToken, setChatComposerFocusToken] = useState(0);
 
   const {
@@ -274,8 +275,8 @@ export function Review() {
     isChatLoading,
     chatError,
     isChatReady,
-    selectedModelId,
-    setSelectedModelId,
+    selectedTarget,
+    setSelectedTarget,
     sendDraft,
     injectSelection,
     injectFinding,
@@ -287,7 +288,7 @@ export function Review() {
     activeRun,
     reviewResult,
     isViewingHistory,
-    initialModelId: configuredChatModelId,
+    initialTarget: configuredChatTarget,
   });
   const handleBaseRefChange = useCallback(
     (nextBaseRef: string) => {
@@ -323,7 +324,7 @@ export function Review() {
           appWide: "",
           repoSpecific: "",
         });
-        setConfiguredChatModelId(REVIEW_CHAT_DEFAULT_MODEL_ID);
+        setConfiguredChatTarget(null);
         setDiffContextLines(DEFAULT_DESKTOP_REPO_SETTINGS.contextLines);
         setGuidelinesError(null);
         setIsGuidelinesLoading(false);
@@ -346,9 +347,8 @@ export function Review() {
           appWide: settingsStatus.reviewSettings.pullRequestGuidelines,
           repoSpecific: repoSettings.pullRequestGuidelines,
         });
-        setConfiguredChatModelId(
-          settingsStatus.aiRuntimeConfig.capabilities.text_generation?.model_id ??
-            REVIEW_CHAT_DEFAULT_MODEL_ID,
+        setConfiguredChatTarget(
+          settingsStatus.aiRuntimeConfig.capabilities.text_generation,
         );
         setDiffContextLines(repoSettings.contextLines);
       } catch (error) {
@@ -360,7 +360,7 @@ export function Review() {
           appWide: "",
           repoSpecific: "",
         });
-        setConfiguredChatModelId(REVIEW_CHAT_DEFAULT_MODEL_ID);
+        setConfiguredChatTarget(null);
         setDiffContextLines(DEFAULT_DESKTOP_REPO_SETTINGS.contextLines);
         setGuidelinesError(getErrorMessage(error));
       } finally {
@@ -379,10 +379,10 @@ export function Review() {
 
   const chatComposerNote = !assistantEnabled
     ? controllerTarget.mode === "commit"
-      ? "Select a commit to prepare Codex review chat."
-      : "Select both branches to prepare Codex review chat."
+      ? "Select a commit to prepare review chat."
+      : "Select both branches to prepare review chat."
     : !isChatReady || isSessionLoading
-      ? "Preparing Codex review chat for this compare target."
+      ? "Preparing review chat for this compare target."
       : null;
   const isChatComposerDisabled =
     !assistantEnabled || !isChatReady || isSessionLoading;
@@ -857,10 +857,10 @@ export function Review() {
       chatDraft={chatDraft}
       draftCodeContexts={draftCodeContexts}
       draftFindingContexts={draftFindingContexts}
-      selectedModelId={selectedModelId}
-      configuredModelId={configuredChatModelId}
+      selectedTarget={selectedTarget}
+      configuredTarget={configuredChatTarget}
       onChatDraftChange={handleChatDraftChange}
-      onSelectedModelIdChange={setSelectedModelId}
+      onSelectedTargetChange={setSelectedTarget}
       onSendChatMessage={() => {
         void sendDraft();
       }}
@@ -900,10 +900,10 @@ export function Review() {
           chatDraft={chatDraft}
           draftCodeContexts={draftCodeContexts}
           draftFindingContexts={draftFindingContexts}
-          selectedModelId={selectedModelId}
-          configuredModelId={configuredChatModelId}
+          selectedTarget={selectedTarget}
+          configuredTarget={configuredChatTarget}
           onChatDraftChange={handleChatDraftChange}
-          onSelectedModelIdChange={setSelectedModelId}
+          onSelectedTargetChange={setSelectedTarget}
           onSendChatMessage={() => {
             void sendDraft();
           }}
@@ -1016,11 +1016,11 @@ export function Review() {
               ? "Select a commit to prepare a review session."
               : "Select two local branches to prepare a review session."
           }
-          emptyDescription={
-            controllerTarget.mode === "commit"
-              ? "GitOdyssey creates a persisted Codex review session for parent(commit)...commit and then runs the review in a disposable worktree."
-              : "GitOdyssey creates a persisted Codex review session for merge-base(base, head)...head and then runs the review in a disposable worktree."
-          }
+	          emptyDescription={
+	            controllerTarget.mode === "commit"
+	              ? "GitOdyssey creates a persisted review session for parent(commit)...commit and runs a non-agentic structured review."
+	              : "GitOdyssey creates a persisted review session for merge-base(base, head)...head and runs a non-agentic structured review."
+	          }
           chromeDensity="compact"
           searchContext={
             controllerTarget.mode === "commit"

@@ -1,149 +1,85 @@
 import hashlib
 import json
-import ipaddress
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from infrastructure.errors import AIConfigurationError
 
-ProviderType = Literal["openai", "openai_compatible"]
-AuthMode = Literal["bearer", "none"]
-
-SCHEMA_VERSION = 1
-OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
-DEFAULT_TEXT_MODEL = "gpt-5.4-mini"
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+SCHEMA_VERSION = 2
+DEFAULT_GOOGLE_LOCATION = "us-central1"
 DOCUMENT_SCHEMA_VERSION = 2
 AST_SCHEMA_VERSION = 1
 AST_ENABLED_LANGUAGES = ("python", "typescript", "tsx")
 
-
-def normalize_base_url(base_url: str | None, provider_type: ProviderType) -> str:
-    candidate = (base_url or "").strip()
-    if provider_type == "openai":
-        candidate = OPENAI_DEFAULT_BASE_URL
-    if not candidate:
-        return candidate
-    return candidate.rstrip("/")
-
-
-def _is_private_http_host(hostname: str | None) -> bool:
-    if not hostname:
-        return False
-
-    hostname = hostname.strip().lower()
-    if hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
-        return True
-
-    try:
-        address = ipaddress.ip_address(hostname)
-    except ValueError:
-        return False
-
-    return (
-        address.is_private
-        or address.is_loopback
-        or address.is_link_local
-        or address.is_reserved
-    )
+TargetKind = Literal["managed_model", "vertex_endpoint"]
+CapabilityName = Literal["text_generation", "embeddings", "review"]
+ModelSource = Literal[
+    "managed_api_model",
+    "deployable_google_model",
+    "deployable_partner_model",
+    "vertex_endpoint",
+    "manual_resource_name",
+]
 
 
-def validate_provider_base_url(base_url: str, provider_type: ProviderType) -> str:
-    normalized = normalize_base_url(base_url, provider_type)
-    if not normalized:
-        raise AIConfigurationError("Provider base URL is required.")
-
-    parsed = urlparse(normalized)
-    if parsed.scheme not in {"http", "https"}:
-        raise AIConfigurationError(
-            f"Unsupported provider URL scheme '{parsed.scheme or 'missing'}'."
-        )
-
-    if parsed.scheme == "http" and not _is_private_http_host(parsed.hostname):
-        raise AIConfigurationError(
-            "HTTP is allowed only for localhost or private-LAN AI endpoints."
-        )
-
-    if not parsed.netloc:
-        raise AIConfigurationError("Provider base URL must include a host.")
-
-    return normalized
-
-
-ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
-
-
-class ProviderProfileConfig(BaseModel):
-    id: str
-    provider_type: ProviderType
-    label: str
-    base_url: str | None = None
-    auth_mode: AuthMode = "bearer"
-    api_key_secret_ref: str | None = None
-    supports_text_generation: bool = True
-    supports_embeddings: bool = True
+class GoogleAITarget(BaseModel):
+    target_kind: TargetKind
+    resource_name: str
+    display_name: str
+    publisher: str | None = None
+    version: str | None = None
+    location: str | None = None
+    capabilities: list[CapabilityName] = Field(default_factory=list)
+    adapter_family: str | None = None
+    embedding_output_dimension: int | None = None
+    source: ModelSource | None = None
 
     @model_validator(mode="after")
-    def validate_profile(self) -> "ProviderProfileConfig":
-        self.base_url = normalize_base_url(self.base_url, self.provider_type)
-        if not self.id.strip():
-            raise AIConfigurationError("Provider profile ids must not be empty.")
-        if not self.label.strip():
-            raise AIConfigurationError("Provider profile labels must not be empty.")
-        if not (self.supports_text_generation or self.supports_embeddings):
+    def validate_target(self) -> "GoogleAITarget":
+        self.resource_name = self.resource_name.strip()
+        self.display_name = self.display_name.strip() or self.resource_name
+        self.publisher = (self.publisher or "").strip() or None
+        self.version = (self.version or "").strip() or None
+        self.location = (self.location or "").strip() or None
+        self.adapter_family = (self.adapter_family or "").strip() or None
+
+        if not self.resource_name:
+            raise AIConfigurationError("Google AI target resource_name is required.")
+        if self.target_kind == "managed_model" and "endpoints/" in self.resource_name:
             raise AIConfigurationError(
-                f"Provider profile '{self.id}' must support at least one capability."
+                "Managed model targets must use a publisher model resource name."
             )
-
-        if self.provider_type == "openai":
-            self.base_url = OPENAI_DEFAULT_BASE_URL
-            if self.auth_mode != "bearer":
-                raise AIConfigurationError(
-                    "The built-in OpenAI profile must use bearer authentication."
-                )
-            if not self.api_key_secret_ref:
-                raise AIConfigurationError(
-                    "The built-in OpenAI profile requires an API key secret reference."
-                )
-        else:
-            if not self.base_url:
-                raise AIConfigurationError(
-                    f"Provider profile '{self.id}' requires a base URL."
-                )
-            self.base_url = validate_provider_base_url(
-                self.base_url, self.provider_type
+        if self.target_kind == "vertex_endpoint" and "endpoints/" not in self.resource_name:
+            raise AIConfigurationError(
+                "Endpoint targets must use a full endpoint resource name."
             )
-            if self.auth_mode != "none" and not self.api_key_secret_ref:
-                raise AIConfigurationError(
-                    f"Provider profile '{self.id}' requires an API key unless auth_mode is 'none'."
-                )
-
+        if self.embedding_output_dimension is not None and self.embedding_output_dimension < 1:
+            raise AIConfigurationError(
+                "embedding_output_dimension must be a positive integer."
+            )
         return self
 
+    def with_location(self, fallback_location: str) -> "GoogleAITarget":
+        if self.location:
+            return self
+        return self.model_copy(update={"location": fallback_location})
 
-class TextGenerationBinding(BaseModel):
-    provider_profile_id: str
-    model_id: str
-    temperature: float = 0.2
-    reasoning_effort: ReasoningEffort | None = None
-
-
-class EmbeddingsBinding(BaseModel):
-    provider_profile_id: str
-    model_id: str
+    def supports(self, capability_name: CapabilityName) -> bool:
+        return capability_name in set(self.capabilities)
 
 
 class CapabilityBindings(BaseModel):
-    text_generation: TextGenerationBinding
-    embeddings: EmbeddingsBinding | None = None
+    text_generation: GoogleAITarget | None = None
+    embeddings: GoogleAITarget | None = None
+    review: GoogleAITarget | None = None
 
 
 class AIRuntimeConfig(BaseModel):
     schema_version: int = SCHEMA_VERSION
-    profiles: list[ProviderProfileConfig] = Field(default_factory=list)
-    capabilities: CapabilityBindings
+    google_project_id: str | None = None
+    google_location: str = DEFAULT_GOOGLE_LOCATION
+    capabilities: CapabilityBindings = Field(default_factory=CapabilityBindings)
 
     @model_validator(mode="after")
     def validate_runtime(self) -> "AIRuntimeConfig":
@@ -152,50 +88,67 @@ class AIRuntimeConfig(BaseModel):
                 f"Unsupported AI runtime schema version {self.schema_version}."
             )
 
-        profiles_by_id = {profile.id: profile for profile in self.profiles}
-        if len(profiles_by_id) != len(self.profiles):
-            raise AIConfigurationError("Provider profile ids must be unique.")
+        self.google_project_id = (self.google_project_id or "").strip() or None
+        self.google_location = (self.google_location or "").strip() or DEFAULT_GOOGLE_LOCATION
 
-        if not self.capabilities.text_generation:
-            raise AIConfigurationError("text_generation capability is required.")
-
-        text_profile = profiles_by_id.get(
-            self.capabilities.text_generation.provider_profile_id
-        )
-        if text_profile is None:
-            raise AIConfigurationError(
-                "text_generation references a missing provider profile."
-            )
-        if not text_profile.supports_text_generation:
-            raise AIConfigurationError(
-                f"Provider profile '{text_profile.id}' does not support text generation."
-            )
-
-        if self.capabilities.embeddings is not None:
-            embedding_profile = profiles_by_id.get(
-                self.capabilities.embeddings.provider_profile_id
-            )
-            if embedding_profile is None:
+        for capability_name in ("text_generation", "embeddings", "review"):
+            target = getattr(self.capabilities, capability_name)
+            if target is None:
+                continue
+            if not self.google_project_id:
                 raise AIConfigurationError(
-                    "embeddings references a missing provider profile."
+                    "Google Cloud project ID is required before saving model targets."
                 )
-            if not embedding_profile.supports_embeddings:
+            target = target.with_location(self.google_location)
+            if not target.supports(capability_name):
                 raise AIConfigurationError(
-                    f"Provider profile '{embedding_profile.id}' does not support embeddings."
+                    f"Target '{target.display_name}' does not declare support for {capability_name}."
                 )
+            setattr(self.capabilities, capability_name, target)
 
         return self
 
-    def get_profile(self, profile_id: str) -> ProviderProfileConfig:
-        for profile in self.profiles:
-            if profile.id == profile_id:
-                return profile
-        raise AIConfigurationError(f"Unknown provider profile '{profile_id}'.")
+
+def build_empty_google_ai_runtime_config(
+    *,
+    project_id: str | None = None,
+    location: str | None = None,
+) -> AIRuntimeConfig:
+    return AIRuntimeConfig(
+        schema_version=SCHEMA_VERSION,
+        google_project_id=(project_id or "").strip() or None,
+        google_location=(location or DEFAULT_GOOGLE_LOCATION).strip()
+        or DEFAULT_GOOGLE_LOCATION,
+        capabilities=CapabilityBindings(),
+    )
+
+
+def _looks_like_legacy_openai_config(payload: dict[str, Any]) -> bool:
+    if payload.get("schema_version") == 1:
+        return True
+    return "profiles" in payload or "provider_profile_id" in json.dumps(payload)
+
+
+def migrate_ai_runtime_payload(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return build_empty_google_ai_runtime_config().model_dump(mode="json")
+
+    if _looks_like_legacy_openai_config(payload):
+        return build_empty_google_ai_runtime_config(
+            project_id=payload.get("google_project_id"),
+            location=payload.get("google_location"),
+        ).model_dump(mode="json")
+
+    if not payload:
+        return build_empty_google_ai_runtime_config().model_dump(mode="json")
+
+    return payload
+
 
 def load_ai_runtime_config(settings: Any) -> AIRuntimeConfig:
     raw = getattr(settings, "ai_runtime_config_json", None)
     if not raw:
-        raise AIConfigurationError("AI runtime config is missing.")
+        return build_empty_google_ai_runtime_config()
 
     try:
         payload = json.loads(raw)
@@ -205,44 +158,53 @@ def load_ai_runtime_config(settings: Any) -> AIRuntimeConfig:
         ) from exc
 
     try:
-        return AIRuntimeConfig.model_validate(payload)
+        return AIRuntimeConfig.model_validate(migrate_ai_runtime_payload(payload))
     except ValidationError as exc:
         raise AIConfigurationError(f"AI runtime config is invalid: {exc}") from exc
 
 
 def load_ai_secret_values(settings: Any) -> dict[str, str]:
-    secret_values: dict[str, str] = {}
     raw = getattr(settings, "ai_secret_values_json", None)
-    if raw:
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise AIConfigurationError(
-                f"AI secret values are not valid JSON: {exc.msg}"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise AIConfigurationError("AI secret values JSON must be an object.")
-        for key, value in payload.items():
-            if isinstance(key, str) and isinstance(value, str) and value:
-                secret_values[key] = value
+    if not raw:
+        return {}
 
-    return secret_values
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AIConfigurationError(
+            f"AI secret values are not valid JSON: {exc.msg}"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise AIConfigurationError("AI secret values JSON must be an object.")
+
+    return {
+        key: value
+        for key, value in payload.items()
+        if isinstance(key, str) and isinstance(value, str) and value
+    }
 
 
 def compute_embedding_fingerprint(
-    provider_type: str,
-    base_url: str,
-    model_id: str,
     *,
+    target_kind: str,
+    resource_name: str,
+    project_id: str,
+    location: str,
+    adapter_family: str | None,
+    observed_dimension: int | None,
     document_schema_version: int = DOCUMENT_SCHEMA_VERSION,
     ast_schema_version: int = AST_SCHEMA_VERSION,
     ast_enabled_languages: tuple[str, ...] = AST_ENABLED_LANGUAGES,
 ) -> str:
     payload = json.dumps(
         {
-            "provider_type": provider_type,
-            "base_url": normalize_base_url(base_url, provider_type),
-            "model_id": model_id,
+            "target_kind": target_kind,
+            "resource_name": resource_name.strip(),
+            "project_id": project_id.strip(),
+            "location": location.strip(),
+            "adapter_family": (adapter_family or "").strip() or None,
+            "observed_embedding_dimension": observed_dimension,
             "document_schema_version": document_schema_version,
             "ast_schema_version": ast_schema_version,
             "ast_enabled_languages": list(ast_enabled_languages),
@@ -254,52 +216,59 @@ def compute_embedding_fingerprint(
 
 def describe_capability(
     config: AIRuntimeConfig | None,
-    secret_values: dict[str, str],
-    capability_name: Literal["text_generation", "embeddings"],
+    _secret_values: dict[str, str],
+    capability_name: CapabilityName,
 ) -> dict[str, Any]:
     if config is None:
         return {
             "configured": False,
             "ready": False,
-            "provider_type": None,
-            "model_id": None,
-            "base_url": None,
-            "auth_mode": None,
-            "secret_present": False,
-            "message": "AI runtime configuration is unavailable.",
+            "target_kind": None,
+            "resource_name": None,
+            "display_name": None,
+            "publisher": None,
+            "version": None,
+            "location": None,
+            "adapter_family": None,
+            "embedding_output_dimension": None,
+            "message": "Google AI runtime configuration is unavailable.",
         }
 
-    binding = getattr(config.capabilities, capability_name)
-    if binding is None:
+    target = getattr(config.capabilities, capability_name)
+    if target is None:
         return {
             "configured": False,
             "ready": False,
-            "provider_type": None,
-            "model_id": None,
-            "base_url": None,
-            "auth_mode": None,
-            "secret_present": False,
+            "target_kind": None,
+            "resource_name": None,
+            "display_name": None,
+            "publisher": None,
+            "version": None,
+            "location": config.google_location,
+            "adapter_family": None,
+            "embedding_output_dimension": None,
             "message": (
                 "Semantic search is disabled."
                 if capability_name == "embeddings"
-                else "Text generation is not configured."
+                else "No Google AI target is configured for this capability."
             ),
         }
 
-    profile = config.get_profile(binding.provider_profile_id)
-    secret_present = (
-        profile.auth_mode == "none"
-        or bool(secret_values.get(profile.api_key_secret_ref or ""))
-    )
+    has_project = bool(config.google_project_id)
+    has_location = bool(target.location or config.google_location)
+    ready = has_project and has_location
     return {
         "configured": True,
-        "ready": secret_present,
-        "provider_type": profile.provider_type,
-        "model_id": binding.model_id,
-        "base_url": profile.base_url,
-        "auth_mode": profile.auth_mode,
-        "secret_present": secret_present,
+        "ready": ready,
+        "target_kind": target.target_kind,
+        "resource_name": target.resource_name,
+        "display_name": target.display_name,
+        "publisher": target.publisher,
+        "version": target.version,
+        "location": target.location or config.google_location,
+        "adapter_family": target.adapter_family,
+        "embedding_output_dimension": target.embedding_output_dimension,
         "message": None
-        if secret_present
-        else f"Provider profile '{profile.label}' is missing its API key.",
+        if ready
+        else "Google Cloud project ID and Google AI location are required.",
     }

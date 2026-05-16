@@ -66,11 +66,11 @@ function ReviewInProgressState({
 					<div className="min-w-0">
 						<div className="text-sm font-semibold text-text-primary">
 							Review in progress
-						</div>
-						<div className="mt-1 text-xs leading-5 text-text-secondary">
-							Codex is still reviewing this diff. Findings and summary will
-							appear here as soon as the run completes.
-						</div>
+							</div>
+							<div className="mt-1 text-xs leading-5 text-text-secondary">
+								Google AI is reviewing this diff. Findings and summary will
+								appear here as soon as the run completes.
+							</div>
 					</div>
 					<div className="relative mt-0.5 flex size-12 shrink-0 items-center justify-center">
 						<div className="review-runtime-ring absolute inset-0 rounded-full border border-[rgba(122,162,255,0.24)]" />

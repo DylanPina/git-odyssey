@@ -14,6 +14,36 @@ function cleanupRootPath(rootPath) {
   fs.rmSync(rootPath, { recursive: true, force: true });
 }
 
+function buildGoogleAiRuntimeConfig({
+  textResource = "publishers/google/models/gemini-2.5-flash",
+  embeddingResource = null,
+  reviewResource = "publishers/google/models/gemini-2.5-pro",
+} = {}) {
+  const target = (resourceName, capability, displayName = resourceName.split("/").at(-1)) => ({
+    target_kind: "managed_model",
+    resource_name: resourceName,
+    display_name: displayName,
+    publisher: "google",
+    version: "2.5",
+    location: "us-central1",
+    capabilities: [capability],
+    adapter_family: capability === "embeddings" ? "text_embedding" : "gemini",
+    embedding_output_dimension: capability === "embeddings" ? 768 : null,
+    source: "managed_api_model",
+  });
+
+  return {
+    schema_version: 2,
+    google_project_id: "git-odyssey-test",
+    google_location: "us-central1",
+    capabilities: {
+      text_generation: textResource ? target(textResource, "text_generation") : null,
+      embeddings: embeddingResource ? target(embeddingResource, "embeddings") : null,
+      review: reviewResource ? target(reviewResource, "review") : null,
+    },
+  };
+}
+
 test("getRepoSettings returns defaults for repositories without overrides", () => {
   const rootPath = createRootPath();
 
@@ -138,32 +168,11 @@ test("saveAiProfile persists saved AI profiles across store reloads", () => {
     const store = new DesktopConfigStore({ rootPath });
     const savedProfile = store.saveAiProfile({
       name: "Local llama",
-      config: {
-        schema_version: 1,
-        profiles: [
-          {
-            id: "text-provider",
-            provider_type: "openai_compatible",
-            label: "Local llama",
-            base_url: "http://127.0.0.1:11434/v1/responses",
-            auth_mode: "bearer",
-            api_key_secret_ref: "provider:text-provider:api-key",
-            supports_text_generation: true,
-            supports_embeddings: false,
-          },
-        ],
-        capabilities: {
-          text_generation: {
-            provider_profile_id: "text-provider",
-            model_id: "llama-3.1",
-            temperature: 0.3,
-          },
-          embeddings: null,
-        },
-      },
-      secretValues: {
-        "provider:text-provider:api-key": "local-secret",
-      },
+      config: buildGoogleAiRuntimeConfig({
+        textResource: "publishers/google/models/llama-3.1",
+        reviewResource: "publishers/google/models/llama-3.1",
+      }),
+      secretValues: {},
     });
 
     const reloadedStore = new DesktopConfigStore({ rootPath });
@@ -173,12 +182,8 @@ test("saveAiProfile persists saved AI profiles across store reloads", () => {
     assert.equal(reloadedProfiles[0].id, savedProfile.id);
     assert.equal(reloadedProfiles[0].name, "Local llama");
     assert.equal(
-      reloadedProfiles[0].secretValues["provider:text-provider:api-key"],
-      "local-secret"
-    );
-    assert.equal(
-      reloadedProfiles[0].config.capabilities.text_generation?.model_id,
-      "llama-3.1"
+      reloadedProfiles[0].config.capabilities.text_generation?.resource_name,
+      "publishers/google/models/llama-3.1"
     );
   } finally {
     cleanupRootPath(rootPath);
@@ -192,70 +197,31 @@ test("saveAiProfile updates an existing saved AI profile by id", () => {
     const store = new DesktopConfigStore({ rootPath });
     const createdProfile = store.saveAiProfile({
       name: "Claude profile",
-      config: {
-        schema_version: 1,
-        profiles: [
-          {
-            id: "text-provider",
-            provider_type: "openai_compatible",
-            label: "Claude profile",
-            base_url: "https://example.com/v1/responses",
-            auth_mode: "bearer",
-            api_key_secret_ref: "provider:text-provider:api-key",
-            supports_text_generation: true,
-            supports_embeddings: false,
-          },
-        ],
-        capabilities: {
-          text_generation: {
-            provider_profile_id: "text-provider",
-            model_id: "claude-sonnet",
-            temperature: 0.2,
-          },
-          embeddings: null,
-        },
-      },
-      secretValues: {
-        "provider:text-provider:api-key": "before",
-      },
+      config: buildGoogleAiRuntimeConfig({
+        textResource: "publishers/anthropic/models/claude-sonnet",
+        reviewResource: "publishers/anthropic/models/claude-sonnet",
+      }),
+      secretValues: {},
     });
 
     const updatedProfile = store.saveAiProfile({
       id: createdProfile.id,
       name: "Claude profile",
-      config: {
-        schema_version: 1,
-        profiles: [
-          {
-            id: "text-provider",
-            provider_type: "openai_compatible",
-            label: "Claude profile",
-            base_url: "https://example.com/v1/responses",
-            auth_mode: "bearer",
-            api_key_secret_ref: "provider:text-provider:api-key",
-            supports_text_generation: true,
-            supports_embeddings: false,
-          },
-        ],
-        capabilities: {
-          text_generation: {
-            provider_profile_id: "text-provider",
-            model_id: "claude-opus",
-            temperature: 0.1,
-          },
-          embeddings: null,
-        },
-      },
-      secretValues: {
-        "provider:text-provider:api-key": "after",
-      },
+      config: buildGoogleAiRuntimeConfig({
+        textResource: "publishers/anthropic/models/claude-opus",
+        reviewResource: "publishers/anthropic/models/claude-opus",
+      }),
+      secretValues: {},
     });
 
     const savedProfiles = store.getStatus({ secretRefs: {} }).savedAiProfiles;
     assert.equal(savedProfiles.length, 1);
     assert.equal(updatedProfile.id, createdProfile.id);
-    assert.equal(savedProfiles[0].config.capabilities.text_generation?.model_id, "claude-opus");
-    assert.equal(savedProfiles[0].secretValues["provider:text-provider:api-key"], "after");
+    assert.equal(
+      savedProfiles[0].config.capabilities.text_generation?.resource_name,
+      "publishers/anthropic/models/claude-opus"
+    );
+    assert.deepEqual(savedProfiles[0].secretValues, {});
   } finally {
     cleanupRootPath(rootPath);
   }
@@ -268,32 +234,8 @@ test("deleteAiProfile removes a saved AI profile", () => {
     const store = new DesktopConfigStore({ rootPath });
     const savedProfile = store.saveAiProfile({
       name: "Delete me",
-      config: {
-        schema_version: 1,
-        profiles: [
-          {
-            id: "text-provider",
-            provider_type: "openai_compatible",
-            label: "Delete me",
-            base_url: "https://example.com/v1/responses",
-            auth_mode: "bearer",
-            api_key_secret_ref: "provider:text-provider:api-key",
-            supports_text_generation: true,
-            supports_embeddings: false,
-          },
-        ],
-        capabilities: {
-          text_generation: {
-            provider_profile_id: "text-provider",
-            model_id: "gpt-test",
-            temperature: 0.2,
-          },
-          embeddings: null,
-        },
-      },
-      secretValues: {
-        "provider:text-provider:api-key": "secret",
-      },
+      config: buildGoogleAiRuntimeConfig(),
+      secretValues: {},
     });
 
     store.deleteAiProfile(savedProfile.id);
@@ -324,15 +266,23 @@ test("saved AI profiles loaded from disk are normalized safely", () => {
               id: " profile-1 ",
               name: "  Local profile  ",
               config: {
-                schema_version: 1,
-                profiles: [],
+                schema_version: 2,
+                google_project_id: " git-odyssey-test ",
+                google_location: " us-central1 ",
                 capabilities: {
                   text_generation: {
-                    provider_profile_id: "",
-                    model_id: "",
-                    temperature: "not-a-number",
+                    target_kind: "managed_model",
+                    resource_name: " publishers/google/models/gemini-2.5-flash ",
+                    display_name: " Gemini Flash ",
+                    publisher: " google ",
+                    version: "",
+                    location: "",
+                    capabilities: ["text_generation", "bad-capability"],
+                    adapter_family: " gemini ",
+                    source: "managed_api_model",
                   },
                   embeddings: undefined,
+                  review: undefined,
                 },
               },
               secretValues: {
@@ -359,9 +309,10 @@ test("saved AI profiles loaded from disk are normalized safely", () => {
     assert.equal(savedProfiles.length, 1);
     assert.equal(savedProfiles[0].id, "profile-1");
     assert.equal(savedProfiles[0].name, "Local profile");
+    assert.equal(savedProfiles[0].config.google_project_id, "git-odyssey-test");
     assert.equal(
-      savedProfiles[0].config.capabilities.text_generation?.provider_profile_id,
-      "openai-default"
+      savedProfiles[0].config.capabilities.text_generation?.resource_name,
+      "publishers/google/models/gemini-2.5-flash"
     );
     assert.equal(
       savedProfiles[0].secretValues["profile-secret"],

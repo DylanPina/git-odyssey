@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from core.embedder import EmbeddingEngine
 from infrastructure.ai_clients import EmbeddingResult
+from infrastructure.ai_runtime import GoogleAITarget
 from infrastructure.errors import AIRateLimitError, AIRequestError
 
 
@@ -12,6 +13,24 @@ def build_embedding_result(*vectors: list[float]) -> EmbeddingResult:
     embeddings = list(vectors)
     dimensions = len(embeddings[0]) if embeddings else None
     return EmbeddingResult(embeddings=embeddings, dimensions=dimensions)
+
+
+def build_embedding_target() -> GoogleAITarget:
+    return GoogleAITarget(
+        target_kind="managed_model",
+        resource_name="publishers/google/models/text-embedding-005",
+        display_name="Text Embedding 005",
+        publisher="google",
+        version="005",
+        location="us-central1",
+        capabilities=["embeddings"],
+        adapter_family="text_embedding",
+        embedding_output_dimension=768,
+        source="managed_api_model",
+    )
+
+
+DEFAULT_TARGET = build_embedding_target()
 
 
 class RecordingEmbeddingEngine(EmbeddingEngine):
@@ -22,7 +41,7 @@ class RecordingEmbeddingEngine(EmbeddingEngine):
     ) -> None:
         super().__init__(
             client=Mock(),
-            model="text-embedding-3-small",
+            target=DEFAULT_TARGET,
             token_limit=token_limit,
             max_input_tokens=max_input_tokens,
         )
@@ -43,7 +62,7 @@ class TrackingEmbeddingClient:
         self.reached_target = Event()
         self.release = Event()
 
-    def embed(self, *, model: str, inputs: list[str]) -> EmbeddingResult:
+    def embed(self, *, target: GoogleAITarget, inputs: list[str]) -> EmbeddingResult:
         with self.lock:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
@@ -60,7 +79,7 @@ class SequenceEmbeddingClient:
         self.side_effects = list(side_effects)
         self.calls: list[list[str]] = []
 
-    def embed(self, *, model: str, inputs: list[str]) -> EmbeddingResult:
+    def embed(self, *, target: GoogleAITarget, inputs: list[str]) -> EmbeddingResult:
         self.calls.append(list(inputs))
         effect = self.side_effects.pop(0)
         if isinstance(effect, Exception):
@@ -72,32 +91,32 @@ class EmbeddingEngineTests(unittest.TestCase):
     def test_embed_query_returns_single_vector(self) -> None:
         client = Mock()
         client.embed.return_value = build_embedding_result([0.1, 0.2, 0.3])
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
 
         result = embedder.embed_query("auth changes")
 
         self.assertEqual(result, [0.1, 0.2, 0.3])
         client.embed.assert_called_once_with(
-            model="text-embedding-3-small",
+            target=DEFAULT_TARGET,
             inputs=["auth changes"],
         )
 
     def test_get_batch_embeddings_returns_all_vectors(self) -> None:
         client = Mock()
         client.embed.return_value = build_embedding_result([1.0, 0.0], [0.0, 1.0])
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
 
         result = embedder.get_batch_embeddings(["first", "second"])
 
         self.assertEqual(result, [[1.0, 0.0], [0.0, 1.0]])
         client.embed.assert_called_once_with(
-            model="text-embedding-3-small",
+            target=DEFAULT_TARGET,
             inputs=["first", "second"],
         )
 
     def test_get_batch_embeddings_skips_empty_requests(self) -> None:
         client = Mock()
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
 
         result = embedder.get_batch_embeddings([])
 
@@ -111,7 +130,7 @@ class EmbeddingEngineTests(unittest.TestCase):
             build_embedding_result([1.0, 0.0]),
             build_embedding_result([0.0, 1.0]),
         ]
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
         first = SimpleNamespace(semantic_embedding=None)
         second = SimpleNamespace(semantic_embedding=None)
 
@@ -140,7 +159,7 @@ class EmbeddingEngineTests(unittest.TestCase):
                 build_embedding_result([1.0, 0.0], [0.0, 1.0]),
             ]
         )
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
         first = SimpleNamespace(semantic_embedding=None)
         second = SimpleNamespace(semantic_embedding=None)
         stats = None
@@ -189,7 +208,7 @@ class EmbeddingEngineTests(unittest.TestCase):
             build_embedding_result([1.0, 0.0], [0.0, 1.0]),
             build_embedding_result([0.5, 0.5]),
         ]
-        embedder = EmbeddingEngine(client=client, token_limit=10, max_input_tokens=10)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET, token_limit=10, max_input_tokens=10)
         embedder.token_chars = 1
         first = SimpleNamespace(semantic_embedding=None)
         second = SimpleNamespace(semantic_embedding=None)
@@ -214,7 +233,7 @@ class EmbeddingEngineTests(unittest.TestCase):
     def test_embed_batch_pre_truncates_oversized_input_before_request(self) -> None:
         client = Mock()
         client.embed.return_value = build_embedding_result([0.5, 0.5])
-        embedder = EmbeddingEngine(client=client, max_input_tokens=4)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET, max_input_tokens=4)
         embedder.token_chars = 1
         repo_object = SimpleNamespace(semantic_embedding=None)
 
@@ -222,7 +241,7 @@ class EmbeddingEngineTests(unittest.TestCase):
 
         self.assertEqual(repo_object.semantic_embedding, [0.5, 0.5])
         client.embed.assert_called_once_with(
-            model="text-embedding-3-small",
+            target=DEFAULT_TARGET,
             inputs=["abcd"],
         )
 
@@ -233,7 +252,7 @@ class EmbeddingEngineTests(unittest.TestCase):
             AIRequestError("still too long"),
             build_embedding_result([0.5, 0.5]),
         ]
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
         repo_object = SimpleNamespace(semantic_embedding=None)
 
         embedder.embed_batch([(repo_object, "abcdefgh", "semantic_embedding")])
@@ -255,7 +274,7 @@ class EmbeddingEngineTests(unittest.TestCase):
                 build_embedding_result([1.0, 0.0], [0.0, 1.0]),
             ]
         )
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
         first = SimpleNamespace(semantic_embedding=None)
         second = SimpleNamespace(semantic_embedding=None)
 
@@ -285,7 +304,7 @@ class EmbeddingEngineTests(unittest.TestCase):
                 build_embedding_result([0.5, 0.5]),
             ]
         )
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
         repo_object = SimpleNamespace(semantic_embedding=None)
 
         with patch("core.embedder.sleep"), patch(
@@ -307,7 +326,7 @@ class EmbeddingEngineTests(unittest.TestCase):
                 for _ in range(EmbeddingEngine.RATE_LIMIT_MAX_ATTEMPTS)
             ]
         )
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
         repo_object = SimpleNamespace(semantic_embedding=None)
 
         with patch("core.embedder.sleep"), patch(
@@ -329,7 +348,7 @@ class EmbeddingEngineTests(unittest.TestCase):
                 build_embedding_result([1.0, 0.0], [0.0, 1.0]),
             ]
         )
-        embedder = EmbeddingEngine(client=client, token_limit=100, max_input_tokens=100)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET, token_limit=100, max_input_tokens=100)
         stats = embedder._build_repo_work_items(SimpleNamespace(commits={}))[1]
 
         with patch("core.embedder.sleep") as mock_sleep, patch(
@@ -349,7 +368,7 @@ class EmbeddingEngineTests(unittest.TestCase):
             build_embedding_result([1.0, 0.0], [0.0, 1.0]),
             build_embedding_result([0.5, 0.5]),
         ]
-        embedder = EmbeddingEngine(client=client, token_limit=10, max_input_tokens=10)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET, token_limit=10, max_input_tokens=10)
         embedder.token_chars = 1
 
         result = embedder.get_batch_embeddings(["aaaaaa", "bbbb", "cccc"])
@@ -457,7 +476,7 @@ class EmbeddingEngineTests(unittest.TestCase):
     def test_engine_captures_observed_dimension(self) -> None:
         client = Mock()
         client.embed.return_value = build_embedding_result([1.0, 2.0, 3.0])
-        embedder = EmbeddingEngine(client=client)
+        embedder = EmbeddingEngine(client=client, target=DEFAULT_TARGET)
 
         embedder.embed_query("dimension check")
 
@@ -531,6 +550,7 @@ class EmbeddingEngineTests(unittest.TestCase):
         client = TrackingEmbeddingClient()
         embedder = EmbeddingEngine(
             client=client,
+            target=DEFAULT_TARGET,
             token_limit=1,
             max_input_tokens=10,
         )

@@ -171,14 +171,14 @@ export function getReviewChatStorageKey(
 		: null;
 }
 
-export function getReviewChatModelStorageKey(
+export function getReviewChatTargetStorageKey(
 	input: {
 		sessionId?: string | null;
 		runId?: string | null;
 	} = {},
 ) {
 	const chatStorageKey = getReviewChatStorageKey(input);
-	return chatStorageKey ? `${chatStorageKey}:model` : null;
+	return chatStorageKey ? `${chatStorageKey}:target` : null;
 }
 
 export function getAdditionalReviewGuidelinesStorageKey(

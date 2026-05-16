@@ -35,7 +35,7 @@ export function PendingApprovals({
 				<div className="flex items-center gap-2">
 					<ShieldAlert className="size-4 text-warning" />
 					<div className="text-sm font-semibold text-text-primary">
-						Codex is waiting for approval
+						Review runtime is waiting for approval
 					</div>
 				</div>
 				<StatusPill tone="warning">{approvals.length}</StatusPill>

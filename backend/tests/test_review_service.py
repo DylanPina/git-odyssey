@@ -299,7 +299,7 @@ class ReviewGenerationServiceTests(unittest.TestCase):
         compare_service = Mock()
         compare_service.compare.return_value = build_compare_response()
         ai_engine = Mock()
-        ai_engine.generate_text.return_value = json.dumps(
+        ai_engine.generate_structured_text.return_value = json.dumps(
             {
                 "summary": "The diff adds a computed flag path and should be checked for callers that expect a boolean default.",
                 "findings": [
@@ -331,7 +331,7 @@ class ReviewGenerationServiceTests(unittest.TestCase):
         self.assertEqual(report.findings[0].file_path, "src/file_0.py")
         self.assertEqual(report.summary.startswith("The diff adds"), True)
         self.assertIsNotNone(report.generated_at)
-        ai_engine.generate_text.assert_called_once()
+        ai_engine.generate_structured_text.assert_called_once()
 
     def test_generate_marks_partial_when_review_context_is_capped(self) -> None:
         compare_service = Mock()
@@ -339,7 +339,7 @@ class ReviewGenerationServiceTests(unittest.TestCase):
             file_count=MAX_REVIEW_FILES + 1
         )
         ai_engine = Mock()
-        ai_engine.generate_text.return_value = json.dumps(
+        ai_engine.generate_structured_text.return_value = json.dumps(
             {"summary": "Partial review.", "findings": []}
         )
         service = ReviewGenerationService(compare_service=compare_service, ai_engine=ai_engine)
@@ -359,7 +359,7 @@ class ReviewGenerationServiceTests(unittest.TestCase):
         compare_service = Mock()
         compare_service.compare.return_value = build_compare_response()
         ai_engine = Mock()
-        ai_engine.generate_text.return_value = "not json"
+        ai_engine.generate_structured_text.return_value = "not json"
         service = ReviewGenerationService(compare_service=compare_service, ai_engine=ai_engine)
 
         with self.assertRaises(AIRequestError) as context:

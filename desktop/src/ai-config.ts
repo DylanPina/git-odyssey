@@ -3,241 +3,181 @@ import type {
   AIRuntimeConfig,
   CapabilityName,
   CredentialStatus,
-  ProviderProfileConfig,
+  GoogleAITarget,
 } from "./types";
 
-const DEFAULT_OPENAI_PROFILE_ID = "openai-default";
-const DEFAULT_OPENAI_LABEL = "OpenAI";
-const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com";
-const DEFAULT_TEXT_MODEL = "gpt-5.4-mini";
-const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
-
-function buildApiKeySecretRef(profileId: string): string {
-  return `provider:${profileId}:api-key`;
-}
+const GOOGLE_AI_SCHEMA_VERSION = 2;
+const DEFAULT_GOOGLE_LOCATION = "us-central1";
 
 function buildDefaultAiRuntimeConfig(): AIRuntimeConfig {
   return {
-    schema_version: 1,
-    profiles: [
-      {
-        id: DEFAULT_OPENAI_PROFILE_ID,
-        provider_type: "openai",
-        label: DEFAULT_OPENAI_LABEL,
-        base_url: OPENAI_DEFAULT_BASE_URL,
-        auth_mode: "bearer",
-        api_key_secret_ref: buildApiKeySecretRef(DEFAULT_OPENAI_PROFILE_ID),
-        supports_text_generation: true,
-        supports_embeddings: true,
-      },
-    ],
+    schema_version: GOOGLE_AI_SCHEMA_VERSION,
+    google_project_id: process.env.GOOGLE_CLOUD_PROJECT ?? null,
+    google_location: process.env.GOOGLE_CLOUD_LOCATION ?? DEFAULT_GOOGLE_LOCATION,
     capabilities: {
-      text_generation: {
-        provider_profile_id: DEFAULT_OPENAI_PROFILE_ID,
-        model_id: DEFAULT_TEXT_MODEL,
-        temperature: 0.2,
-        reasoning_effort: null,
-      },
-      embeddings: {
-        provider_profile_id: DEFAULT_OPENAI_PROFILE_ID,
-        model_id: DEFAULT_EMBEDDING_MODEL,
-      },
+      text_generation: null,
+      embeddings: null,
+      review: null,
     },
   };
 }
 
-function normalizeProviderProfile(
-  rawProfile: any,
-  fallbackProfile: ProviderProfileConfig
-): ProviderProfileConfig {
-  const profile = rawProfile && typeof rawProfile === "object" ? rawProfile : {};
-  const id = typeof profile.id === "string" && profile.id ? profile.id : fallbackProfile.id;
-  const providerType =
-    typeof profile.provider_type === "string" && profile.provider_type
-      ? profile.provider_type
-      : fallbackProfile.provider_type;
-  const authMode =
-    typeof profile.auth_mode === "string" && profile.auth_mode
-      ? profile.auth_mode
-      : fallbackProfile.auth_mode;
-  const baseUrl =
-    providerType === "openai"
-      ? OPENAI_DEFAULT_BASE_URL
-      : typeof profile.base_url === "string" && profile.base_url
-        ? profile.base_url
-        : fallbackProfile.base_url || "";
+function normalizeCapabilityList(value: unknown): CapabilityName[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value.filter(
+        (item): item is CapabilityName =>
+          item === "text_generation" || item === "embeddings" || item === "review"
+      )
+    )
+  );
+}
+
+function normalizeTarget(rawTarget: unknown): GoogleAITarget | null {
+  const target =
+    rawTarget && typeof rawTarget === "object"
+      ? (rawTarget as Record<string, unknown>)
+      : null;
+  if (!target) {
+    return null;
+  }
+
+  const targetKind = target.target_kind === "vertex_endpoint" ? "vertex_endpoint" : "managed_model";
+  const resourceName =
+    typeof target.resource_name === "string" ? target.resource_name.trim() : "";
+  if (!resourceName) {
+    return null;
+  }
 
   return {
-    id,
-    provider_type: providerType,
-    label:
-      typeof profile.label === "string" && profile.label
-        ? profile.label
-        : fallbackProfile.label,
-    base_url: baseUrl,
-    auth_mode: authMode,
-    api_key_secret_ref:
-      authMode === "none"
-        ? null
-        : typeof profile.api_key_secret_ref === "string" && profile.api_key_secret_ref
-          ? profile.api_key_secret_ref
-          : buildApiKeySecretRef(id),
-    supports_text_generation: profile.supports_text_generation !== false,
-    supports_embeddings: profile.supports_embeddings !== false,
+    target_kind: targetKind,
+    resource_name: resourceName,
+    display_name:
+      typeof target.display_name === "string" && target.display_name.trim()
+        ? target.display_name.trim()
+        : resourceName,
+    publisher:
+      typeof target.publisher === "string" && target.publisher.trim()
+        ? target.publisher.trim()
+        : null,
+    version:
+      typeof target.version === "string" && target.version.trim()
+        ? target.version.trim()
+        : null,
+    location:
+      typeof target.location === "string" && target.location.trim()
+        ? target.location.trim()
+        : null,
+    capabilities: normalizeCapabilityList(target.capabilities),
+    adapter_family:
+      typeof target.adapter_family === "string" && target.adapter_family.trim()
+        ? target.adapter_family.trim()
+        : null,
+    embedding_output_dimension: Number.isFinite(
+      Number(target.embedding_output_dimension)
+    )
+      ? Number(target.embedding_output_dimension)
+      : null,
+    source:
+      typeof target.source === "string" && target.source.trim()
+        ? (target.source as GoogleAITarget["source"])
+        : null,
   };
 }
 
 function normalizeAiRuntimeConfig(rawConfig: any): AIRuntimeConfig {
   const fallback = buildDefaultAiRuntimeConfig();
   const config = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
-  const profiles =
-    Array.isArray(config.profiles) && config.profiles.length > 0
-      ? config.profiles.map((profile: any) =>
-          normalizeProviderProfile(profile, fallback.profiles[0])
-        )
-      : fallback.profiles;
 
-  const textBinding =
-    config.capabilities?.text_generation && typeof config.capabilities.text_generation === "object"
-      ? config.capabilities.text_generation
-      : {};
-  const hasEmbeddingsBinding =
-    config.capabilities &&
-    Object.prototype.hasOwnProperty.call(config.capabilities, "embeddings");
-  const embeddingsBinding = hasEmbeddingsBinding
-    ? config.capabilities.embeddings
-    : fallback.capabilities.embeddings;
+  if (config.schema_version === 1 || Array.isArray(config.profiles)) {
+    return {
+      ...fallback,
+      google_project_id:
+        typeof config.google_project_id === "string" && config.google_project_id.trim()
+          ? config.google_project_id.trim()
+          : fallback.google_project_id,
+      google_location:
+        typeof config.google_location === "string" && config.google_location.trim()
+          ? config.google_location.trim()
+          : fallback.google_location,
+    };
+  }
 
   return {
-    schema_version: Number(config.schema_version) || fallback.schema_version,
-    profiles,
+    schema_version: GOOGLE_AI_SCHEMA_VERSION,
+    google_project_id:
+      typeof config.google_project_id === "string" && config.google_project_id.trim()
+        ? config.google_project_id.trim()
+        : fallback.google_project_id,
+    google_location:
+      typeof config.google_location === "string" && config.google_location.trim()
+        ? config.google_location.trim()
+        : fallback.google_location,
     capabilities: {
-      text_generation: {
-        provider_profile_id:
-          typeof textBinding.provider_profile_id === "string" &&
-          textBinding.provider_profile_id
-            ? textBinding.provider_profile_id
-            : fallback.capabilities.text_generation?.provider_profile_id ??
-              DEFAULT_OPENAI_PROFILE_ID,
-        model_id:
-          typeof textBinding.model_id === "string" && textBinding.model_id
-            ? textBinding.model_id
-            : fallback.capabilities.text_generation?.model_id ?? DEFAULT_TEXT_MODEL,
-        temperature: Number.isFinite(Number(textBinding.temperature))
-          ? Number(textBinding.temperature)
-          : fallback.capabilities.text_generation?.temperature ?? 0.2,
-        reasoning_effort:
-          typeof textBinding.reasoning_effort === "string" &&
-          textBinding.reasoning_effort
-            ? textBinding.reasoning_effort
-            : null,
-      },
-      embeddings:
-        embeddingsBinding === null
-          ? null
-          : {
-              provider_profile_id:
-                typeof embeddingsBinding?.provider_profile_id === "string" &&
-                embeddingsBinding.provider_profile_id
-                  ? embeddingsBinding.provider_profile_id
-                  : fallback.capabilities.embeddings?.provider_profile_id ??
-                    DEFAULT_OPENAI_PROFILE_ID,
-              model_id:
-                typeof embeddingsBinding?.model_id === "string" &&
-                embeddingsBinding.model_id
-                  ? embeddingsBinding.model_id
-                  : fallback.capabilities.embeddings?.model_id ??
-                    DEFAULT_EMBEDDING_MODEL,
-            },
+      text_generation: normalizeTarget(config.capabilities?.text_generation),
+      embeddings: normalizeTarget(config.capabilities?.embeddings),
+      review: normalizeTarget(config.capabilities?.review),
     },
   };
 }
 
-function getProfileById(
-  aiRuntimeConfig: AIRuntimeConfig | null | undefined,
-  profileId: string | null | undefined
-): ProviderProfileConfig | null {
-  if (!profileId) {
-    return null;
-  }
-
-  const profiles = aiRuntimeConfig?.profiles || [];
-  return profiles.find((profile) => profile.id === profileId) || null;
-}
-
-function collectSecretRefs(aiRuntimeConfig: AIRuntimeConfig | null | undefined): string[] {
-  const refs = new Set<string>();
-  for (const profile of aiRuntimeConfig?.profiles || []) {
-    if (profile.auth_mode !== "none" && profile.api_key_secret_ref) {
-      refs.add(profile.api_key_secret_ref);
-    }
-  }
-  return Array.from(refs);
+function collectSecretRefs(_aiRuntimeConfig: AIRuntimeConfig | null | undefined): string[] {
+  return [];
 }
 
 function summarizeCapability(
   aiRuntimeConfig: AIRuntimeConfig | null | undefined,
-  secretStatus: CredentialStatus | null | undefined,
+  _secretStatus: CredentialStatus | null | undefined,
   capabilityName: CapabilityName
 ): AICapabilityStatus {
-  const binding = aiRuntimeConfig?.capabilities?.[capabilityName] || null;
-  if (!binding) {
+  const target = aiRuntimeConfig?.capabilities?.[capabilityName] || null;
+  if (!target) {
     return {
       configured: false,
       ready: false,
-      providerType: null,
-      modelId: null,
-      baseUrl: null,
-      authMode: null,
-      secretPresent: false,
+      targetKind: null,
+      resourceName: null,
+      displayName: null,
+      publisher: null,
+      version: null,
+      location: aiRuntimeConfig?.google_location ?? DEFAULT_GOOGLE_LOCATION,
+      adapterFamily: null,
+      embeddingOutputDimension: null,
       message:
         capabilityName === "embeddings"
           ? "Semantic search is disabled."
-          : "Text generation is not configured.",
+          : "No Google AI target is configured for this capability.",
     };
   }
 
-  const profile = getProfileById(aiRuntimeConfig, binding.provider_profile_id);
-  if (!profile) {
-    return {
-      configured: true,
-      ready: false,
-      providerType: null,
-      modelId: binding.model_id,
-      baseUrl: null,
-      authMode: null,
-      secretPresent: false,
-      message: `Provider profile '${binding.provider_profile_id}' is missing.`,
-    };
-  }
-
-  const secretPresent =
-    profile.auth_mode === "none"
-      ? true
-      : Boolean(
-          profile.api_key_secret_ref &&
-            secretStatus?.secretRefs?.[profile.api_key_secret_ref]
-        );
-
+  const ready = Boolean(aiRuntimeConfig?.google_project_id && aiRuntimeConfig.google_location);
   return {
     configured: true,
-    ready: secretPresent,
-    providerType: profile.provider_type,
-    modelId: binding.model_id,
-    baseUrl: profile.base_url || OPENAI_DEFAULT_BASE_URL,
-    authMode: profile.auth_mode,
-    secretPresent,
-    message: secretPresent ? undefined : `Provider secret missing for ${profile.label}.`,
+    ready,
+    targetKind: target.target_kind,
+    resourceName: target.resource_name,
+    displayName: target.display_name,
+    publisher: target.publisher ?? null,
+    version: target.version ?? null,
+    location: target.location ?? aiRuntimeConfig?.google_location ?? DEFAULT_GOOGLE_LOCATION,
+    adapterFamily: target.adapter_family ?? null,
+    embeddingOutputDimension: target.embedding_output_dimension ?? null,
+    message: ready
+      ? undefined
+      : "Google Cloud project ID and Google AI location are required.",
   };
 }
 
 export {
-  DEFAULT_OPENAI_PROFILE_ID,
-  OPENAI_DEFAULT_BASE_URL,
-  buildApiKeySecretRef,
+  DEFAULT_GOOGLE_LOCATION,
+  GOOGLE_AI_SCHEMA_VERSION,
   buildDefaultAiRuntimeConfig,
   collectSecretRefs,
-  getProfileById,
   normalizeAiRuntimeConfig,
+  normalizeTarget,
   summarizeCapability,
 };

@@ -1,4 +1,5 @@
 import type { ChatCodeContext, ChatFindingContext } from "./chat";
+import type { GoogleAITarget } from "./desktop";
 import type { FileChange } from "./repo";
 
 export type ReviewTargetMode = "compare" | "commit";
@@ -215,7 +216,7 @@ export interface ReviewChatTranscriptMessage {
 export interface ReviewChatRequest {
 	sessionId: string;
 	runId?: string | null;
-	modelId?: string | null;
+	targetOverride?: GoogleAITarget | null;
 	message: string;
 	codeContexts: ChatCodeContext[];
 	findingContexts: ChatFindingContext[];

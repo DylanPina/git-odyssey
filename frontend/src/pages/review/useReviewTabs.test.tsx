@@ -56,8 +56,8 @@ function buildReviewRun(overrides: Partial<ReviewRun> = {}): ReviewRun {
 	return {
 		id: "run-1",
 		session_id: "session-1",
-		engine: "codex_cli",
-		mode: "native_review",
+		engine: "vertex_review",
+		mode: "non_agentic_review",
 		status: "completed",
 		error_detail: null,
 		review_thread_id: null,

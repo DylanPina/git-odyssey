@@ -9,6 +9,7 @@ from time import perf_counter, sleep
 from typing import TYPE_CHECKING, Any, List
 
 from infrastructure.ai_clients import EmbeddingClient, EmbeddingResult
+from infrastructure.ai_runtime import GoogleAITarget
 from infrastructure.errors import AIRateLimitError, AIRequestError
 from utils.logger import logger
 
@@ -293,20 +294,23 @@ class EmbeddingEngine(BaseEmbeddingEngine):
     def __init__(
         self,
         client: EmbeddingClient,
-        model: str = "text-embedding-3-small",
+        target: GoogleAITarget,
         token_limit: int = 5000,
         max_input_tokens: int = 4500,
-        provider_type: str = "openai",
-        base_url: str = "https://api.openai.com",
         profile_fingerprint: str | None = None,
+        google_project_id: str | None = None,
+        google_location: str | None = None,
     ):
-        super().__init__(model=model, token_limit=token_limit)
+        super().__init__(model=target.resource_name, token_limit=token_limit)
         self.client = client
+        self.target = target
         self.max_input_tokens = max_input_tokens
         self.max_concurrency = self.DEFAULT_MAX_CONCURRENCY
-        self.provider_type = provider_type
-        self.base_url = base_url
+        self.provider_type = target.target_kind
+        self.resource_name = target.resource_name
         self.profile_fingerprint = profile_fingerprint
+        self.google_project_id = google_project_id
+        self.google_location = google_location or target.location
 
     @staticmethod
     def _describe_request_error(exc: AIRequestError) -> str:
@@ -404,7 +408,7 @@ class EmbeddingEngine(BaseEmbeddingEngine):
         stats: EmbeddingExecutionStats | None = None,
     ) -> EmbeddingResult:
         response = self._execute_with_rate_limit_retry(
-            lambda: self.client.embed(model=self.model, inputs=inputs),
+            lambda: self.client.embed(target=self.target, inputs=inputs),
             request_size=len(inputs),
             stats=stats,
         )
@@ -418,7 +422,7 @@ class EmbeddingEngine(BaseEmbeddingEngine):
         stats: EmbeddingExecutionStats | None = None,
     ) -> EmbeddingResult:
         response = self._execute_with_rate_limit_retry(
-            lambda: self.client.embed(model=self.model, inputs=[text]),
+            lambda: self.client.embed(target=self.target, inputs=[text]),
             request_size=1,
             stats=stats,
         )

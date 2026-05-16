@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal
 from pydantic import BaseModel, Field
 
 from data.data_model import Branch, Commit, FileChange
-from infrastructure.ai_runtime import AIRuntimeConfig
+from infrastructure.ai_runtime import AIRuntimeConfig, CapabilityName, GoogleAITarget
 
 
 class RepoResponse(BaseModel):
@@ -63,6 +63,7 @@ class ChatbotRequest(BaseModel):
     query: str = ""
     repo_path: str = ""
     context_shas: List[str] = Field(default_factory=list)
+    target_override: GoogleAITarget | None = None
 
 
 class CitedCommit(BaseModel):
@@ -79,6 +80,66 @@ class ChatbotResponse(BaseModel):
 class AIRuntimeValidationRequest(BaseModel):
     config: AIRuntimeConfig
     secret_values: Dict[str, str] = Field(default_factory=dict)
+
+
+class GoogleModelGardenListRequest(BaseModel):
+    google_project_id: str
+    google_location: str = "us-central1"
+
+
+class GoogleModelGardenEntryResponse(BaseModel):
+    id: str
+    resource_name: str
+    display_name: str
+    publisher: str | None = None
+    version: str | None = None
+    location: str
+    target_kind: str
+    source: str
+    capabilities: List[str] = Field(default_factory=list)
+    adapter_family: str | None = None
+    deployable: bool = False
+    description: str | None = None
+
+
+class GoogleModelGardenListResponse(BaseModel):
+    items: List[GoogleModelGardenEntryResponse] = Field(default_factory=list)
+
+
+class GoogleTargetValidationRequest(BaseModel):
+    config: AIRuntimeConfig
+    capability: CapabilityName
+    target: GoogleAITarget
+
+
+class GoogleTargetValidationResponse(BaseModel):
+    configured: bool = True
+    ready: bool
+    capability: CapabilityName
+    target: GoogleAITarget
+    message: str | None = None
+    embedding_output_dimension: int | None = None
+
+
+class GoogleDeploymentRequest(BaseModel):
+    config: AIRuntimeConfig
+    model_resource_name: str
+    endpoint_resource_name: str
+    deployed_model_display_name: str
+    machine_type: str
+    accelerator_type: str | None = None
+    accelerator_count: int | None = None
+    min_replica_count: int = 1
+    max_replica_count: int = 1
+    accepted_terms: bool = False
+    accepted_billing_notice: bool = False
+
+
+class GoogleDeploymentResponse(BaseModel):
+    operation_name: str | None = None
+    endpoint_resource_name: str
+    request: Dict[str, Any]
+    response: Dict[str, Any] = Field(default_factory=dict)
 
 
 class IngestRequest(BaseModel):
@@ -177,6 +238,7 @@ class GenerateReviewRequest(BaseModel):
     head_ref: str = ""
     commit_sha: str | None = None
     context_lines: int = 10
+    applied_instructions: str | None = None
 
 
 class ReviewFinding(BaseModel):
@@ -230,8 +292,8 @@ class ReviewSessionCreateRequest(BaseModel):
 
 
 class ReviewRunStartRequest(BaseModel):
-    engine: str = "codex_cli"
-    mode: str = "native_review"
+    engine: str = "vertex_review"
+    mode: str = "non_agentic_review"
     custom_instructions: str | None = None
     applied_instructions: str | None = None
 
@@ -318,6 +380,58 @@ class ReviewResultResponse(BaseModel):
     generated_at: datetime
     created_at: datetime
     updated_at: datetime
+
+
+class ReviewChatCodeContext(BaseModel):
+    id: str
+    filePath: str
+    side: Literal["original", "modified"]
+    startLine: int
+    startColumn: int
+    endLine: int
+    endColumn: int
+    selectedText: str
+    language: str | None = None
+    isTruncated: bool | None = None
+
+
+class ReviewChatFindingContext(BaseModel):
+    id: str
+    severity: Literal["high", "medium", "low"]
+    title: str
+    body: str
+    file_path: str
+    new_start: int | None = None
+    old_start: int | None = None
+
+
+class ReviewChatContext(BaseModel):
+    runStatus: str | None = None
+    summary: str | None = None
+    appliedInstructions: str | None = None
+    findings: List[ReviewChatFindingContext] = Field(default_factory=list)
+
+
+class ReviewChatTranscriptMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    codeContexts: List[ReviewChatCodeContext] = Field(default_factory=list)
+    findingContexts: List[ReviewChatFindingContext] = Field(default_factory=list)
+
+
+class ReviewChatRequest(BaseModel):
+    sessionId: str
+    runId: str | None = None
+    target_override: GoogleAITarget | None = None
+    message: str
+    codeContexts: List[ReviewChatCodeContext] = Field(default_factory=list)
+    findingContexts: List[ReviewChatFindingContext] = Field(default_factory=list)
+    messages: List[ReviewChatTranscriptMessage] = Field(default_factory=list)
+    reviewContext: ReviewChatContext | None = None
+
+
+class ReviewChatResponse(BaseModel):
+    response: str
 
 
 class ReviewSeverityCounts(BaseModel):

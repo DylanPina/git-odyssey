@@ -1,12 +1,11 @@
-export type ProviderType = "openai" | "openai_compatible";
-export type AuthMode = "bearer" | "none";
-export type ReasoningEffort =
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh";
-export type CapabilityName = "text_generation" | "embeddings";
+export type TargetKind = "managed_model" | "vertex_endpoint";
+export type CapabilityName = "text_generation" | "embeddings" | "review";
+export type ModelSource =
+  | "managed_api_model"
+  | "deployable_google_model"
+  | "deployable_partner_model"
+  | "vertex_endpoint"
+  | "manual_resource_name";
 export type ReviewApprovalDecision =
   | "accept"
   | "acceptForSession"
@@ -63,7 +62,7 @@ export type ReviewChatTranscriptMessage = {
 export type ReviewChatRequestInput = {
   sessionId: string;
   runId?: string | null;
-  modelId?: string | null;
+  targetOverride?: GoogleAITarget | null;
   message: string;
   codeContexts: ReviewChatCodeContext[];
   findingContexts: ReviewChatFindingContext[];
@@ -142,35 +141,27 @@ export interface DesktopRepoSettingsSaveInput extends DesktopRepoSettings {
   repoPath: string;
 }
 
-export interface ProviderProfileConfig {
-  id: string;
-  provider_type: ProviderType;
-  label: string;
-  base_url: string | null;
-  auth_mode: AuthMode;
-  api_key_secret_ref: string | null;
-  supports_text_generation: boolean;
-  supports_embeddings: boolean;
-}
-
-export interface TextGenerationBinding {
-  provider_profile_id: string;
-  model_id: string;
-  temperature: number;
-  reasoning_effort?: ReasoningEffort | null;
-}
-
-export interface EmbeddingsBinding {
-  provider_profile_id: string;
-  model_id: string;
+export interface GoogleAITarget {
+  target_kind: TargetKind;
+  resource_name: string;
+  display_name: string;
+  publisher?: string | null;
+  version?: string | null;
+  location?: string | null;
+  capabilities: CapabilityName[];
+  adapter_family?: string | null;
+  embedding_output_dimension?: number | null;
+  source?: ModelSource | null;
 }
 
 export interface AIRuntimeConfig {
   schema_version: number;
-  profiles: ProviderProfileConfig[];
+  google_project_id: string | null;
+  google_location: string;
   capabilities: {
-    text_generation: TextGenerationBinding | null;
-    embeddings: EmbeddingsBinding | null;
+    text_generation: GoogleAITarget | null;
+    embeddings: GoogleAITarget | null;
+    review: GoogleAITarget | null;
   };
 }
 
@@ -192,13 +183,24 @@ export interface DesktopAiProfileSaveInput {
 export interface AICapabilityStatus {
   configured: boolean;
   ready: boolean;
-  providerType: ProviderType | null;
-  modelId: string | null;
-  baseUrl: string | null;
-  authMode: AuthMode | null;
-  secretPresent: boolean;
+  targetKind: TargetKind | null;
+  resourceName: string | null;
+  displayName: string | null;
+  publisher: string | null;
+  version: string | null;
+  location: string | null;
+  adapterFamily: string | null;
+  embeddingOutputDimension?: number | null;
   message?: string;
   reindexRequired?: boolean;
+}
+
+export interface GoogleRuntimeStatus {
+  projectId: string | null;
+  location: string | null;
+  adcReady: boolean;
+  adcProjectId?: string | null;
+  message?: string | null;
 }
 
 export interface DesktopSettingsStatus {
@@ -211,8 +213,10 @@ export interface DesktopSettingsStatus {
   savedAiProfiles: DesktopAiSavedProfile[];
   reviewSettings: DesktopReviewSettings;
   ai: {
+    google: GoogleRuntimeStatus;
     textGeneration: AICapabilityStatus;
     embeddings: AICapabilityStatus;
+    review: AICapabilityStatus;
   };
 }
 
@@ -293,34 +297,111 @@ export interface DesktopAiValidationResult {
   text_generation: {
     configured: boolean;
     ready: boolean;
-    provider_type: ProviderType | null;
-    model_id: string | null;
-    base_url: string | null;
-    auth_mode: AuthMode | null;
-    secret_present: boolean;
+    target_kind: TargetKind | null;
+    resource_name: string | null;
+    display_name: string | null;
+    publisher: string | null;
+    version: string | null;
+    location: string | null;
+    adapter_family: string | null;
+    embedding_output_dimension?: number | null;
     message?: string | null;
   };
   embeddings: {
     configured: boolean;
     ready: boolean;
-    provider_type: ProviderType | null;
-    model_id: string | null;
-    base_url: string | null;
-    auth_mode: AuthMode | null;
-    secret_present: boolean;
+    target_kind: TargetKind | null;
+    resource_name: string | null;
+    display_name: string | null;
+    publisher: string | null;
+    version: string | null;
+    location: string | null;
+    adapter_family: string | null;
+    embedding_output_dimension?: number | null;
     message?: string | null;
     reindex_required?: boolean;
   };
+  review: {
+    configured: boolean;
+    ready: boolean;
+    target_kind: TargetKind | null;
+    resource_name: string | null;
+    display_name: string | null;
+    publisher: string | null;
+    version: string | null;
+    location: string | null;
+    adapter_family: string | null;
+    embedding_output_dimension?: number | null;
+    message?: string | null;
+  };
+}
+
+export interface GoogleModelGardenEntry {
+  id: string;
+  resource_name: string;
+  display_name: string;
+  publisher?: string | null;
+  version?: string | null;
+  location: string;
+  target_kind: TargetKind;
+  source: ModelSource;
+  capabilities: CapabilityName[];
+  adapter_family?: string | null;
+  deployable: boolean;
+  description?: string | null;
+}
+
+export interface GoogleModelGardenListResponse {
+  items: GoogleModelGardenEntry[];
+}
+
+export interface GoogleTargetValidationInput {
+  config: AIRuntimeConfig;
+  capability: CapabilityName;
+  target: GoogleAITarget;
+}
+
+export interface GoogleTargetValidationResult {
+  configured: boolean;
+  ready: boolean;
+  capability: CapabilityName;
+  target: GoogleAITarget;
+  message?: string | null;
+  embedding_output_dimension?: number | null;
+}
+
+export interface GoogleDeploymentInput {
+  config: AIRuntimeConfig;
+  model_resource_name: string;
+  endpoint_resource_name: string;
+  deployed_model_display_name: string;
+  machine_type: string;
+  accelerator_type?: string | null;
+  accelerator_count?: number | null;
+  min_replica_count?: number;
+  max_replica_count?: number;
+  accepted_terms: boolean;
+  accepted_billing_notice: boolean;
+}
+
+export interface GoogleDeploymentResult {
+  operation_name?: string | null;
+  endpoint_resource_name: string;
+  request: Record<string, unknown>;
+  response: Record<string, unknown>;
 }
 
 export interface BackendCapabilityPayload {
   configured?: boolean;
   ready?: boolean;
-  provider_type?: ProviderType | null;
-  model_id?: string | null;
-  base_url?: string | null;
-  auth_mode?: AuthMode | null;
-  secret_present?: boolean;
+  target_kind?: TargetKind | null;
+  resource_name?: string | null;
+  display_name?: string | null;
+  publisher?: string | null;
+  version?: string | null;
+  location?: string | null;
+  adapter_family?: string | null;
+  embedding_output_dimension?: number | null;
   message?: string | null;
   reindex_required?: boolean;
 }
@@ -331,8 +412,16 @@ export interface BackendDesktopHealthPayload {
     desktop_user_available?: boolean;
   };
   ai?: {
+    google?: {
+      project_id?: string | null;
+      location?: string | null;
+      adc_ready?: boolean;
+      adc_project_id?: string | null;
+      message?: string | null;
+    };
     text_generation?: BackendCapabilityPayload | null;
     embeddings?: BackendCapabilityPayload | null;
+    review?: BackendCapabilityPayload | null;
   };
   desktop_user?: {
     id: number;

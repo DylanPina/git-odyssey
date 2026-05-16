@@ -1,7 +1,6 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const test = require("node:test");
-const { EventEmitter } = require("node:events");
 const Module = require("node:module");
 
 function withMockedModuleLoads(mocks, fn) {
@@ -25,101 +24,10 @@ async function loadReviewRuntimeHarness(options = {}) {
   const reviewRuntimePath = path.join(__dirname, "..", "src", "review-runtime.ts");
   delete require.cache[require.resolve(reviewRuntimePath)];
 
-  const execFileCalls = [];
-  let threadCounter = 0;
-  let turnCounter = 0;
-  const clientRequests = [];
-  const failuresByModel = new Map(
-    Object.entries(options.failuresByModel ?? {}).map(([modelId, error]) => [
-      modelId,
-      error instanceof Error ? error : new Error(String(error)),
-    ]),
-  );
-
-  class MockCodexAppServerClient extends EventEmitter {
-    constructor() {
-      super();
-    }
-
-    async start() {
-      return undefined;
-    }
-
-    async request(method, params) {
-      clientRequests.push({ method, params });
-
-      if (method === "thread/start") {
-        const failure = failuresByModel.get(params.model ?? "");
-        if (failure) {
-          throw failure;
-        }
-
-        threadCounter += 1;
-        return {
-          thread: {
-            id: `thread-${threadCounter}`,
-          },
-          model: params.model ?? null,
-          modelProvider: params.modelProvider ?? null,
-        };
-      }
-
-      if (method === "turn/start") {
-        turnCounter += 1;
-        const turnId = `turn-${turnCounter}`;
-        const threadId = params.threadId;
-        const prompt = String(params.input?.[0]?.text ?? "");
-        const isBootstrap = prompt.includes("Reply exactly with READY.");
-        const responseText = isBootstrap
-          ? "READY"
-          : `assistant reply for ${prompt.includes("## User Message") ? "chat" : "turn"}`;
-
-        queueMicrotask(() => {
-          this.emit("notification", {
-            method: "item/completed",
-            params: {
-              threadId,
-              turnId,
-              item: {
-                type: "agentMessage",
-                id: `item-${turnId}`,
-                text: responseText,
-              },
-            },
-          });
-          this.emit("notification", {
-            method: "turn/completed",
-            params: {
-              threadId,
-              turn: {
-                id: turnId,
-                status: "completed",
-              },
-            },
-          });
-        });
-
-        return {
-          turn: {
-            id: turnId,
-            status: "running",
-          },
-        };
-      }
-
-      throw new Error(`Unexpected Codex client request: ${method}`);
-    }
-
-    async stop() {
-      return undefined;
-    }
-  }
-
   const childProcessMock = {
     execFile: (file, args, optionsOrCallback, maybeCallback) => {
       const callback =
         typeof optionsOrCallback === "function" ? optionsOrCallback : maybeCallback;
-      execFileCalls.push({ file, args: args ?? [] });
       callback?.(null, "", "");
     },
     spawn: () => {
@@ -137,9 +45,6 @@ async function loadReviewRuntimeHarness(options = {}) {
     {
       "node:child_process": childProcessMock,
       "node:fs": fsMock,
-      "./codex-app-server-client": {
-        CodexAppServerClient: MockCodexAppServerClient,
-      },
     },
     async () => {
       exports = require(reviewRuntimePath);
@@ -149,8 +54,8 @@ async function loadReviewRuntimeHarness(options = {}) {
   const { ReviewRuntimeManager } = exports;
   const backendManager = {
     requests: [],
-    async request(targetPath) {
-      this.requests.push(targetPath);
+    async request(targetPath, requestOptions) {
+      this.requests.push({ targetPath, options: requestOptions });
       if (targetPath === "/api/review/sessions/session-1") {
         return {
           id: "session-1",
@@ -167,6 +72,14 @@ async function loadReviewRuntimeHarness(options = {}) {
           },
         };
       }
+      if (targetPath === "/api/review/chat") {
+        if (options.failReviewChat) {
+          throw new Error(String(options.failReviewChat));
+        }
+        return {
+          response: "Vertex review chat reply",
+        };
+      }
 
       throw new Error(`Unexpected backend request: ${targetPath}`);
     },
@@ -176,15 +89,35 @@ async function loadReviewRuntimeHarness(options = {}) {
       return {
         dataDir: "/tmp/git-odyssey-data",
         aiRuntimeConfig: {
-          schema_version: 1,
-          profiles: [],
+          schema_version: 2,
+          google_project_id: "git-odyssey-test",
+          google_location: "us-central1",
           capabilities: {
             text_generation: {
-              provider_profile_id: "openai-default",
-              model_id: "gpt-5.4-mini",
-              temperature: 0.2,
+              target_kind: "managed_model",
+              resource_name: "publishers/google/models/gemini-2.5-flash",
+              display_name: "Gemini 2.5 Flash",
+              publisher: "google",
+              version: "2.5",
+              location: "us-central1",
+              capabilities: ["text_generation"],
+              adapter_family: "gemini",
+              embedding_output_dimension: null,
+              source: "managed_api_model",
             },
             embeddings: null,
+            review: {
+              target_kind: "managed_model",
+              resource_name: "publishers/google/models/gemini-2.5-pro",
+              display_name: "Gemini 2.5 Pro",
+              publisher: "google",
+              version: "2.5",
+              location: "us-central1",
+              capabilities: ["review"],
+              adapter_family: "gemini",
+              embedding_output_dimension: null,
+              source: "managed_api_model",
+            },
           },
         },
       };
@@ -204,20 +137,34 @@ async function loadReviewRuntimeHarness(options = {}) {
     keychain,
   });
 
+	return {
+		manager,
+		backendManager,
+	};
+}
+
+function buildGoogleTarget() {
   return {
-    manager,
-    backendManager,
-    clientRequests,
-    execFileCalls,
+    target_kind: "managed_model",
+    resource_name: "publishers/google/models/gemini-2.5-pro",
+    display_name: "Gemini 2.5 Pro",
+    publisher: "google",
+    version: "2.5",
+    location: "us-central1",
+    capabilities: ["review"],
+    adapter_family: "gemini",
+    embedding_output_dimension: null,
+    source: "managed_api_model",
   };
 }
 
-test("review chat creates threads with the requested model id", async () => {
+test("review chat forwards target overrides to the backend", async () => {
   const harness = await loadReviewRuntimeHarness();
+  const targetOverride = buildGoogleTarget();
 
   const response = await harness.manager.sendReviewChatMessage({
     sessionId: "session-1",
-    modelId: "gpt-5.4",
+    targetOverride,
     runId: null,
     message: "Explain the diff",
     codeContexts: [],
@@ -226,129 +173,36 @@ test("review chat creates threads with the requested model id", async () => {
     reviewContext: null,
   });
 
-  assert.equal(response.response, "assistant reply for chat");
-  assert.equal(
-    harness.clientRequests.filter((request) => request.method === "thread/start").length,
-    1,
-  );
-  assert.equal(harness.clientRequests[0].params.model, "gpt-5.4");
-});
-
-test("review chat reuses the existing thread when the model id is unchanged", async () => {
-  const harness = await loadReviewRuntimeHarness();
-
-  await harness.manager.sendReviewChatMessage({
-    sessionId: "session-1",
-    modelId: "gpt-5.4-mini",
-    runId: null,
-    message: "First question",
-    codeContexts: [],
-    findingContexts: [],
-    messages: [],
-    reviewContext: null,
-  });
-  await harness.manager.sendReviewChatMessage({
-    sessionId: "session-1",
-    modelId: "gpt-5.4-mini",
-    runId: null,
-    message: "Second question",
-    codeContexts: [],
-    findingContexts: [],
-    messages: [],
-    reviewContext: null,
-  });
-
-  assert.equal(
-    harness.clientRequests.filter((request) => request.method === "thread/start").length,
-    1,
-  );
-  assert.equal(
-    harness.clientRequests.filter((request) => request.method === "turn/start").length,
-    3,
-  );
-});
-
-test("review chat resets and re-primes the thread when the model id changes", async () => {
-  const harness = await loadReviewRuntimeHarness();
-
-  await harness.manager.sendReviewChatMessage({
-    sessionId: "session-1",
-    modelId: "gpt-5.4-mini",
-    runId: null,
-    message: "First question",
-    codeContexts: [],
-    findingContexts: [],
-    messages: [
-      {
-        role: "user",
-        content: "Earlier transcript",
+  assert.equal(response.response, "Vertex review chat reply");
+  assert.deepEqual(harness.backendManager.requests[0], {
+    targetPath: "/api/review/chat",
+    options: {
+      method: "POST",
+      body: {
+        sessionId: "session-1",
+        targetOverride,
+        runId: null,
+        message: "Explain the diff",
+        codeContexts: [],
+        findingContexts: [],
+        messages: [],
+        reviewContext: null,
+        target_override: targetOverride,
       },
-    ],
-    reviewContext: null,
-  });
-  await harness.manager.sendReviewChatMessage({
-    sessionId: "session-1",
-    modelId: "gpt-5.4",
-    runId: null,
-    message: "Switch models",
-    codeContexts: [],
-    findingContexts: [],
-    messages: [
-      {
-        role: "assistant",
-        content: "Persist this context",
-      },
-    ],
-    reviewContext: null,
-  });
-
-  const threadStarts = harness.clientRequests.filter(
-    (request) => request.method === "thread/start",
-  );
-  const turnStarts = harness.clientRequests.filter(
-    (request) => request.method === "turn/start",
-  );
-
-  assert.equal(threadStarts.length, 2);
-  assert.deepEqual(
-    threadStarts.map((request) => request.params.model),
-    ["gpt-5.4-mini", "gpt-5.4"],
-  );
-  assert.equal(turnStarts.length, 4);
-  assert.ok(
-    harness.execFileCalls.some(
-      (call) =>
-        call.file === "git" &&
-        Array.isArray(call.args) &&
-        call.args[0] === "worktree" &&
-        call.args[1] === "remove",
-    ),
-  );
+	    },
+	  });
 });
 
-test("review chat surfaces model-switch reinitialization failures", async () => {
+test("review chat surfaces backend failures", async () => {
   const harness = await loadReviewRuntimeHarness({
-    failuresByModel: {
-      "gpt-5.4": "thread start failed for gpt-5.4",
-    },
-  });
-
-  await harness.manager.sendReviewChatMessage({
-    sessionId: "session-1",
-    modelId: "gpt-5.4-mini",
-    runId: null,
-    message: "Warm the thread",
-    codeContexts: [],
-    findingContexts: [],
-    messages: [],
-    reviewContext: null,
+    failReviewChat: "Vertex chat validation failed",
   });
 
   await assert.rejects(
     () =>
       harness.manager.sendReviewChatMessage({
         sessionId: "session-1",
-        modelId: "gpt-5.4",
+        targetOverride: buildGoogleTarget(),
         runId: null,
         message: "Now fail",
         codeContexts: [],
@@ -356,6 +210,6 @@ test("review chat surfaces model-switch reinitialization failures", async () => 
         messages: [],
         reviewContext: null,
       }),
-    /thread start failed for gpt-5.4/,
+    /Vertex chat validation failed/,
   );
 });

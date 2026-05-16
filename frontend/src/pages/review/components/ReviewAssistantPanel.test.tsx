@@ -15,8 +15,8 @@ function buildRun(overrides: Partial<ReviewRun> = {}): ReviewRun {
 	return {
 		id: "run-1",
 		session_id: "session-1",
-		engine: "codex_cli",
-		mode: "native_review",
+		engine: "vertex_review",
+		mode: "non_agentic_review",
 		status: "completed",
 		created_at: "2026-03-20T10:00:00.000Z",
 		updated_at: "2026-03-20T10:00:00.000Z",
@@ -61,13 +61,11 @@ function ControlledAssistantPanel({
 			onSelectFinding={() => {}}
 			canNavigateToFinding={() => true}
 			reasoningTrace={[]}
-			chatMessages={[]}
-			chatDraft=""
-			draftCodeContexts={[]}
-			selectedModelId="gpt-5.4-mini"
-			onChatDraftChange={() => {}}
-			onSelectedModelIdChange={() => {}}
-			onSendChatMessage={() => {}}
+				chatMessages={[]}
+				chatDraft=""
+				draftCodeContexts={[]}
+				onChatDraftChange={() => {}}
+				onSendChatMessage={() => {}}
 			onChatCodeContextClick={() => {}}
 			onRemoveDraftCodeContext={() => {}}
 			onToggleOpen={() => {}}

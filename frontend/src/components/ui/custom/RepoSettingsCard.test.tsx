@@ -70,6 +70,6 @@ describe("RepoSettingsCard", () => {
       });
     });
 
-    expect(screen.getByText(/repository settings saved/i)).toBeInTheDocument();
+    expect(screen.getByText(/indexing applies on the next refresh or reindex/i)).toBeInTheDocument();
   });
 });

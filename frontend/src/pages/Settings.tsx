@@ -31,10 +31,10 @@ export function Settings() {
               desktopHealth={desktopHealth}
               onCredentialsSaved={checkAuth}
               header={{
-                eyebrow: "Models & Providers",
-                title: "AI runtime and endpoints",
+                eyebrow: "Google AI",
+                title: "Google AI runtime and endpoints",
                 description:
-                  "Set the providers and model IDs GitOdyssey should use, then validate only when you want to test the current draft.",
+                  "Set the Google Cloud project, location, and validated targets GitOdyssey should use.",
               }}
             />
 

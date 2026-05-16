@@ -8,8 +8,22 @@ import type {
 	ChatFindingContext,
 	ChatMessage,
 } from "@/lib/definitions/chat";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 import type { ReviewChatReferenceTarget } from "@/components/ui/custom/MarkdownRenderer";
 import type { ComponentProps } from "react";
+
+const configuredTarget: GoogleAITarget = {
+	target_kind: "managed_model",
+	resource_name: "publishers/google/models/gemini-2.5-pro",
+	display_name: "Gemini 2.5 Pro",
+	publisher: "google",
+	version: "2.5",
+	location: "us-central1",
+	capabilities: ["review"],
+	adapter_family: "gemini",
+	embedding_output_dimension: null,
+	source: "managed_api_model",
+};
 
 function buildCodeContext(
 	overrides: Partial<ChatCodeContext> = {},
@@ -65,9 +79,10 @@ function renderReviewChatPanel(
 			messages={[]}
 			draft=""
 			draftCodeContexts={[]}
-			selectedModelId="gpt-5.4-mini"
+			selectedTarget={configuredTarget}
+			configuredTarget={configuredTarget}
 			onDraftChange={() => {}}
-			onSelectedModelIdChange={() => {}}
+			onSelectedTargetChange={() => {}}
 			onSendMessage={() => {}}
 			{...props}
 		/>,
@@ -334,46 +349,53 @@ describe("ReviewChatPanel", () => {
 		expect(screen.getByText(/src\/not-in-diff\.ts:99/i)).toBeInTheDocument();
 	});
 
-	it("renders a chat-local model selector and lets users choose presets", async () => {
+	it("renders a chat-local target selector and lets users choose the configured target", async () => {
 		const user = userEvent.setup();
-		const onSelectedModelIdChange = vi.fn();
+		const onSelectedTargetChange = vi.fn();
 
 		renderReviewChatPanel({
-			selectedModelId: "gpt-5.4-mini",
-			configuredModelId: "gpt-5.4-mini",
-			onSelectedModelIdChange,
+			selectedTarget: null,
+			configuredTarget,
+			onSelectedTargetChange,
 		});
 
-		await user.click(screen.getByRole("button", { name: /select chat model/i }));
-		await user.click(screen.getByText(/^gpt-5\.4$/i));
+		await user.click(screen.getByRole("button", { name: /select chat target/i }));
+		await user.click(screen.getByRole("button", { name: /Gemini 2\.5 Pro/i }));
 
-		expect(onSelectedModelIdChange).toHaveBeenCalledWith("gpt-5.4");
+		expect(onSelectedTargetChange).toHaveBeenCalledWith(configuredTarget);
 	});
 
-	it("accepts custom model ids from the composer selector", async () => {
+	it("accepts manual Google AI resources from the composer selector", async () => {
 		const user = userEvent.setup();
-		const onSelectedModelIdChange = vi.fn();
+		const onSelectedTargetChange = vi.fn();
+		const endpointResource =
+			"projects/git-odyssey-test/locations/us-central1/endpoints/789";
 
 		renderReviewChatPanel({
-			selectedModelId: "gpt-5.4-mini",
-			onSelectedModelIdChange,
+			selectedTarget: configuredTarget,
+			onSelectedTargetChange,
 		});
 
-		await user.click(screen.getByRole("button", { name: /select chat model/i }));
-		await user.clear(screen.getByLabelText(/custom chat model/i));
-		await user.type(screen.getByLabelText(/custom chat model/i), "local-llm-1");
-		await user.click(screen.getByRole("button", { name: /apply/i }));
+		await user.click(screen.getByRole("button", { name: /select chat target/i }));
+		await user.clear(screen.getByLabelText(/manual google ai resource/i));
+		await user.type(screen.getByLabelText(/manual google ai resource/i), endpointResource);
 
-		expect(onSelectedModelIdChange).toHaveBeenCalledWith("local-llm-1");
+		expect(onSelectedTargetChange).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				target_kind: "vertex_endpoint",
+				resource_name: endpointResource,
+				source: "manual_resource_name",
+			}),
+		);
 	});
 
-	it("disables the model selector when the composer is unavailable", () => {
+	it("disables the target selector when the composer is unavailable", () => {
 		renderReviewChatPanel({
 			isComposerDisabled: true,
 		});
 
 		expect(
-			screen.getByRole("button", { name: /select chat model/i }),
+			screen.getByRole("button", { name: /select chat target/i }),
 		).toBeDisabled();
 		expect(screen.getByRole("button", { name: /send message/i })).toBeDisabled();
 	});

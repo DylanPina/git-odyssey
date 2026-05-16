@@ -5,14 +5,15 @@ from sqlalchemy import text
 
 import infrastructure.db as db
 from infrastructure.ai_runtime import (
-    DEFAULT_EMBEDDING_MODEL,
-    OPENAI_DEFAULT_BASE_URL,
     compute_embedding_fingerprint,
     load_ai_runtime_config,
 )
 from infrastructure.errors import AIConfigurationError
 from infrastructure.settings import Settings
 from utils.logger import logger
+
+LEGACY_OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
+LEGACY_DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
 
 @dataclass(frozen=True)
@@ -75,9 +76,12 @@ def _upsert_legacy_embedding_profile(
     observed_dimension: int,
 ) -> int:
     fingerprint = compute_embedding_fingerprint(
-        provider_type="openai",
-        base_url=OPENAI_DEFAULT_BASE_URL,
-        model_id=model_id,
+        target_kind="managed_model",
+        resource_name=f"legacy-openai:{model_id}",
+        project_id="legacy-openai",
+        location="global",
+        adapter_family="openai_embeddings",
+        observed_dimension=observed_dimension,
         document_schema_version=1,
         ast_schema_version=0,
         ast_enabled_languages=(),
@@ -113,7 +117,7 @@ def _upsert_legacy_embedding_profile(
         ),
         {
             "fingerprint": fingerprint,
-            "base_url": OPENAI_DEFAULT_BASE_URL,
+            "base_url": LEGACY_OPENAI_DEFAULT_BASE_URL,
             "model_id": model_id,
             "observed_dimension": observed_dimension,
             "ast_schema_version": 0,
@@ -125,17 +129,13 @@ def _resolve_legacy_embedding_model(settings: Settings) -> str:
     try:
         config = load_ai_runtime_config(settings)
     except AIConfigurationError:
-        return DEFAULT_EMBEDDING_MODEL
+        return LEGACY_DEFAULT_EMBEDDING_MODEL
 
     binding = config.capabilities.embeddings
     if binding is None:
-        return DEFAULT_EMBEDDING_MODEL
+        return LEGACY_DEFAULT_EMBEDDING_MODEL
 
-    profile = config.get_profile(binding.provider_profile_id)
-    if profile.provider_type != "openai":
-        return DEFAULT_EMBEDDING_MODEL
-
-    return binding.model_id or DEFAULT_EMBEDDING_MODEL
+    return binding.resource_name or LEGACY_DEFAULT_EMBEDDING_MODEL
 
 
 def _backfill_legacy_embeddings(connection, settings: Settings) -> None:
@@ -353,7 +353,7 @@ def _review_sessions_schema_migration(connection, settings: Settings) -> None:
                 id VARCHAR(64) PRIMARY KEY,
                 session_id VARCHAR(64) NOT NULL REFERENCES review_sessions(id) ON DELETE CASCADE,
                 engine VARCHAR(64) NOT NULL,
-                mode VARCHAR(64) NOT NULL DEFAULT 'native_review',
+                mode VARCHAR(64) NOT NULL DEFAULT 'non_agentic_review',
                 status VARCHAR(32) NOT NULL DEFAULT 'pending',
                 error_detail TEXT,
                 review_thread_id VARCHAR(128),
@@ -607,7 +607,7 @@ def _review_sessions_schema_repair_migration(connection, settings: Settings) -> 
         text(
             """
             ALTER TABLE review_runs
-            ADD COLUMN IF NOT EXISTS mode VARCHAR(64) DEFAULT 'native_review'
+            ADD COLUMN IF NOT EXISTS mode VARCHAR(64) DEFAULT 'non_agentic_review'
             """
         )
     )
@@ -687,7 +687,7 @@ def _review_sessions_schema_repair_migration(connection, settings: Settings) -> 
         text(
             """
             UPDATE review_runs
-            SET mode = COALESCE(mode, 'native_review'),
+            SET mode = COALESCE(mode, 'non_agentic_review'),
                 status = COALESCE(status, 'pending'),
                 created_at = COALESCE(created_at, NOW()),
                 updated_at = COALESCE(updated_at, NOW())
@@ -1189,6 +1189,59 @@ def _review_run_instructions_migration(connection, settings: Settings) -> None:
     )
 
 
+def _google_vertex_embedding_profile_migration(connection, settings: Settings) -> None:
+    connection.execute(
+        text(
+            """
+            ALTER TABLE embedding_profiles
+            ADD COLUMN IF NOT EXISTS target_kind VARCHAR(64)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE embedding_profiles
+            ADD COLUMN IF NOT EXISTS resource_name TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE embedding_profiles
+            ADD COLUMN IF NOT EXISTS google_project_id TEXT
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE embedding_profiles
+            ADD COLUMN IF NOT EXISTS google_location VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            ALTER TABLE embedding_profiles
+            ADD COLUMN IF NOT EXISTS adapter_family VARCHAR(128)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE embedding_profiles
+            SET target_kind = COALESCE(target_kind, provider_type),
+                resource_name = COALESCE(resource_name, model_id),
+                google_location = COALESCE(google_location, 'global')
+            """
+        )
+    )
+
+
 MIGRATIONS = [
     Migration(
         version="20260321_ai_runtime_embeddings",
@@ -1225,6 +1278,10 @@ MIGRATIONS = [
     Migration(
         version="20260409_review_run_instructions",
         run=_review_run_instructions_migration,
+    ),
+    Migration(
+        version="20260516_google_vertex_embedding_profiles",
+        run=_google_vertex_embedding_profile_migration,
     ),
 ]
 

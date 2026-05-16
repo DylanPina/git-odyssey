@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import { getDesktopSettingsStatus } from "@/api/api";
 import { CommitListView } from "@/components/ui/custom/CommitListView";
 import CommitNode from "@/components/ui/custom/CommitNode";
 import { GraphView } from "@/components/ui/custom/GraphView";
@@ -21,6 +22,7 @@ import {
 	readRepoPathFromSearchParams,
 } from "@/lib/repoPaths";
 import { useDesktopTitleBarChrome } from "@/lib/desktop-titlebar-actions";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 
 const nodeTypes = {
 	commit: CommitNode,
@@ -67,6 +69,8 @@ function RepoWorkspace() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const [viewMode, setViewMode] = useState<RepoViewMode>(() => loadRepoViewMode());
+	const [configuredChatTarget, setConfiguredChatTarget] =
+		useState<GoogleAITarget | null>(null);
 	const previousViewModeRef = useRef<RepoViewMode | null>(null);
 	const shouldZoomFirstNodeOnGraphInitRef = useRef(false);
 	const { isMobile, setOpen, setOpenMobile, toggleSidebar } = useSidebar();
@@ -122,10 +126,50 @@ function RepoWorkspace() {
 		reactFlowInstanceRef,
 	} = useCommitGraph({ repoPath, commits, branches });
 
-	const { chatMessages, isChatLoading, chatError, sendMessage } = useChat({
+	const {
+		chatMessages,
+		isChatLoading,
+		chatError,
+		selectedTarget,
+		setSelectedTarget,
+		sendMessage,
+	} = useChat({
 		repoPath,
 		filteredCommits,
+		initialTarget: configuredChatTarget,
 	});
+
+	useEffect(() => {
+		let cancelled = false;
+
+		const loadConfiguredChatModel = async () => {
+			if (!repoPath) {
+				setConfiguredChatTarget(null);
+				return;
+			}
+
+			try {
+				const settingsStatus = await getDesktopSettingsStatus();
+				if (cancelled) {
+					return;
+				}
+
+				setConfiguredChatTarget(
+					settingsStatus.aiRuntimeConfig.capabilities.text_generation,
+				);
+			} catch {
+				if (!cancelled) {
+					setConfiguredChatTarget(null);
+				}
+			}
+		};
+
+		void loadConfiguredChatModel();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [repoPath]);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -285,6 +329,9 @@ function RepoWorkspace() {
 				isChatLoading={isChatLoading}
 				chatError={chatError}
 				onSendChatMessage={sendMessage}
+				selectedChatTarget={selectedTarget}
+				configuredChatTarget={configuredChatTarget}
+				onSelectedChatTargetChange={setSelectedTarget}
 			/>
 
 			<SidebarInset className="overflow-hidden bg-transparent">

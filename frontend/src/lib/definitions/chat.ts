@@ -51,4 +51,9 @@ export type ChatProps = {
 	messages?: ChatMessage[];
 	isLoading?: boolean;
 	error?: string | null;
+	selectedTarget?: import("./desktop").GoogleAITarget | null;
+	configuredTarget?: import("./desktop").GoogleAITarget | null;
+	onSelectedTargetChange?: (
+		value: import("./desktop").GoogleAITarget | null,
+	) => void;
 };

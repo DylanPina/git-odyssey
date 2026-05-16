@@ -8,7 +8,7 @@ GitOdyssey is a code intelligence platform for Git repositories. It combines sem
 - Code review with structured findings, severity levels, and file or line anchors
 - Security-focused review workflows via custom instructions for auth, validation, secrets handling, and risky behavior changes
 - Local-first architecture with Electron, FastAPI, PostgreSQL + pgvector, and macOS Keychain-backed secret storage
-- Provider flexibility with OpenAI and OpenAI-compatible text and embeddings endpoints
+- Google AI setup through Google Cloud ADC, Model Garden target discovery, and Vertex AI-compatible endpoints
 
 ## Multi-Agent Review Architecture
 
@@ -38,6 +38,7 @@ This architecture supports broad PR reviews, targeted security reviews, regressi
 - Node.js 20+
 - Docker Desktop
 - `uv`
+- Google Cloud CLI (`gcloud`) for Application Default Credentials
 
 ### 1. Install JavaScript dependencies
 
@@ -85,14 +86,21 @@ npm run desktop:dev
 
 ## AI Configuration
 
-On first launch, GitOdyssey prompts for:
+GitOdyssey uses Google Cloud Application Default Credentials (ADC) for local Google AI calls. Before configuring models in the app, sign in with ADC:
 
-- a text-generation provider and model
-- an embeddings provider and model, or an explicit text-only mode
+```bash
+gcloud auth application-default login
+```
 
-Provider secrets are stored in the macOS Keychain. The Electron shell passes the structured AI runtime configuration and resolved secrets to the local FastAPI sidecar at runtime.
+In the app settings, enter:
 
-GitOdyssey expects an OpenAI-style `/v1/responses` endpoint for chat, summaries, and review generation, plus `/v1/embeddings` for semantic AI search when embeddings are enabled.
+- Google Cloud project ID
+- Region, for example `us-central1`
+- Model Garden or endpoint targets for chat and summaries, semantic search, and code review
+
+Use **Browse Targets** to load available Google AI targets for the configured project and region. Select one target for each workflow, validate the selected targets, then save.
+
+GitOdyssey does not store Google provider secrets. The Electron shell passes the structured AI runtime configuration to the local FastAPI sidecar, and the sidecar uses your local ADC identity when calling Google Cloud.
 
 ## Optional Backend Overrides
 
@@ -107,8 +115,7 @@ The desktop-oriented example supports:
 ```env
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/gitodyssey
 DATABASE_SSLMODE=disable
-AI_RUNTIME_CONFIG_JSON={"schema_version":1,"profiles":[{"id":"openai-default","provider_type":"openai","label":"OpenAI","base_url":"https://api.openai.com","auth_mode":"bearer","api_key_secret_ref":"provider:openai-default:api-key","supports_text_generation":true,"supports_embeddings":true}],"capabilities":{"text_generation":{"provider_profile_id":"openai-default","model_id":"gpt-5.4-mini","temperature":0.2},"embeddings":{"provider_profile_id":"openai-default","model_id":"text-embedding-3-small"}}}
-AI_SECRET_VALUES_JSON={"provider:openai-default:api-key":"your-openai-api-key"}
+AI_RUNTIME_CONFIG_JSON={"schema_version":2,"google_project_id":"your-google-cloud-project","google_location":"us-central1","capabilities":{"text_generation":null,"embeddings":null,"review":null}}
 ```
 
 ## Useful Commands

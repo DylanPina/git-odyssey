@@ -321,16 +321,36 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("git-odyssey:settings:validate-ai-config", async (_event, input) => {
-    const savedSecrets = await requireKeychain().getSecrets(input.config);
     return requireBackendManager().request("/api/desktop/validate-ai-config", {
       method: "POST",
       body: {
         config: input.config,
-        secret_values: {
-          ...savedSecrets,
-          ...input.secretValues,
-        },
+        secret_values: {},
       },
+    });
+  });
+
+  ipcMain.handle("git-odyssey:settings:list-google-model-garden", async (_event, input) => {
+    const params = new URLSearchParams({
+      google_project_id: String(input.googleProjectId || ""),
+      google_location: String(input.googleLocation || "us-central1"),
+    });
+    return requireBackendManager().request(
+      `/api/desktop/google/model-garden?${params.toString()}`
+    );
+  });
+
+  ipcMain.handle("git-odyssey:settings:validate-google-target", async (_event, input) => {
+    return requireBackendManager().request("/api/desktop/google/validate-target", {
+      method: "POST",
+      body: input,
+    });
+  });
+
+  ipcMain.handle("git-odyssey:settings:deploy-google-model", async (_event, input) => {
+    return requireBackendManager().request("/api/desktop/google/deploy", {
+      method: "POST",
+      body: input,
     });
   });
 
@@ -485,6 +505,7 @@ function registerIpcHandlers(): void {
         query: input.query,
         repo_path: input.repoPath,
         context_shas: input.contextShas,
+        target_override: input.targetOverride ?? null,
       },
     });
   });

@@ -16,16 +16,15 @@ from data.data_model import User
 from data.schema import SQLUser
 from infrastructure.ai_clients import (
     EmbeddingClient,
-    HTTPProviderRegistry,
-    ProviderRegistry,
-    ResponsesTextClient,
+    GoogleAIRegistry,
+    GoogleVertexRegistry,
+    TextGenerationClient,
 )
 from infrastructure.ai_runtime import (
     AIRuntimeConfig,
     AST_ENABLED_LANGUAGES,
     AST_SCHEMA_VERSION,
     DOCUMENT_SCHEMA_VERSION,
-    OPENAI_DEFAULT_BASE_URL,
     compute_embedding_fingerprint,
     load_ai_runtime_config,
     load_ai_secret_values,
@@ -115,83 +114,108 @@ def get_ai_secret_values() -> dict[str, str]:
 
 
 @lru_cache(maxsize=1)
-def get_provider_registry() -> ProviderRegistry:
-    return HTTPProviderRegistry(
+def get_provider_registry() -> GoogleAIRegistry:
+    config = get_ai_runtime_config()
+    if not config.google_project_id:
+        raise MissingConfigurationError(
+            "Google Cloud project ID is missing. Complete Google AI setup before using this capability."
+        )
+    return GoogleVertexRegistry(
         config=get_ai_runtime_config(),
-        secret_values=get_ai_secret_values(),
     )
 
 
-def _require_profile_secret(profile) -> None:
-    if profile.auth_mode == "none":
-        return
-
-    secret_value = get_ai_secret_values().get(profile.api_key_secret_ref or "")
-    if secret_value:
-        return
-
+def _require_target(capability_name: str):
+    config = get_ai_runtime_config()
+    target = getattr(config.capabilities, capability_name)
+    if target is not None:
+        if config.google_project_id:
+            return target
+        raise MissingConfigurationError(
+            "Google Cloud project ID is missing. Complete Google AI setup before using this capability."
+        )
     raise MissingConfigurationError(
-        f"Provider profile '{profile.label}' is missing its API key. Save the provider secret in desktop settings before using this capability."
+        f"No validated Google AI target is configured for {capability_name}."
     )
+
+
+def _require_embedding_dimension(target) -> int | None:
+    if target.embedding_output_dimension:
+        return target.embedding_output_dimension
+    return None
+
+
+def _embedding_fingerprint_for_target(target) -> str:
+    config = get_ai_runtime_config()
+    observed_dimension = _require_embedding_dimension(target)
+    return compute_embedding_fingerprint(
+        target_kind=target.target_kind,
+        resource_name=target.resource_name,
+        project_id=config.google_project_id or "",
+        location=target.location or config.google_location,
+        adapter_family=target.adapter_family,
+        observed_dimension=observed_dimension,
+        document_schema_version=DOCUMENT_SCHEMA_VERSION,
+        ast_schema_version=AST_SCHEMA_VERSION,
+        ast_enabled_languages=AST_ENABLED_LANGUAGES,
+    )
+
+
+def _noop_secret_check() -> None:
+    if get_ai_secret_values() is not None:
+        return
 
 
 @lru_cache(maxsize=1)
-def get_text_client() -> ResponsesTextClient:
-    config = get_ai_runtime_config()
-    binding = config.capabilities.text_generation
-    profile = config.get_profile(binding.provider_profile_id)
-    _require_profile_secret(profile)
-    return get_provider_registry().get_text_client(profile.id)
+def get_text_client() -> TextGenerationClient:
+    _require_target("text_generation")
+    return get_provider_registry().get_text_client()
 
 
 @lru_cache(maxsize=1)
 def get_embedding_client() -> EmbeddingClient | None:
-    config = get_ai_runtime_config()
-    binding = config.capabilities.embeddings
-    if binding is None:
+    if get_ai_runtime_config().capabilities.embeddings is None:
         return None
-
-    profile = config.get_profile(binding.provider_profile_id)
-    _require_profile_secret(profile)
-    return get_provider_registry().get_embedding_client(profile.id)
+    _require_target("embeddings")
+    return get_provider_registry().get_embedding_client()
 
 
 @lru_cache(maxsize=1)
 def get_ai_engine() -> AIEngine:
-    binding = get_ai_runtime_config().capabilities.text_generation
+    target = _require_target("text_generation")
     return AIEngine(
         client=get_text_client(),
-        model=binding.model_id,
-        temperature=binding.temperature,
-        reasoning_effort=binding.reasoning_effort,
+        target=target,
+        temperature=0.2,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_review_ai_engine() -> AIEngine:
+    target = _require_target("review")
+    return AIEngine(
+        client=get_provider_registry().get_text_client(),
+        target=target,
+        temperature=0.0,
     )
 
 
 @lru_cache(maxsize=1)
 def get_embedding_engine() -> EmbeddingEngine | None:
     config = get_ai_runtime_config()
-    binding = config.capabilities.embeddings
-    if binding is None:
+    target = config.capabilities.embeddings
+    if target is None:
         return None
-
-    profile = config.get_profile(binding.provider_profile_id)
     client = get_embedding_client()
     if client is None:
         return None
 
     return EmbeddingEngine(
         client=client,
-        model=binding.model_id,
-        provider_type=profile.provider_type,
-        base_url=profile.base_url or OPENAI_DEFAULT_BASE_URL,
-        profile_fingerprint=compute_embedding_fingerprint(
-            provider_type=profile.provider_type,
-            base_url=profile.base_url or OPENAI_DEFAULT_BASE_URL,
-            model_id=binding.model_id,
-            document_schema_version=DOCUMENT_SCHEMA_VERSION,
-            ast_schema_version=AST_SCHEMA_VERSION,
-            ast_enabled_languages=AST_ENABLED_LANGUAGES,
-        ),
+        target=target,
+        profile_fingerprint=_embedding_fingerprint_for_target(target),
+        google_project_id=config.google_project_id,
+        google_location=target.location or config.google_location,
     )
 
 
@@ -252,7 +276,7 @@ def get_review_compare_service() -> ReviewCompareService:
 
 def get_review_generation_service(
     compare_service: ReviewCompareService = Depends(get_review_compare_service),
-    ai_engine: AIEngine = Depends(get_ai_engine),
+    ai_engine: AIEngine = Depends(get_review_ai_engine),
 ) -> ReviewGenerationService:
     return ReviewGenerationService(compare_service=compare_service, ai_engine=ai_engine)
 

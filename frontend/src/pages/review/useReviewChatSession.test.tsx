@@ -3,17 +3,40 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { sendReviewChatMessage } from "@/api/api";
 import type { ChatMessage } from "@/lib/definitions/chat";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 import type { ReviewResult, ReviewRun } from "@/lib/definitions/review";
-import { REVIEW_CHAT_DEFAULT_MODEL_ID } from "@/pages/review/review-constants";
+import { getReviewChatStorageKey, getReviewChatTargetStorageKey } from "@/pages/review/review-storage";
 import { useReviewChatSession } from "@/pages/review/useReviewChatSession";
-import {
-	getReviewChatModelStorageKey,
-	getReviewChatStorageKey,
-} from "@/pages/review/review-storage";
 
 vi.mock("@/api/api", () => ({
 	sendReviewChatMessage: vi.fn(),
 }));
+
+const configuredTarget: GoogleAITarget = {
+	target_kind: "managed_model",
+	resource_name: "publishers/google/models/gemini-2.5-flash",
+	display_name: "Gemini 2.5 Flash",
+	publisher: "google",
+	version: "2.5",
+	location: "us-central1",
+	capabilities: ["text_generation", "review"],
+	adapter_family: "gemini",
+	embedding_output_dimension: null,
+	source: "managed_api_model",
+};
+
+const endpointTarget: GoogleAITarget = {
+	target_kind: "vertex_endpoint",
+	resource_name: "projects/git-odyssey-test/locations/us-central1/endpoints/123",
+	display_name: "Review endpoint",
+	publisher: "google",
+	version: null,
+	location: "us-central1",
+	capabilities: ["review"],
+	adapter_family: "vertex_predict_text",
+	embedding_output_dimension: null,
+	source: "vertex_endpoint",
+};
 
 function clearTestStorage() {
 	if (typeof window.localStorage?.clear === "function") {
@@ -46,9 +69,10 @@ function buildReviewRun(overrides: Partial<ReviewRun> = {}): ReviewRun {
 	return {
 		id: "run-1",
 		session_id: "session-1",
-		engine: "codex_cli",
-		mode: "native_review",
+		engine: "vertex_review",
+		mode: "non_agentic_review",
 		status: "completed",
+		applied_instructions: null,
 		created_at: "2026-03-29T10:00:00.000Z",
 		updated_at: "2026-03-29T10:00:00.000Z",
 		events: [],
@@ -81,8 +105,6 @@ function buildReviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult 
 }
 
 describe("useReviewChatSession", () => {
-	const initialModelId = "gpt-5.4";
-
 	beforeEach(() => {
 		clearTestStorage();
 		vi.mocked(sendReviewChatMessage).mockReset();
@@ -92,13 +114,13 @@ describe("useReviewChatSession", () => {
 		clearTestStorage();
 	});
 
-	it("loads separate conversations for session scope and history run scope", async () => {
+	it("loads separate conversations and target overrides for session and history scopes", async () => {
 		const sessionKey = getReviewChatStorageKey({ sessionId: "session-1" });
 		const historyKey = getReviewChatStorageKey({ runId: "run-history" });
-		const sessionModelKey = getReviewChatModelStorageKey({
+		const sessionTargetKey = getReviewChatTargetStorageKey({
 			sessionId: "session-1",
 		});
-		const historyModelKey = getReviewChatModelStorageKey({ runId: "run-history" });
+		const historyTargetKey = getReviewChatTargetStorageKey({ runId: "run-history" });
 
 		localStorage.setItem(
 			sessionKey!,
@@ -106,10 +128,12 @@ describe("useReviewChatSession", () => {
 		);
 		localStorage.setItem(
 			historyKey!,
-			JSON.stringify([buildStoredMessage({ id: "message-2", content: "history chat" })]),
+			JSON.stringify([
+				buildStoredMessage({ id: "message-2", content: "history chat" }),
+			]),
 		);
-		localStorage.setItem(sessionModelKey!, "gpt-5.4-mini");
-		localStorage.setItem(historyModelKey!, "gpt-5.3-codex");
+		localStorage.setItem(sessionTargetKey!, JSON.stringify(endpointTarget));
+		localStorage.setItem(historyTargetKey!, JSON.stringify(configuredTarget));
 
 		const { result, rerender } = renderHook(
 			(props: {
@@ -121,7 +145,7 @@ describe("useReviewChatSession", () => {
 					activeRun: props.activeRun,
 					reviewResult: null,
 					isViewingHistory: props.isViewingHistory,
-					initialModelId,
+					initialTarget: configuredTarget,
 				}),
 			{
 				initialProps: {
@@ -134,7 +158,7 @@ describe("useReviewChatSession", () => {
 		await waitFor(() => {
 			expect(result.current.chatMessages[0]?.content).toBe("session chat");
 		});
-		expect(result.current.selectedModelId).toBe("gpt-5.4-mini");
+		expect(result.current.selectedTarget).toEqual(endpointTarget);
 
 		rerender({
 			activeRun: buildReviewRun({ id: "run-history", session_id: "session-1" }),
@@ -144,10 +168,10 @@ describe("useReviewChatSession", () => {
 		await waitFor(() => {
 			expect(result.current.chatMessages[0]?.content).toBe("history chat");
 		});
-		expect(result.current.selectedModelId).toBe("gpt-5.3-codex");
+		expect(result.current.selectedTarget).toEqual(configuredTarget);
 	});
 
-	it("defaults to the configured model and persists per-scope overrides", async () => {
+	it("defaults to the configured target and persists per-scope target overrides", async () => {
 		const { result, rerender } = renderHook(
 			(props: {
 				activeRun: ReviewRun | null;
@@ -158,7 +182,7 @@ describe("useReviewChatSession", () => {
 					activeRun: props.activeRun,
 					reviewResult: null,
 					isViewingHistory: props.isViewingHistory,
-					initialModelId,
+					initialTarget: configuredTarget,
 				}),
 			{
 				initialProps: {
@@ -168,18 +192,20 @@ describe("useReviewChatSession", () => {
 			},
 		);
 
-		expect(result.current.selectedModelId).toBe(initialModelId);
+		expect(result.current.selectedTarget).toEqual(configuredTarget);
 
 		act(() => {
-			result.current.setSelectedModelId("gpt-5.4-mini");
+			result.current.setSelectedTarget(endpointTarget);
 		});
 
 		await waitFor(() => {
 			expect(
-				localStorage.getItem(
-					getReviewChatModelStorageKey({ sessionId: "session-1" })!,
+				JSON.parse(
+					localStorage.getItem(
+						getReviewChatTargetStorageKey({ sessionId: "session-1" })!,
+					) ?? "null",
 				),
-			).toBe("gpt-5.4-mini");
+			).toEqual(endpointTarget);
 		});
 
 		rerender({
@@ -188,19 +214,21 @@ describe("useReviewChatSession", () => {
 		});
 
 		await waitFor(() => {
-			expect(result.current.selectedModelId).toBe(initialModelId);
+			expect(result.current.selectedTarget).toEqual(configuredTarget);
 		});
 
 		act(() => {
-			result.current.setSelectedModelId("gpt-5.3-codex");
+			result.current.setSelectedTarget(endpointTarget);
 		});
 
 		await waitFor(() => {
 			expect(
-				localStorage.getItem(
-					getReviewChatModelStorageKey({ runId: "run-history" })!,
+				JSON.parse(
+					localStorage.getItem(
+						getReviewChatTargetStorageKey({ runId: "run-history" })!,
+					) ?? "null",
 				),
-			).toBe("gpt-5.3-codex");
+			).toEqual(endpointTarget);
 		});
 
 		rerender({
@@ -209,25 +237,25 @@ describe("useReviewChatSession", () => {
 		});
 
 		await waitFor(() => {
-			expect(result.current.selectedModelId).toBe("gpt-5.4-mini");
+			expect(result.current.selectedTarget).toEqual(endpointTarget);
 		});
 
 		act(() => {
-			result.current.setSelectedModelId(initialModelId);
+			result.current.setSelectedTarget(configuredTarget);
 		});
 
 		await waitFor(() => {
 			expect(
 				localStorage.getItem(
-					getReviewChatModelStorageKey({ sessionId: "session-1" })!,
+					getReviewChatTargetStorageKey({ sessionId: "session-1" })!,
 				),
 			).toBeNull();
 		});
 	});
 
-	it("sends structured Codex review chat payloads with findings context", async () => {
+	it("sends structured Google AI review chat payloads with target and findings context", async () => {
 		vi.mocked(sendReviewChatMessage).mockResolvedValue({
-			response: "Codex says the panel should stay open for chat-only sessions.",
+			response: "The panel should stay open for chat-only sessions.",
 		});
 
 		const storageKey = getReviewChatStorageKey({ sessionId: "session-1" });
@@ -243,7 +271,9 @@ describe("useReviewChatSession", () => {
 			]),
 		);
 
-		const activeRun = buildReviewRun();
+		const activeRun = buildReviewRun({
+			applied_instructions: "Prefer actionable findings.",
+		});
 		const reviewResult = buildReviewResult();
 		const { result } = renderHook(() =>
 			useReviewChatSession({
@@ -251,7 +281,7 @@ describe("useReviewChatSession", () => {
 				activeRun,
 				reviewResult,
 				isViewingHistory: false,
-				initialModelId,
+				initialTarget: configuredTarget,
 			}),
 		);
 
@@ -270,18 +300,8 @@ describe("useReviewChatSession", () => {
 				selectedText: "const panel = createAssistantPanel();",
 				language: "typescript",
 			});
-		});
-
-		expect(result.current.draftCodeContexts).toHaveLength(1);
-
-		act(() => {
 			result.current.injectFinding(reviewResult.findings[0]);
 			result.current.injectFinding(reviewResult.findings[0]);
-		});
-
-		expect(result.current.draftFindingContexts).toHaveLength(1);
-
-		act(() => {
 			result.current.setDraft("What is the main regression risk here?");
 		});
 
@@ -293,7 +313,7 @@ describe("useReviewChatSession", () => {
 		expect(vi.mocked(sendReviewChatMessage).mock.calls[0][0]).toEqual({
 			sessionId: "session-1",
 			runId: null,
-			modelId: initialModelId,
+			targetOverride: configuredTarget,
 			message: "What is the main regression risk here?",
 			codeContexts: [
 				expect.objectContaining({
@@ -322,7 +342,7 @@ describe("useReviewChatSession", () => {
 			reviewContext: {
 				runStatus: "completed",
 				summary: "The review found one risky state transition.",
-				appliedInstructions: null,
+				appliedInstructions: "Prefer actionable findings.",
 				findings: reviewResult.findings,
 			},
 		});
@@ -331,13 +351,13 @@ describe("useReviewChatSession", () => {
 			expect.objectContaining(reviewResult.findings[0]),
 		]);
 		expect(result.current.chatMessages.at(-1)?.content).toContain(
-			"Codex says",
+			"panel should stay open",
 		);
 	});
 
 	it("uses the selected historical run id and findings for history-scoped chat", async () => {
 		vi.mocked(sendReviewChatMessage).mockResolvedValue({
-			response: "Codex is answering from the historical review.",
+			response: "Answering from the historical review.",
 		});
 
 		const historyRun = buildReviewRun({
@@ -366,7 +386,7 @@ describe("useReviewChatSession", () => {
 				activeRun: historyRun,
 				reviewResult: historyResult,
 				isViewingHistory: true,
-				initialModelId,
+				initialTarget: configuredTarget,
 			}),
 		);
 
@@ -382,7 +402,7 @@ describe("useReviewChatSession", () => {
 		expect(vi.mocked(sendReviewChatMessage).mock.calls[0][0]).toEqual({
 			sessionId: "session-1",
 			runId: "run-history",
-			modelId: initialModelId,
+			targetOverride: configuredTarget,
 			message: "Explain the historical finding.",
 			codeContexts: [],
 			findingContexts: [expect.objectContaining(historyResult.findings[0])],
@@ -398,7 +418,7 @@ describe("useReviewChatSession", () => {
 
 	it("sends finding-only drafts without requiring freeform text", async () => {
 		vi.mocked(sendReviewChatMessage).mockResolvedValue({
-			response: "Codex is answering about the attached finding.",
+			response: "Answering about the attached finding.",
 		});
 
 		const reviewResult = buildReviewResult();
@@ -407,7 +427,7 @@ describe("useReviewChatSession", () => {
 				sessionId: "session-1",
 				activeRun: buildReviewRun(),
 				reviewResult,
-				initialModelId,
+				initialTarget: configuredTarget,
 			}),
 		);
 
@@ -422,7 +442,7 @@ describe("useReviewChatSession", () => {
 		expect(vi.mocked(sendReviewChatMessage).mock.calls[0][0]).toEqual({
 			sessionId: "session-1",
 			runId: null,
-			modelId: initialModelId,
+			targetOverride: configuredTarget,
 			message: "",
 			codeContexts: [],
 			findingContexts: [expect.objectContaining(reviewResult.findings[0])],
@@ -434,15 +454,5 @@ describe("useReviewChatSession", () => {
 				findings: reviewResult.findings,
 			},
 		});
-	});
-
-	it("falls back to the default chat model when no configured model is provided", () => {
-		const { result } = renderHook(() =>
-			useReviewChatSession({
-				sessionId: "session-1",
-			}),
-		);
-
-		expect(result.current.selectedModelId).toBe(REVIEW_CHAT_DEFAULT_MODEL_ID);
 	});
 });

@@ -23,6 +23,7 @@ import RepoSearch from "@/components/ui/custom/Search";
 import SearchResults from "@/components/ui/custom/SearchResults";
 import type { FilterSearchResult } from "@/lib/definitions/api";
 import type { ChatMessage } from "@/lib/definitions/chat";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 import type { Commit } from "@/lib/definitions/repo";
 import { useSidebarTab, type SidebarTab } from "@/hooks/useSidebarTab";
 import { buildSettingsRoute } from "@/lib/repoPaths";
@@ -62,6 +63,9 @@ interface RepoSidebarProps {
   isChatLoading?: boolean;
   chatError?: string | null;
   onSendChatMessage?: (message: string) => void;
+  selectedChatTarget?: GoogleAITarget | null;
+  configuredChatTarget?: GoogleAITarget | null;
+  onSelectedChatTargetChange?: (value: GoogleAITarget | null) => void;
 }
 
 export function RepoSidebar({
@@ -85,6 +89,9 @@ export function RepoSidebar({
   isChatLoading = false,
   chatError = null,
   onSendChatMessage,
+  selectedChatTarget = null,
+  configuredChatTarget = null,
+  onSelectedChatTargetChange,
 }: RepoSidebarProps) {
   const navigate = useNavigate();
   const { selectedTab, setSelectedTab } = useSidebarTab();
@@ -214,6 +221,9 @@ export function RepoSidebar({
                 error={chatError}
                 onSendMessage={onSendChatMessage}
                 onCommitClick={onCommitClick}
+                selectedTarget={selectedChatTarget}
+                configuredTarget={configuredChatTarget}
+                onSelectedTargetChange={onSelectedChatTargetChange}
               />
             )}
           </SidebarContent>

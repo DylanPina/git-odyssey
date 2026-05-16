@@ -464,12 +464,20 @@ class DesktopConfigStore {
       savedAiProfiles: normalizeSavedAiProfiles(this.state.savedAiProfiles),
       reviewSettings: this.getReviewSettings(),
       ai: {
+        google: {
+          projectId: aiRuntimeConfig.google_project_id,
+          location: aiRuntimeConfig.google_location,
+          adcReady: false,
+          adcProjectId: null,
+          message: undefined,
+        },
         textGeneration: summarizeCapability(
           aiRuntimeConfig,
           secretStatus,
           "text_generation"
         ),
         embeddings: summarizeCapability(aiRuntimeConfig, secretStatus, "embeddings"),
+        review: summarizeCapability(aiRuntimeConfig, secretStatus, "review"),
       },
     };
   }

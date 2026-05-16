@@ -1,30 +1,93 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DesktopSetupCard } from "@/components/ui/custom/DesktopSetupCard";
 import type {
-	DesktopAiSavedProfile,
+	CapabilityName,
+	DesktopAiValidationResult,
 	DesktopHealthStatus,
 	DesktopSettingsStatus,
+	GoogleAITarget,
+	GoogleModelGardenEntry,
 } from "@/lib/definitions/desktop";
 
 const apiMocks = vi.hoisted(() => ({
-	deleteDesktopAiProfile: vi.fn(),
+	deployGoogleModel: vi.fn(),
+	listGoogleModelGarden: vi.fn(),
 	saveDesktopAiConfig: vi.fn(),
-	saveDesktopAiProfile: vi.fn(),
 	validateDesktopAiConfig: vi.fn(),
+	validateGoogleTarget: vi.fn(),
 }));
 
 vi.mock("@/api/api", () => ({
-	deleteDesktopAiProfile: apiMocks.deleteDesktopAiProfile,
+	deployGoogleModel: apiMocks.deployGoogleModel,
+	listGoogleModelGarden: apiMocks.listGoogleModelGarden,
 	saveDesktopAiConfig: apiMocks.saveDesktopAiConfig,
-	saveDesktopAiProfile: apiMocks.saveDesktopAiProfile,
 	validateDesktopAiConfig: apiMocks.validateDesktopAiConfig,
+	validateGoogleTarget: apiMocks.validateGoogleTarget,
 }));
 
+const geminiTarget: GoogleAITarget = {
+	target_kind: "managed_model",
+	resource_name: "publishers/google/models/gemini-2.5-flash",
+	display_name: "Gemini 2.5 Flash",
+	publisher: "google",
+	version: "2.5",
+	location: "us-central1",
+	capabilities: ["text_generation", "review"],
+	adapter_family: "gemini",
+	embedding_output_dimension: null,
+	source: "managed_api_model",
+};
+
+const embeddingTarget: GoogleAITarget = {
+	target_kind: "managed_model",
+	resource_name: "publishers/google/models/text-embedding-005",
+	display_name: "Text Embedding 005",
+	publisher: "google",
+	version: "005",
+	location: "us-central1",
+	capabilities: ["embeddings"],
+	adapter_family: "text_embedding",
+	embedding_output_dimension: 768,
+	source: "managed_api_model",
+};
+
+function catalogEntry(target: GoogleAITarget): GoogleModelGardenEntry {
+	return {
+		id: target.resource_name,
+		resource_name: target.resource_name,
+		display_name: target.display_name,
+		publisher: target.publisher,
+		version: target.version,
+		location: target.location ?? "us-central1",
+		target_kind: target.target_kind,
+		source: target.source ?? "managed_api_model",
+		capabilities: target.capabilities,
+		adapter_family: target.adapter_family,
+		deployable: false,
+		description: null,
+	};
+}
+
+function capabilityStatus(target: GoogleAITarget | null) {
+	return {
+		configured: Boolean(target),
+		ready: Boolean(target),
+		targetKind: target?.target_kind ?? null,
+		resourceName: target?.resource_name ?? null,
+		displayName: target?.display_name ?? null,
+		publisher: target?.publisher ?? null,
+		version: target?.version ?? null,
+		location: target?.location ?? null,
+		adapterFamily: target?.adapter_family ?? null,
+		embeddingOutputDimension: target?.embedding_output_dimension ?? null,
+	};
+}
+
 function buildSettingsStatus(
-	savedAiProfiles: DesktopAiSavedProfile[] = [],
+	overrides: Partial<DesktopSettingsStatus> = {},
 ): DesktopSettingsStatus {
 	return {
 		firstRunCompleted: true,
@@ -33,58 +96,37 @@ function buildSettingsStatus(
 		logDir: "/tmp/git-odyssey/logs",
 		databaseUrlConfigured: true,
 		aiRuntimeConfig: {
-			schema_version: 1,
-			profiles: [
-				{
-					id: "openai-default",
-					provider_type: "openai",
-					label: "OpenAI",
-					base_url: "https://api.openai.com",
-					auth_mode: "bearer",
-					api_key_secret_ref: "provider:openai-default:api-key",
-					supports_text_generation: true,
-					supports_embeddings: true,
-				},
-			],
+			schema_version: 2,
+			google_project_id: "git-odyssey-test",
+			google_location: "us-central1",
 			capabilities: {
-				text_generation: {
-					provider_profile_id: "openai-default",
-					model_id: "gpt-5.4-mini",
-					temperature: 0.2,
-					reasoning_effort: null,
-				},
+				text_generation: null,
 				embeddings: null,
+				review: null,
 			},
 		},
-		savedAiProfiles,
+		savedAiProfiles: [],
 		reviewSettings: {
 			pullRequestGuidelines: "",
 		},
 		ai: {
-			textGeneration: {
-				configured: true,
-				ready: true,
-				providerType: "openai",
-				modelId: "gpt-5.4-mini",
-				baseUrl: "https://api.openai.com",
-				authMode: "bearer",
-				secretPresent: true,
+			google: {
+				projectId: "git-odyssey-test",
+				location: "us-central1",
+				adcReady: true,
+				adcProjectId: "git-odyssey-test",
+				message: null,
 			},
-			embeddings: {
-				configured: false,
-				ready: false,
-				providerType: null,
-				modelId: null,
-				baseUrl: null,
-				authMode: null,
-				secretPresent: false,
-				message: "Semantic search is disabled.",
-			},
+			textGeneration: capabilityStatus(null),
+			embeddings: capabilityStatus(null),
+			review: capabilityStatus(null),
 		},
+		...overrides,
 	};
 }
 
 function buildHealthStatus(): DesktopHealthStatus {
+	const settings = buildSettingsStatus();
 	return {
 		backend: { state: "running" },
 		postgres: { state: "running" },
@@ -93,195 +135,176 @@ function buildHealthStatus(): DesktopHealthStatus {
 			desktopBackendReachable: true,
 			desktopUserAvailable: true,
 		},
-		ai: {
-			textGeneration: {
-				configured: true,
-				ready: true,
-				providerType: "openai",
-				modelId: "gpt-5.4-mini",
-				baseUrl: "https://api.openai.com",
-				authMode: "bearer",
-				secretPresent: true,
-			},
-			embeddings: {
-				configured: false,
-				ready: false,
-				providerType: null,
-				modelId: null,
-				baseUrl: null,
-				authMode: null,
-				secretPresent: false,
-				message: "Semantic search is disabled.",
-			},
-		},
+		ai: settings.ai,
 		desktopUser: null,
 		credentials: {
-			secretRefs: {
-				"provider:openai-default:api-key": true,
-			},
+			secretRefs: {},
 		},
-		settings: buildSettingsStatus(),
+		settings,
 	};
 }
 
+function buildValidationResult(
+	overrides: Partial<DesktopAiValidationResult> = {},
+): DesktopAiValidationResult {
+	return {
+		text_generation: {
+			configured: true,
+			ready: true,
+			target_kind: geminiTarget.target_kind,
+			resource_name: geminiTarget.resource_name,
+			display_name: geminiTarget.display_name,
+			publisher: geminiTarget.publisher ?? null,
+			version: geminiTarget.version ?? null,
+			location: geminiTarget.location ?? null,
+			adapter_family: geminiTarget.adapter_family ?? null,
+			embedding_output_dimension: null,
+			message: "Text probe passed.",
+		},
+		embeddings: {
+			configured: true,
+			ready: true,
+			target_kind: embeddingTarget.target_kind,
+			resource_name: embeddingTarget.resource_name,
+			display_name: embeddingTarget.display_name,
+			publisher: embeddingTarget.publisher ?? null,
+			version: embeddingTarget.version ?? null,
+			location: embeddingTarget.location ?? null,
+			adapter_family: embeddingTarget.adapter_family ?? null,
+			embedding_output_dimension: 768,
+			message: "Embedding probe returned 768 dimensions.",
+			reindex_required: false,
+		},
+		review: {
+			configured: true,
+			ready: true,
+			target_kind: geminiTarget.target_kind,
+			resource_name: geminiTarget.resource_name,
+			display_name: geminiTarget.display_name,
+			publisher: geminiTarget.publisher ?? null,
+			version: geminiTarget.version ?? null,
+			location: geminiTarget.location ?? null,
+			adapter_family: geminiTarget.adapter_family ?? null,
+			embedding_output_dimension: null,
+			message: "Review JSON probe passed.",
+		},
+		...overrides,
+	};
+}
+
+async function chooseTarget(capability: CapabilityName, label: RegExp) {
+	const section = screen
+		.getByText(
+			capability === "text_generation"
+				? "Chat And Summaries"
+				: capability === "embeddings"
+					? "Semantic Search"
+					: "Code Review",
+		)
+		.closest("section");
+	expect(section).not.toBeNull();
+	await userEvent.click(within(section!).getByRole("button", { name: label }));
+}
+
 describe("DesktopSetupCard", () => {
-	it("loads, saves, updates, and deletes saved AI profiles without auto-applying the runtime", async () => {
+	beforeEach(() => {
+		apiMocks.deployGoogleModel.mockReset();
+		apiMocks.listGoogleModelGarden.mockReset();
+		apiMocks.saveDesktopAiConfig.mockReset();
+		apiMocks.validateDesktopAiConfig.mockReset();
+		apiMocks.validateGoogleTarget.mockReset();
+
+		apiMocks.listGoogleModelGarden.mockResolvedValue({
+			items: [catalogEntry(geminiTarget), catalogEntry(embeddingTarget)],
+		});
+		apiMocks.validateDesktopAiConfig.mockResolvedValue(buildValidationResult());
+		apiMocks.saveDesktopAiConfig.mockResolvedValue(buildSettingsStatus());
+	});
+
+	it("browses Model Garden targets, validates every capability, then saves", async () => {
 		const user = userEvent.setup();
 		const onCredentialsSaved = vi.fn().mockResolvedValue(undefined);
-		const existingProfile: DesktopAiSavedProfile = {
-			id: "profile-local",
-			name: "Local runtime",
-			config: {
-				schema_version: 1,
-				profiles: [
-					{
-						id: "text-provider",
-						provider_type: "openai_compatible",
-						label: "Local runtime",
-						base_url: "http://127.0.0.1:11434/v1/responses",
-						auth_mode: "bearer",
-						api_key_secret_ref: "provider:text-provider:api-key",
-						supports_text_generation: true,
-						supports_embeddings: false,
-					},
-				],
-				capabilities: {
-						text_generation: {
-							provider_profile_id: "text-provider",
-							model_id: "llama-3.1",
-							temperature: 0.4,
-							reasoning_effort: "high",
-						},
-					embeddings: null,
-				},
-			},
-			secretValues: {
-				"provider:text-provider:api-key": "sk-profile",
-			},
-			updatedAt: "2026-04-18T10:00:00.000Z",
-		};
-		const createdProfile: DesktopAiSavedProfile = {
-			id: "profile-weekend",
-			name: "Weekend profile",
-			config: {
-				...existingProfile.config,
-				capabilities: {
-					text_generation: {
-						provider_profile_id: "text-provider",
-						model_id: "llama-3.1-instruct",
-						temperature: 0.4,
-						reasoning_effort: "minimal",
-					},
-					embeddings: null,
-				},
-			},
-			secretValues: {
-				"provider:text-provider:api-key": "sk-profile",
-			},
-			updatedAt: "2026-04-18T11:00:00.000Z",
-		};
-
-		apiMocks.saveDesktopAiProfile
-			.mockResolvedValueOnce(buildSettingsStatus([createdProfile, existingProfile]))
-			.mockResolvedValueOnce(buildSettingsStatus([createdProfile, existingProfile]));
-		apiMocks.deleteDesktopAiProfile.mockResolvedValue(
-			buildSettingsStatus([createdProfile]),
-		);
-		apiMocks.saveDesktopAiConfig.mockResolvedValue(buildSettingsStatus([createdProfile]));
 
 		render(
 			<DesktopSetupCard
-				desktopSettingsStatus={buildSettingsStatus([existingProfile])}
+				desktopSettingsStatus={buildSettingsStatus()}
 				desktopHealth={buildHealthStatus()}
 				onCredentialsSaved={onCredentialsSaved}
 			/>,
 		);
 
-		const savedProfilesSelect = screen.getByRole("combobox", {
-			name: /saved profiles/i,
-		});
-		const modelInput = screen.getByRole("textbox", { name: /model id/i });
-		const apiKeyInput = screen.getByLabelText(/api key/i);
-		const reasoningEffortSelect = screen.getAllByRole("combobox")[2];
-
-		await user.selectOptions(savedProfilesSelect, "profile-local");
-		await user.click(screen.getByRole("button", { name: /^load$/i }));
-
-		expect(modelInput).toHaveValue("llama-3.1");
-		expect(apiKeyInput).toHaveValue("sk-profile");
-		expect(reasoningEffortSelect).toHaveValue("high");
-		expect(apiMocks.saveDesktopAiConfig).not.toHaveBeenCalled();
-
-		await user.clear(modelInput);
-		await user.type(modelInput, "llama-3.1-instruct");
-		await user.selectOptions(reasoningEffortSelect, "minimal");
-		expect(savedProfilesSelect).toHaveValue("profile-local");
-
-		const newProfileNameInput = screen.getByRole("textbox", {
-			name: /new profile name/i,
-		});
-		await user.type(newProfileNameInput, "Weekend profile");
-		await user.click(
-			screen.getByRole("button", { name: /save as new profile/i }),
-		);
+		await user.click(screen.getByRole("button", { name: /browse targets/i }));
 
 		await waitFor(() => {
-			expect(apiMocks.saveDesktopAiProfile).toHaveBeenNthCalledWith(
-				1,
-				expect.objectContaining({
-					name: "Weekend profile",
-					config: expect.objectContaining({
-						capabilities: expect.objectContaining({
-							text_generation: expect.objectContaining({
-								model_id: "llama-3.1-instruct",
-								reasoning_effort: "minimal",
-							}),
-						}),
-					}),
-				}),
-			);
+			expect(apiMocks.listGoogleModelGarden).toHaveBeenCalledWith({
+				googleProjectId: "git-odyssey-test",
+				googleLocation: "us-central1",
+			});
 		});
 
-		await user.selectOptions(savedProfilesSelect, "profile-local");
-		await user.click(screen.getByRole("button", { name: /^update$/i }));
+		await chooseTarget("text_generation", /Gemini 2\.5 Flash/i);
+		await chooseTarget("embeddings", /Text Embedding 005/i);
+		await chooseTarget("review", /Gemini 2\.5 Flash/i);
+
+		await user.click(screen.getByRole("button", { name: /^save$/i }));
 
 		await waitFor(() => {
-			expect(apiMocks.saveDesktopAiProfile).toHaveBeenNthCalledWith(
-				2,
-				expect.objectContaining({
-					id: "profile-local",
-					name: "Local runtime",
-				}),
-			);
+			expect(apiMocks.validateDesktopAiConfig).toHaveBeenCalledTimes(1);
 		});
-
-		await user.selectOptions(savedProfilesSelect, "profile-local");
-		await user.click(screen.getByRole("button", { name: /^delete$/i }));
-
 		await waitFor(() => {
-			expect(apiMocks.deleteDesktopAiProfile).toHaveBeenCalledWith(
-				"profile-local",
-			);
-		});
-
-		await user.click(
-			screen.getByRole("button", { name: /save configuration/i }),
-		);
-
-		await waitFor(() => {
-			expect(apiMocks.saveDesktopAiConfig).toHaveBeenCalledTimes(1);
-		});
-		expect(apiMocks.saveDesktopAiConfig).toHaveBeenCalledWith(
-			expect.objectContaining({
+			expect(apiMocks.saveDesktopAiConfig).toHaveBeenCalledWith({
 				config: expect.objectContaining({
+					schema_version: 2,
+					google_project_id: "git-odyssey-test",
+					google_location: "us-central1",
 					capabilities: expect.objectContaining({
 						text_generation: expect.objectContaining({
-							reasoning_effort: "minimal",
+							resource_name: geminiTarget.resource_name,
+						}),
+						embeddings: expect.objectContaining({
+							resource_name: embeddingTarget.resource_name,
+							embedding_output_dimension: 768,
+						}),
+						review: expect.objectContaining({
+							resource_name: geminiTarget.resource_name,
 						}),
 					}),
 				}),
+				secretValues: {},
+			});
+		});
+		expect(onCredentialsSaved).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps saving blocked when a selected target fails its validation probe", async () => {
+		const user = userEvent.setup();
+		apiMocks.validateDesktopAiConfig.mockResolvedValue(
+			buildValidationResult({
+				review: {
+					...buildValidationResult().review,
+					ready: false,
+					message: "Review output was not structured JSON.",
+				},
 			}),
 		);
-		expect(onCredentialsSaved).toHaveBeenCalledTimes(1);
+
+		render(
+			<DesktopSetupCard
+				desktopSettingsStatus={buildSettingsStatus()}
+				desktopHealth={buildHealthStatus()}
+				onCredentialsSaved={vi.fn().mockResolvedValue(undefined)}
+			/>,
+		);
+
+		await user.click(screen.getByRole("button", { name: /browse targets/i }));
+		await chooseTarget("text_generation", /Gemini 2\.5 Flash/i);
+		await chooseTarget("embeddings", /Text Embedding 005/i);
+		await chooseTarget("review", /Gemini 2\.5 Flash/i);
+		await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+		await waitFor(() => {
+			expect(screen.getByText(/validation failed/i)).toBeInTheDocument();
+		});
+		expect(apiMocks.saveDesktopAiConfig).not.toHaveBeenCalled();
 	});
 });

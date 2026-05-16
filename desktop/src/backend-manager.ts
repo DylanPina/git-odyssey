@@ -405,22 +405,28 @@ class BackendManager {
       return {
         configured: false,
         ready: false,
-        providerType: null,
-        modelId: null,
-        baseUrl: null,
-        authMode: null,
-        secretPresent: false,
+        targetKind: null,
+        resourceName: null,
+        displayName: null,
+        publisher: null,
+        version: null,
+        location: null,
+        adapterFamily: null,
+        embeddingOutputDimension: null,
       };
     }
 
     return {
       configured: Boolean(capability.configured),
       ready: Boolean(capability.ready),
-      providerType: capability.provider_type ?? null,
-      modelId: capability.model_id ?? null,
-      baseUrl: capability.base_url ?? null,
-      authMode: capability.auth_mode ?? null,
-      secretPresent: Boolean(capability.secret_present),
+      targetKind: capability.target_kind ?? null,
+      resourceName: capability.resource_name ?? null,
+      displayName: capability.display_name ?? null,
+      publisher: capability.publisher ?? null,
+      version: capability.version ?? null,
+      location: capability.location ?? null,
+      adapterFamily: capability.adapter_family ?? null,
+      embeddingOutputDimension: capability.embedding_output_dimension ?? null,
       message: capability.message ?? undefined,
       reindexRequired: Boolean(capability.reindex_required),
     };
@@ -661,10 +667,22 @@ class BackendManager {
       ai:
         backendPayload?.ai != null
           ? {
+              google: {
+                projectId:
+                  backendPayload.ai.google?.project_id ??
+                  settingsStatus.aiRuntimeConfig.google_project_id,
+                location:
+                  backendPayload.ai.google?.location ??
+                  settingsStatus.aiRuntimeConfig.google_location,
+                adcReady: Boolean(backendPayload.ai.google?.adc_ready),
+                adcProjectId: backendPayload.ai.google?.adc_project_id ?? null,
+                message: backendPayload.ai.google?.message ?? undefined,
+              },
               textGeneration: this.#mapCapabilityHealth(
                 backendPayload.ai.text_generation
               ),
               embeddings: this.#mapCapabilityHealth(backendPayload.ai.embeddings),
+              review: this.#mapCapabilityHealth(backendPayload.ai.review),
             }
           : settingsStatus.ai,
       desktopUser: backendPayload?.desktop_user

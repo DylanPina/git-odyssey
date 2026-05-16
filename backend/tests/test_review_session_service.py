@@ -189,8 +189,8 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
         run = SimpleNamespace(
             id="rev_run_123",
             session_id="rev_sess_123",
-            engine="codex_cli",
-            mode="native_review",
+            engine="vertex_review",
+            mode="non_agentic_review",
             completed_at=completed_at,
             created_at=created_at,
             session=SimpleNamespace(
@@ -271,8 +271,8 @@ class ReviewSessionPersistenceServiceTests(unittest.TestCase):
         result = self.service.create_run(
             "rev_sess_123",
             ReviewRunStartRequest(
-                engine="codex_cli",
-                mode="native_review",
+                engine="vertex_review",
+                mode="non_agentic_review",
                 custom_instructions="  Focus on auth flows.  ",
                 applied_instructions="  App-wide review guidelines:\nFocus on auth flows.  ",
             ),

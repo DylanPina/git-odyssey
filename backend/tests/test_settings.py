@@ -19,11 +19,10 @@ from infrastructure.ai_runtime import (
     DOCUMENT_SCHEMA_VERSION,
     compute_embedding_fingerprint,
 )
-from infrastructure.errors import AIConfigurationError
-from infrastructure.errors import MissingConfigurationError
+from infrastructure.errors import AIConfigurationError, MissingConfigurationError
 
 
-def build_runtime_config() -> str:
+def build_legacy_openai_runtime_config() -> str:
     return json.dumps(
         {
             "schema_version": 1,
@@ -54,13 +53,66 @@ def build_runtime_config() -> str:
     )
 
 
+def build_google_runtime_config() -> str:
+    return json.dumps(
+        {
+            "schema_version": 2,
+            "google_project_id": "git-odyssey-test",
+            "google_location": "us-central1",
+            "capabilities": {
+                "text_generation": {
+                    "target_kind": "managed_model",
+                    "resource_name": "publishers/google/models/gemini-2.5-flash",
+                    "display_name": "Gemini 2.5 Flash",
+                    "publisher": "google",
+                    "version": "2.5",
+                    "location": "us-central1",
+                    "capabilities": ["text_generation"],
+                    "adapter_family": "gemini",
+                    "source": "managed_api_model",
+                },
+                "embeddings": {
+                    "target_kind": "managed_model",
+                    "resource_name": "publishers/google/models/text-embedding-005",
+                    "display_name": "Text Embedding 005",
+                    "publisher": "google",
+                    "version": "005",
+                    "location": "us-central1",
+                    "capabilities": ["embeddings"],
+                    "adapter_family": "text_embedding",
+                    "embedding_output_dimension": 768,
+                    "source": "managed_api_model",
+                },
+                "review": {
+                    "target_kind": "managed_model",
+                    "resource_name": "publishers/google/models/gemini-2.5-pro",
+                    "display_name": "Gemini 2.5 Pro",
+                    "publisher": "google",
+                    "version": "2.5",
+                    "location": "us-central1",
+                    "capabilities": ["review"],
+                    "adapter_family": "gemini",
+                    "source": "managed_api_model",
+                },
+            },
+        }
+    )
+
+
 BASE_ENV = {
     "DATABASE_URL": "postgresql://user:pass@localhost:5432/gitodyssey",
     "DATABASE_SSLMODE": "disable",
-    "AI_RUNTIME_CONFIG_JSON": build_runtime_config(),
+    "AI_RUNTIME_CONFIG_JSON": build_legacy_openai_runtime_config(),
     "AI_SECRET_VALUES_JSON": json.dumps(
         {"provider:openai-default:api-key": "test-openai-key"}
     ),
+}
+
+
+GOOGLE_ENV = {
+    **BASE_ENV,
+    "AI_RUNTIME_CONFIG_JSON": build_google_runtime_config(),
+    "AI_SECRET_VALUES_JSON": "{}",
 }
 
 
@@ -75,7 +127,7 @@ class SettingsTests(unittest.TestCase):
         get_embedding_engine.cache_clear()
         get_ai_engine.cache_clear()
 
-    def test_settings_load_desktop_defaults(self) -> None:
+    def test_settings_migrates_legacy_openai_runtime_to_empty_google_setup(self) -> None:
         with patch.dict(os.environ, BASE_ENV, clear=True):
             settings = get_settings()
             runtime = get_ai_runtime_config()
@@ -91,22 +143,34 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.ingest_flush_size, 100)
         self.assertEqual(settings.desktop_user_username, "local-user")
         self.assertEqual(settings.desktop_user_email, "local@gitodyssey.app")
-        self.assertEqual(runtime.capabilities.text_generation.model_id, "gpt-5.4-mini")
-        self.assertEqual(runtime.capabilities.embeddings.model_id, "text-embedding-3-small")
+        self.assertEqual(runtime.schema_version, 2)
+        self.assertIsNone(runtime.google_project_id)
+        self.assertEqual(runtime.google_location, "us-central1")
+        self.assertIsNone(runtime.capabilities.text_generation)
+        self.assertIsNone(runtime.capabilities.embeddings)
+        self.assertIsNone(runtime.capabilities.review)
         self.assertEqual(
             secret_values["provider:openai-default:api-key"],
             "test-openai-key",
         )
 
-    def test_ai_components_use_structured_runtime_defaults(self) -> None:
-        with patch.dict(os.environ, BASE_ENV, clear=True):
+    def test_ai_components_use_google_runtime_targets(self) -> None:
+        with patch.dict(os.environ, GOOGLE_ENV, clear=True):
             ai_engine = get_ai_engine()
             embedder = get_embedding_engine()
 
-        self.assertEqual(ai_engine.model, "gpt-5.4-mini")
+        self.assertEqual(
+            ai_engine.target.resource_name,
+            "publishers/google/models/gemini-2.5-flash",
+        )
         self.assertIsNotNone(embedder)
-        self.assertEqual(embedder.model, "text-embedding-3-small")
+        assert embedder is not None
+        self.assertEqual(
+            embedder.target.resource_name,
+            "publishers/google/models/text-embedding-005",
+        )
         self.assertEqual(embedder.max_concurrency, 4)
+        self.assertEqual(embedder.google_project_id, "git-odyssey-test")
 
     def test_missing_ai_runtime_config_fails_when_text_client_is_requested(self) -> None:
         with patch.dict(
@@ -117,35 +181,43 @@ class SettingsTests(unittest.TestCase):
             },
             clear=True,
         ):
-            with self.assertRaises(AIConfigurationError):
+            with self.assertRaises(MissingConfigurationError):
                 get_text_client()
 
-    def test_missing_provider_secret_fails_when_text_client_is_requested(self) -> None:
+    def test_missing_google_project_fails_when_text_client_is_requested(self) -> None:
+        payload = json.loads(build_google_runtime_config())
+        payload["google_project_id"] = None
         with patch.dict(
             os.environ,
             {
-                "DATABASE_URL": "postgresql://user:pass@localhost:5432/gitodyssey",
-                "DATABASE_SSLMODE": "disable",
-                "AI_RUNTIME_CONFIG_JSON": build_runtime_config(),
+                **BASE_ENV,
+                "AI_RUNTIME_CONFIG_JSON": json.dumps(payload),
+                "AI_SECRET_VALUES_JSON": "{}",
             },
             clear=True,
         ):
-            with self.assertRaises(MissingConfigurationError):
+            with self.assertRaises(AIConfigurationError):
                 get_text_client()
 
     def test_embedding_fingerprint_changes_when_ast_versions_change(self) -> None:
         current = compute_embedding_fingerprint(
-            provider_type="openai",
-            base_url="https://api.openai.com",
-            model_id="text-embedding-3-small",
+            target_kind="managed_model",
+            resource_name="publishers/google/models/text-embedding-005",
+            project_id="git-odyssey-test",
+            location="us-central1",
+            adapter_family="text_embedding",
+            observed_dimension=768,
             document_schema_version=DOCUMENT_SCHEMA_VERSION,
             ast_schema_version=AST_SCHEMA_VERSION,
             ast_enabled_languages=AST_ENABLED_LANGUAGES,
         )
         old_ast_version = compute_embedding_fingerprint(
-            provider_type="openai",
-            base_url="https://api.openai.com",
-            model_id="text-embedding-3-small",
+            target_kind="managed_model",
+            resource_name="publishers/google/models/text-embedding-005",
+            project_id="git-odyssey-test",
+            location="us-central1",
+            adapter_family="text_embedding",
+            observed_dimension=768,
             document_schema_version=DOCUMENT_SCHEMA_VERSION,
             ast_schema_version=0,
             ast_enabled_languages=(),

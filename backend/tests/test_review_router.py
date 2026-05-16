@@ -172,8 +172,8 @@ class ReviewRouterTests(unittest.TestCase):
                     "merge_base_sha": "merge123",
                     "base_head_sha": "base456",
                     "head_head_sha": "head789",
-                    "engine": "codex_cli",
-                    "mode": "native_review",
+                    "engine": "vertex_review",
+                    "mode": "non_agentic_review",
                     "partial": False,
                     "summary": "Looks good overall.",
                     "findings_count": 0,
@@ -210,8 +210,8 @@ class ReviewRouterTests(unittest.TestCase):
         review_session_service.create_run.return_value = {
             "id": "rev_run_456",
             "session_id": "rev_sess_123",
-            "engine": "codex_cli",
-            "mode": "native_review",
+            "engine": "vertex_review",
+            "mode": "non_agentic_review",
             "status": "pending",
             "custom_instructions": "Focus on auth flows.",
             "applied_instructions": "App-wide review guidelines:\nFocus on auth flows.",
@@ -226,8 +226,8 @@ class ReviewRouterTests(unittest.TestCase):
             review_router.create_review_run(
                 session_id="rev_sess_123",
                 request=ReviewRunStartRequest(
-                    engine="codex_cli",
-                    mode="native_review",
+                    engine="vertex_review",
+                    mode="non_agentic_review",
                     custom_instructions="Focus on auth flows.",
                     applied_instructions="App-wide review guidelines:\nFocus on auth flows.",
                 ),

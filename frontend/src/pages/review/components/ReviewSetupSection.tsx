@@ -164,11 +164,11 @@ export function ReviewSetupSection({
 				<div className="flex flex-col gap-3">
 					<div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
 						<div className="min-w-0 flex-1">
-							<div className="workspace-section-label">Review Setup</div>
-							<div className="mt-1 text-sm text-text-secondary">
-								Choose the compare target and run or manage the Codex review.
+								<div className="workspace-section-label">Review Setup</div>
+								<div className="mt-1 text-sm text-text-secondary">
+									Choose the compare target and run or manage the review.
+								</div>
 							</div>
-						</div>
 
 						<button
 							type="button"
@@ -237,7 +237,7 @@ export function ReviewSetupSection({
 									onChange={(event) =>
 										onCustomInstructionsChange(event.target.value)
 									}
-									placeholder="Optional: steer Codex toward specific areas of concern."
+									placeholder="Optional: steer the review toward specific areas of concern."
 									className="min-h-24"
 									disabled={isViewingHistory || isHistorySelectionLoading}
 								/>

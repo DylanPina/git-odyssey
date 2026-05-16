@@ -21,6 +21,7 @@ import type {
 	ReviewResult,
 	ReviewRun,
 } from "@/lib/definitions/review";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 import type {
 	ReasoningTraceEntry,
 	ReviewAssistantTab,
@@ -41,10 +42,10 @@ type ReviewAssistantPanelProps = {
 	chatDraft: string;
 	draftCodeContexts: ChatCodeContext[];
 	draftFindingContexts?: ChatFindingContext[];
-	selectedModelId: string;
-	configuredModelId?: string | null;
+	selectedTarget?: GoogleAITarget | null;
+	configuredTarget?: GoogleAITarget | null;
 	onChatDraftChange: (value: string) => void;
-	onSelectedModelIdChange: (value: string) => void;
+	onSelectedTargetChange?: (value: GoogleAITarget | null) => void;
 	onSendChatMessage: () => void;
 	onAddFindingToChat?: (finding: ReviewFinding) => void;
 	onChatCodeContextClick?: (context: ChatCodeContext) => void;
@@ -90,10 +91,10 @@ export function ReviewAssistantPanel({
 	chatDraft,
 	draftCodeContexts,
 	draftFindingContexts = [],
-	selectedModelId,
-	configuredModelId,
+	selectedTarget = null,
+	configuredTarget,
 	onChatDraftChange,
-	onSelectedModelIdChange,
+	onSelectedTargetChange = () => {},
 	onSendChatMessage,
 	onAddFindingToChat = () => {},
 	onChatCodeContextClick,
@@ -230,10 +231,10 @@ export function ReviewAssistantPanel({
 						draft={chatDraft}
 						draftCodeContexts={draftCodeContexts}
 						draftFindingContexts={draftFindingContexts}
-						selectedModelId={selectedModelId}
-						configuredModelId={configuredModelId}
+						selectedTarget={selectedTarget}
+						configuredTarget={configuredTarget}
 						onDraftChange={onChatDraftChange}
-						onSelectedModelIdChange={onSelectedModelIdChange}
+						onSelectedTargetChange={onSelectedTargetChange}
 						onSendMessage={onSendChatMessage}
 						onCodeContextClick={onChatCodeContextClick}
 						onFindingContextClick={onChatFindingContextClick}

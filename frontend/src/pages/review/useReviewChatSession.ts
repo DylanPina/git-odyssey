@@ -7,6 +7,7 @@ import type {
 	ChatFindingContext,
 	ChatMessage,
 } from "@/lib/definitions/chat";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 import type {
 	ReviewFinding,
 	ReviewChatContext,
@@ -14,9 +15,8 @@ import type {
 	ReviewResult,
 	ReviewRun,
 } from "@/lib/definitions/review";
-import { REVIEW_CHAT_DEFAULT_MODEL_ID } from "@/pages/review/review-constants";
 import {
-	getReviewChatModelStorageKey,
+	getReviewChatTargetStorageKey,
 	getReviewChatStorageKey,
 } from "@/pages/review/review-storage";
 
@@ -29,7 +29,7 @@ type UseReviewChatSessionArgs = {
 	activeRun?: ReviewRun | null;
 	reviewResult?: ReviewResult | null;
 	isViewingHistory?: boolean;
-	initialModelId?: string | null;
+	initialTarget?: GoogleAITarget | null;
 };
 
 type UseReviewChatSessionReturn = {
@@ -41,8 +41,8 @@ type UseReviewChatSessionReturn = {
 	isChatLoading: boolean;
 	chatError: string | null;
 	isChatReady: boolean;
-	selectedModelId: string;
-	setSelectedModelId: (value: string) => void;
+	selectedTarget: GoogleAITarget | null;
+	setSelectedTarget: (value: GoogleAITarget | null) => void;
 	sendDraft: () => Promise<void>;
 	injectSelection: (selection: DiffSelectionContext) => void;
 	injectFinding: (finding: ReviewFinding) => void;
@@ -68,11 +68,6 @@ function createCodeContextId(selection: DiffSelectionContext) {
 		selection.endLine,
 		selection.endColumn,
 	].join(":");
-}
-
-function normalizeModelId(value: string | null | undefined) {
-	const trimmed = String(value || "").trim();
-	return trimmed || REVIEW_CHAT_DEFAULT_MODEL_ID;
 }
 
 function clipSelectionText(value: string) {
@@ -218,38 +213,38 @@ function persistMessagesToStorage(
 	}
 }
 
-function loadModelIdFromStorage(
+function loadTargetFromStorage(
 	storageKey: string | null,
-	defaultModelId: string,
+	defaultTarget: GoogleAITarget | null,
 ) {
 	if (typeof window === "undefined" || !storageKey) {
-		return defaultModelId;
+		return defaultTarget;
 	}
 
 	try {
 		const stored = window.localStorage.getItem(storageKey);
-		return stored ? normalizeModelId(stored) : defaultModelId;
+		return stored ? (JSON.parse(stored) as GoogleAITarget) : defaultTarget;
 	} catch {
-		return defaultModelId;
+		return defaultTarget;
 	}
 }
 
-function persistModelIdToStorage(
+function persistTargetToStorage(
 	storageKey: string | null,
-	modelId: string,
-	defaultModelId: string,
+	target: GoogleAITarget | null,
+	defaultTarget: GoogleAITarget | null,
 ) {
 	if (typeof window === "undefined" || !storageKey) {
 		return;
 	}
 
 	try {
-		if (modelId === defaultModelId) {
+		if (JSON.stringify(target ?? null) === JSON.stringify(defaultTarget ?? null)) {
 			window.localStorage.removeItem(storageKey);
 			return;
 		}
 
-		window.localStorage.setItem(storageKey, modelId);
+		window.localStorage.setItem(storageKey, JSON.stringify(target));
 	} catch {
 		// Ignore storage issues and keep the in-memory state.
 	}
@@ -260,7 +255,7 @@ export function useReviewChatSession({
 	activeRun,
 	reviewResult,
 	isViewingHistory = false,
-	initialModelId,
+	initialTarget,
 }: UseReviewChatSessionArgs): UseReviewChatSessionReturn {
 	const historyRunId = isViewingHistory ? activeRun?.id ?? null : null;
 	const storageKey = useMemo(
@@ -271,25 +266,23 @@ export function useReviewChatSession({
 			}),
 		[historyRunId, sessionId],
 	);
-	const modelStorageKey = useMemo(
+	const targetStorageKey = useMemo(
 		() =>
-			getReviewChatModelStorageKey({
+			getReviewChatTargetStorageKey({
 				sessionId,
 				runId: historyRunId,
 			}),
 		[historyRunId, sessionId],
 	);
-	const defaultModelId = useMemo(
-		() => normalizeModelId(initialModelId),
-		[initialModelId],
-	);
+	const defaultTarget = useMemo(() => initialTarget ?? null, [initialTarget]);
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [draft, setDraft] = useState("");
 	const [draftCodeContexts, setDraftCodeContexts] = useState<ChatCodeContext[]>([]);
 	const [draftFindingContexts, setDraftFindingContexts] = useState<
 		ChatFindingContext[]
 	>([]);
-	const [selectedModelId, setSelectedModelIdState] = useState(defaultModelId);
+	const [selectedTarget, setSelectedTargetState] =
+		useState<GoogleAITarget | null>(defaultTarget);
 	const [isChatLoading, setIsChatLoading] = useState(false);
 	const [chatError, setChatError] = useState<string | null>(null);
 	const isChatReady = Boolean(sessionId);
@@ -303,21 +296,19 @@ export function useReviewChatSession({
 	}, [storageKey]);
 
 	useEffect(() => {
-		setSelectedModelIdState(
-			loadModelIdFromStorage(modelStorageKey, defaultModelId),
-		);
-	}, [defaultModelId, modelStorageKey]);
+		setSelectedTargetState(loadTargetFromStorage(targetStorageKey, defaultTarget));
+	}, [defaultTarget, targetStorageKey]);
 
 	useEffect(() => {
 		persistMessagesToStorage(storageKey, chatMessages);
 	}, [chatMessages, storageKey]);
 
 	useEffect(() => {
-		persistModelIdToStorage(modelStorageKey, selectedModelId, defaultModelId);
-	}, [defaultModelId, modelStorageKey, selectedModelId]);
+		persistTargetToStorage(targetStorageKey, selectedTarget, defaultTarget);
+	}, [defaultTarget, selectedTarget, targetStorageKey]);
 
-	const setSelectedModelId = useCallback((value: string) => {
-		setSelectedModelIdState(normalizeModelId(value));
+	const setSelectedTarget = useCallback((value: GoogleAITarget | null) => {
+		setSelectedTargetState(value);
 	}, []);
 
 	const clearChatError = useCallback(() => {
@@ -392,7 +383,7 @@ export function useReviewChatSession({
 			const response = await sendReviewChatMessage({
 				sessionId,
 				runId: historyRunId,
-				modelId: selectedModelId,
+				targetOverride: selectedTarget,
 				message: nextDraft,
 				codeContexts: draftCodeContexts,
 				findingContexts: draftFindingContexts,
@@ -409,11 +400,11 @@ export function useReviewChatSession({
 			};
 
 			setChatMessages((current) => [...current, assistantMessage]);
-		} catch {
-			setChatError(
-			"Failed to get a response from Codex review chat. Please try again.",
-			);
-		} finally {
+			} catch {
+				setChatError(
+					"Failed to get a response from review chat. Please try again.",
+				);
+			} finally {
 			setIsChatLoading(false);
 		}
 	}, [
@@ -424,7 +415,7 @@ export function useReviewChatSession({
 		draftFindingContexts,
 		historyRunId,
 		reviewResult,
-		selectedModelId,
+		selectedTarget,
 		sessionId,
 	]);
 
@@ -437,8 +428,8 @@ export function useReviewChatSession({
 		isChatLoading,
 		chatError,
 		isChatReady,
-		selectedModelId,
-		setSelectedModelId,
+		selectedTarget,
+		setSelectedTarget,
 		sendDraft,
 		injectSelection,
 		injectFinding,

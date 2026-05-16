@@ -49,7 +49,7 @@ describe("ReviewGuidelinesCard", () => {
     });
 
     expect(
-      screen.getByText(/app-wide review guidelines saved/i)
+      screen.getByText(/guidelines will prepend future review runs/i)
     ).toBeInTheDocument();
   });
 });

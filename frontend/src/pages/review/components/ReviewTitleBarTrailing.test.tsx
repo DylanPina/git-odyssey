@@ -97,8 +97,8 @@ function buildHistoryEntry(overrides: Partial<ReviewHistoryEntry> = {}): ReviewH
 		base_head_sha: "aaaaaaaa",
 		head_head_sha: "bbbbbbbb",
 		merge_base_sha: "cccccccc",
-		engine: "codex_cli",
-		mode: "native_review",
+		engine: "vertex_review",
+		mode: "non_agentic_review",
 		partial: false,
 		findings_count: 1,
 		severity_counts: {

@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta, timezone
 import json
 import unittest
 from unittest.mock import Mock
@@ -6,316 +5,348 @@ from unittest.mock import Mock
 import httpx
 
 from infrastructure.ai_clients import (
-    OpenAIWireEmbeddingClient,
-    OpenAIWireResponsesClient,
-    OpenAIWireTransport,
+    GoogleDeploymentService,
+    GoogleModelGardenCatalog,
+    GoogleVertexEmbeddingClient,
+    GoogleVertexRegistry,
+    GoogleVertexRestTransport,
+    GoogleVertexTextClient,
 )
-from infrastructure.ai_runtime import ProviderProfileConfig
+from infrastructure.ai_runtime import AIRuntimeConfig, CapabilityBindings, GoogleAITarget
 from infrastructure.errors import (
     AIAuthenticationError,
     AIModelError,
-    AIRateLimitError,
+    AIRequestError,
     AIUnsupportedCapabilityError,
 )
 
 
-def build_profile(
-    provider_type: str = "openai",
-    auth_mode: str = "bearer",
-    base_url: str = "https://api.openai.com",
-) -> ProviderProfileConfig:
-    return ProviderProfileConfig(
-        id="provider-1",
-        provider_type=provider_type,
-        label="Provider 1",
-        base_url=base_url,
-        auth_mode=auth_mode,
-        api_key_secret_ref="provider:provider-1:api-key" if auth_mode == "bearer" else None,
-        supports_text_generation=True,
-        supports_embeddings=True,
+def build_config() -> AIRuntimeConfig:
+    return AIRuntimeConfig(
+        schema_version=2,
+        google_project_id="git-odyssey-test",
+        google_location="us-central1",
+        capabilities=CapabilityBindings(),
     )
+
+
+def build_text_target(**overrides: object) -> GoogleAITarget:
+    payload = {
+        "target_kind": "managed_model",
+        "resource_name": "publishers/google/models/gemini-2.5-flash",
+        "display_name": "Gemini 2.5 Flash",
+        "publisher": "google",
+        "version": "2.5",
+        "location": "us-central1",
+        "capabilities": ["text_generation", "review"],
+        "adapter_family": "gemini",
+        "source": "managed_api_model",
+    }
+    payload.update(overrides)
+    return GoogleAITarget(**payload)
+
+
+def build_embedding_target(**overrides: object) -> GoogleAITarget:
+    payload = {
+        "target_kind": "managed_model",
+        "resource_name": "publishers/google/models/text-embedding-005",
+        "display_name": "Text Embedding 005",
+        "publisher": "google",
+        "version": "005",
+        "location": "us-central1",
+        "capabilities": ["embeddings"],
+        "adapter_family": "text_embedding",
+        "source": "managed_api_model",
+    }
+    payload.update(overrides)
+    return GoogleAITarget(**payload)
 
 
 def build_response(status_code: int, payload: dict) -> httpx.Response:
-    request = httpx.Request("POST", "https://api.example.test")
+    request = httpx.Request("POST", "https://us-central1-aiplatform.googleapis.com/v1/test")
     return httpx.Response(status_code, request=request, json=payload)
 
 
-def build_response_with_headers(
-    status_code: int, payload: dict, headers: dict[str, str]
-) -> httpx.Response:
-    request = httpx.Request("POST", "https://api.example.test")
-    return httpx.Response(status_code, request=request, json=payload, headers=headers)
+class GoogleVertexTransportTests(unittest.TestCase):
+    def test_resolve_resource_expands_publisher_models(self) -> None:
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
+            client_factory=lambda: Mock(),
+            token_provider=lambda: "token",
+        )
 
+        self.assertEqual(
+            transport.resolve_resource(build_text_target()),
+            "projects/git-odyssey-test/locations/us-central1/"
+            "publishers/google/models/gemini-2.5-flash",
+        )
 
-def build_sse_response(status_code: int, payload: dict) -> httpx.Response:
-    request = httpx.Request("POST", "https://api.example.test")
-    body = f"data: {json.dumps(payload)}\n\n"
-    return httpx.Response(
-        status_code,
-        request=request,
-        text=body,
-        headers={"content-type": "text/event-stream;charset=utf-8"},
-    )
-
-
-class OpenAIWireResponsesClientTests(unittest.TestCase):
-    def test_generate_uses_store_false_and_prefers_output_text(self) -> None:
+    def test_request_json_maps_vertex_auth_and_model_errors(self) -> None:
         mock_client = Mock()
-        mock_client.post.return_value = build_response(
+        mock_client.request.return_value = build_response(
+            403,
+            {"error": {"message": "ADC denied"}},
+        )
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
+            client_factory=lambda: mock_client,
+            token_provider=lambda: "bad-token",
+        )
+
+        with self.assertRaises(AIAuthenticationError):
+            transport.request_json("GET", "projects/git-odyssey-test/locations/us-central1/endpoints")
+
+        mock_client.request.return_value = build_response(
+            404,
+            {"error": {"message": "Model not found"}},
+        )
+        with self.assertRaises(AIModelError):
+            transport.request_json("POST", "missing:model", json_body={})
+
+    def test_request_json_rejects_non_json_success_payloads(self) -> None:
+        request = httpx.Request("GET", "https://us-central1-aiplatform.googleapis.com/v1/test")
+        mock_client = Mock()
+        mock_client.request.return_value = httpx.Response(200, request=request, text="not-json")
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
+            client_factory=lambda: mock_client,
+            token_provider=lambda: "token",
+        )
+
+        with self.assertRaises(AIRequestError):
+            transport.request_json("GET", "test")
+
+
+class GoogleVertexTextClientTests(unittest.TestCase):
+    def test_managed_gemini_uses_generate_content_with_schema(self) -> None:
+        mock_client = Mock()
+        mock_client.request.return_value = build_response(
             200,
             {
-                "id": "resp_123",
-                "output_text": "  Hello from Responses.  ",
-                "output": [],
+                "candidates": [
+                    {"content": {"parts": [{"text": '{"summary":"ready","findings":[]}'}]}}
+                ]
             },
         )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
             client_factory=lambda: mock_client,
+            token_provider=lambda: "token",
         )
-        client = OpenAIWireResponsesClient(transport)
+        client = GoogleVertexTextClient(transport)
 
         result = client.generate(
-            model="gpt-5.4-mini",
-            instructions="Summarize this.",
-            input_text="Repo context",
-            temperature=0.2,
-        )
-
-        self.assertEqual(result, "Hello from Responses.")
-        mock_client.post.assert_called_once()
-        kwargs = mock_client.post.call_args.kwargs
-        self.assertEqual(kwargs["json"]["model"], "gpt-5.4-mini")
-        self.assertEqual(kwargs["json"]["instructions"], "Summarize this.")
-        self.assertEqual(kwargs["json"]["input"], "Repo context")
-        self.assertEqual(kwargs["json"]["temperature"], 0.2)
-        self.assertFalse(kwargs["json"]["store"])
-
-    def test_generate_falls_back_to_typed_output(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_response(
-            200,
-            {
-                "output_text": "",
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": "  Typed fallback text.  ",
-                            }
-                        ],
-                    }
-                ],
+            target=build_text_target(),
+            instructions="Return JSON only.",
+            input_text="Probe",
+            temperature=0.0,
+            response_schema={
+                "type": "object",
+                "required": ["summary", "findings"],
+                "properties": {"summary": {"type": "string"}, "findings": {"type": "array"}},
             },
         )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
+
+        self.assertEqual(json.loads(result)["findings"], [])
+        kwargs = mock_client.request.call_args.kwargs
+        self.assertTrue(mock_client.request.call_args.args[1].endswith(":generateContent"))
+        self.assertEqual(kwargs["json"]["systemInstruction"]["parts"][0]["text"], "Return JSON only.")
+        self.assertEqual(kwargs["json"]["generationConfig"]["responseMimeType"], "application/json")
+
+    def test_vertex_endpoint_uses_predict_adapter(self) -> None:
+        mock_client = Mock()
+        mock_client.request.return_value = build_response(
+            200,
+            {"predictions": [{"generated_text": "READY"}]},
         )
-        client = OpenAIWireResponsesClient(transport)
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
+            client_factory=lambda: mock_client,
+            token_provider=lambda: "token",
+        )
+        client = GoogleVertexTextClient(transport)
 
         result = client.generate(
-            model="gpt-5.4-mini",
-            instructions="Summarize this.",
-            input_text="Repo context",
-            temperature=0.2,
-        )
-
-        self.assertEqual(result, "Typed fallback text.")
-
-    def test_generate_accepts_completed_sse_response_payloads(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_sse_response(
-            200,
-            {
-                "id": "resp_123",
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": "READY",
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
-        transport = OpenAIWireTransport(
-            profile=build_profile(
-                provider_type="openai_compatible",
-                base_url="http://127.0.0.1:11434",
+            target=build_text_target(
+                target_kind="vertex_endpoint",
+                resource_name="projects/git-odyssey-test/locations/us-central1/endpoints/123",
+                display_name="Endpoint 123",
+                adapter_family="vertex_predict_text",
             ),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
-        )
-        client = OpenAIWireResponsesClient(transport)
-
-        result = client.generate(
-            model="gpt-5.4",
             instructions="Reply READY.",
-            input_text="READY",
+            input_text="Probe",
             temperature=0.2,
         )
 
         self.assertEqual(result, "READY")
+        self.assertTrue(mock_client.request.call_args.args[1].endswith(":predict"))
+        self.assertIn("Reply READY.", mock_client.request.call_args.kwargs["json"]["instances"][0]["prompt"])
 
-    def test_transport_maps_authentication_errors(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_response(
-            401,
-            {"error": {"message": "Invalid API key"}},
+    def test_text_client_rejects_unvalidated_targets(self) -> None:
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
+            client_factory=lambda: Mock(),
+            token_provider=lambda: "token",
         )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="bad-key",
-            client_factory=lambda: mock_client,
-        )
-
-        with self.assertRaises(AIAuthenticationError):
-            transport.post_json("/v1/responses", {"model": "gpt-5.4-mini"})
-
-    def test_transport_maps_model_errors(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_response(
-            404,
-            {"error": {"message": "Model not found"}},
-        )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
-        )
-
-        with self.assertRaises(AIModelError):
-            transport.post_json("/v1/responses", {"model": "missing-model"})
-
-    def test_transport_maps_missing_responses_endpoint_to_unsupported_capability(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_response(
-            404,
-            {"error": {"message": "Unknown path /v1/responses"}},
-        )
-        transport = OpenAIWireTransport(
-            profile=build_profile(provider_type="openai_compatible", base_url="http://127.0.0.1:8080"),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
-        )
+        client = GoogleVertexTextClient(transport)
 
         with self.assertRaises(AIUnsupportedCapabilityError):
-            transport.post_json("/v1/responses", {"model": "compatible-model"})
-
-    def test_transport_maps_rate_limit_errors_with_numeric_retry_after(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_response_with_headers(
-            429,
-            {"error": {"message": "Rate limit exceeded"}},
-            {"retry-after": "3"},
-        )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
-        )
-
-        with self.assertRaises(AIRateLimitError) as context:
-            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
-
-        self.assertEqual(context.exception.provider_label, "Provider 1")
-        self.assertEqual(context.exception.status_code, 429)
-        self.assertEqual(context.exception.retry_after_seconds, 3.0)
-
-    def test_transport_maps_rate_limit_errors_with_http_date_retry_after(self) -> None:
-        retry_after = (datetime.now(timezone.utc) + timedelta(seconds=4)).strftime(
-            "%a, %d %b %Y %H:%M:%S GMT"
-        )
-        mock_client = Mock()
-        mock_client.post.return_value = build_response_with_headers(
-            429,
-            {"error": {"message": "Rate limit exceeded"}},
-            {"retry-after": retry_after},
-        )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
-        )
-
-        with self.assertRaises(AIRateLimitError) as context:
-            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
-
-        self.assertIsNotNone(context.exception.retry_after_seconds)
-        self.assertGreaterEqual(context.exception.retry_after_seconds, 0.0)
-
-    def test_transport_maps_rate_limit_errors_without_retry_after(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_response(
-            429,
-            {"error": {"message": "Rate limit exceeded"}},
-        )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
-        )
-
-        with self.assertRaises(AIRateLimitError) as context:
-            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
-
-        self.assertIsNone(context.exception.retry_after_seconds)
-
-    def test_transport_ignores_invalid_retry_after_headers(self) -> None:
-        mock_client = Mock()
-        mock_client.post.return_value = build_response_with_headers(
-            429,
-            {"error": {"message": "Rate limit exceeded"}},
-            {"retry-after": "not-a-date"},
-        )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
-            client_factory=lambda: mock_client,
-        )
-
-        with self.assertRaises(AIRateLimitError) as context:
-            transport.post_json("/v1/embeddings", {"model": "text-embedding-3-small"})
-
-        self.assertIsNone(context.exception.retry_after_seconds)
+            client.generate(
+                target=build_embedding_target(),
+                instructions="Reply READY.",
+                input_text="Probe",
+                temperature=0.0,
+            )
 
 
-class OpenAIWireEmbeddingClientTests(unittest.TestCase):
+class GoogleVertexEmbeddingClientTests(unittest.TestCase):
     def test_embed_returns_vectors_and_dimensions(self) -> None:
         mock_client = Mock()
-        mock_client.post.return_value = build_response(
+        mock_client.request.return_value = build_response(
             200,
             {
-                "data": [
-                    {"embedding": [0.1, 0.2, 0.3]},
-                    {"embedding": [0.4, 0.5, 0.6]},
+                "predictions": [
+                    {"embeddings": {"values": [0.1, 0.2, 0.3]}},
+                    {"embeddings": {"values": [0.4, 0.5, 0.6]}},
                 ]
             },
         )
-        transport = OpenAIWireTransport(
-            profile=build_profile(),
-            api_key="sk-test",
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
             client_factory=lambda: mock_client,
+            token_provider=lambda: "token",
         )
-        client = OpenAIWireEmbeddingClient(transport)
+        client = GoogleVertexEmbeddingClient(transport)
 
         result = client.embed(
-            model="text-embedding-3-small",
+            target=build_embedding_target(embedding_output_dimension=3),
             inputs=["first", "second"],
         )
 
         self.assertEqual(result.embeddings, [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
         self.assertEqual(result.dimensions, 3)
-        self.assertEqual(mock_client.post.call_args.kwargs["json"]["input"], ["first", "second"])
+        payload = mock_client.request.call_args.kwargs["json"]
+        self.assertEqual(payload["instances"][0]["content"], "first")
+        self.assertEqual(payload["parameters"]["outputDimensionality"], 3)
+
+
+class GoogleModelGardenCatalogTests(unittest.TestCase):
+    def test_catalog_normalizes_managed_models_and_existing_endpoints(self) -> None:
+        mock_client = Mock()
+        mock_client.request.side_effect = [
+            build_response(
+                200,
+                {
+                    "publisherModels": [
+                        {
+                            "name": "publishers/google/models/gemini-2.5-flash",
+                            "displayName": "Gemini 2.5 Flash",
+                            "launchStage": "GA",
+                        }
+                    ]
+                },
+            ),
+            build_response(200, {"publisherModels": []}),
+            build_response(200, {"publisherModels": []}),
+            build_response(200, {"publisherModels": []}),
+            build_response(200, {"publisherModels": []}),
+            build_response(
+                200,
+                {
+                    "endpoints": [
+                        {
+                            "name": "projects/git-odyssey-test/locations/us-central1/endpoints/123",
+                            "displayName": "Chat endpoint",
+                            "deployedModels": [{"displayName": "llama instruct"}],
+                        }
+                    ]
+                },
+            ),
+        ]
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
+            client_factory=lambda: mock_client,
+            token_provider=lambda: "token",
+        )
+
+        entries = GoogleModelGardenCatalog(transport).list()
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0].source, "managed_api_model")
+        self.assertIn("text_generation", entries[0].capabilities)
+        self.assertEqual(entries[1].target_kind, "vertex_endpoint")
+        self.assertEqual(entries[1].source, "vertex_endpoint")
+        self.assertIn("review", entries[1].capabilities)
+
+
+class GoogleDeploymentServiceTests(unittest.TestCase):
+    def test_construct_deployment_request_includes_machine_and_accelerator(self) -> None:
+        transport = GoogleVertexRestTransport(
+            config=build_config(),
+            client_factory=lambda: Mock(),
+            token_provider=lambda: "token",
+        )
+        service = GoogleDeploymentService(transport)
+
+        request = service.construct_deployment_request(
+            model_resource_name="publishers/google/models/model-1",
+            endpoint_resource_name="projects/git-odyssey-test/locations/us-central1/endpoints/123",
+            deployed_model_display_name="Model 1",
+            machine_type="n1-standard-4",
+            accelerator_type="NVIDIA_TESLA_T4",
+            accelerator_count=1,
+            min_replica_count=1,
+            max_replica_count=2,
+        )
+
+        dedicated = request["body"]["deployedModel"]["dedicatedResources"]
+        self.assertEqual(request["endpoint"], "projects/git-odyssey-test/locations/us-central1/endpoints/123")
+        self.assertEqual(dedicated["machineSpec"]["machineType"], "n1-standard-4")
+        self.assertEqual(dedicated["machineSpec"]["acceleratorType"], "NVIDIA_TESLA_T4")
+        self.assertEqual(dedicated["maxReplicaCount"], 2)
+
+
+class GoogleVertexRegistryTests(unittest.TestCase):
+    def test_validate_review_target_requires_structured_json(self) -> None:
+        mock_client = Mock()
+        mock_client.request.return_value = build_response(
+            200,
+            {
+                "candidates": [
+                    {"content": {"parts": [{"text": '{"summary":"ready","findings":[]}'}]}}
+                ]
+            },
+        )
+        registry = GoogleVertexRegistry(
+            config=build_config(),
+            client_factory=lambda: mock_client,
+            token_provider=lambda: "token",
+        )
+
+        result = registry.validate_target(capability="review", target=build_text_target())
+
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["message"], "Validated successfully.")
+
+    def test_validate_embedding_target_records_observed_dimension(self) -> None:
+        mock_client = Mock()
+        mock_client.request.return_value = build_response(
+            200,
+            {"predictions": [{"embeddings": {"values": [0.1, 0.2]}}]},
+        )
+        registry = GoogleVertexRegistry(
+            config=build_config(),
+            client_factory=lambda: mock_client,
+            token_provider=lambda: "token",
+        )
+
+        result = registry.validate_target(
+            capability="embeddings",
+            target=build_embedding_target(),
+        )
+
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["embedding_output_dimension"], 2)
 
 
 if __name__ == "__main__":

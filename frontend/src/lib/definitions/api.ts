@@ -68,6 +68,7 @@ export interface ChatRequest {
   query: string;
   repo_path: string;
   context_shas: string[];
+  target_override?: import("./desktop").GoogleAITarget | null;
 }
 
 export interface ChatResponse {

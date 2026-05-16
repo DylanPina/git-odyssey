@@ -20,6 +20,21 @@ function withMockedModuleLoads(mocks, fn) {
     });
 }
 
+function buildGoogleTarget(resourceName = "publishers/google/models/gemini-2.5-flash") {
+  return {
+    target_kind: "managed_model",
+    resource_name: resourceName,
+    display_name: resourceName.split("/").at(-1),
+    publisher: "google",
+    version: "2.5",
+    location: "us-central1",
+    capabilities: ["text_generation", "review"],
+    adapter_family: "gemini",
+    embedding_output_dimension: null,
+    source: "managed_api_model",
+  };
+}
+
 test("preload exposes review IPC bridge methods", async () => {
   const exposed = {};
   const invocations = [];
@@ -75,12 +90,19 @@ test("preload exposes review IPC bridge methods", async () => {
     sessionId: "rev_sess_123",
     customInstructions: "Focus on bugs",
   });
+  await exposed.gitOdysseyDesktop.api.sendChatMessage({
+    query: "Explain the latest auth changes",
+    repoPath: "/tmp/example-repo",
+    contextShas: ["abc123"],
+    targetOverride: buildGoogleTarget("publishers/google/models/gemini-2.5-pro"),
+  });
   await exposed.gitOdysseyDesktop.api.sendReviewChatMessage({
     sessionId: "rev_sess_123",
     runId: null,
-    modelId: "gpt-5.4-mini",
+    targetOverride: buildGoogleTarget(),
     message: "Explain the diff",
     codeContexts: [],
+    findingContexts: [],
     messages: [],
     reviewContext: null,
   });
@@ -117,15 +139,13 @@ test("preload exposes review IPC bridge methods", async () => {
   await exposed.gitOdysseyDesktop.settings.saveAiProfile({
     name: "Local runtime",
     config: {
-      schema_version: 1,
-      profiles: [],
+      schema_version: 2,
+      google_project_id: "git-odyssey-test",
+      google_location: "us-central1",
       capabilities: {
-        text_generation: {
-          provider_profile_id: "openai-default",
-          model_id: "gpt-5.4-mini",
-          temperature: 0.2,
-        },
+        text_generation: buildGoogleTarget(),
         embeddings: null,
+        review: buildGoogleTarget("publishers/google/models/gemini-2.5-pro"),
       },
     },
     secretValues: {},
@@ -155,32 +175,42 @@ test("preload exposes review IPC bridge methods", async () => {
     },
   ]);
   assert.deepEqual(invocations[6], [
+    "git-odyssey:api:send-chat-message",
+    {
+      query: "Explain the latest auth changes",
+      repoPath: "/tmp/example-repo",
+      contextShas: ["abc123"],
+      targetOverride: buildGoogleTarget("publishers/google/models/gemini-2.5-pro"),
+    },
+  ]);
+  assert.deepEqual(invocations[7], [
     "git-odyssey:api:send-review-chat-message",
     {
       sessionId: "rev_sess_123",
       runId: null,
-      modelId: "gpt-5.4-mini",
+      targetOverride: buildGoogleTarget(),
       message: "Explain the diff",
       codeContexts: [],
+      findingContexts: [],
       messages: [],
       reviewContext: null,
     },
   ]);
-  assert.deepEqual(invocations[7], [
+  assert.deepEqual(invocations[8], [
     "git-odyssey:api:get-review-run",
     {
       sessionId: "rev_sess_123",
       runId: "rev_run_456",
     },
   ]);
-  assert.deepEqual(invocations[8], [
+  assert.deepEqual(invocations[9], [
     "git-odyssey:api:cancel-review-run",
     {
       sessionId: "rev_sess_123",
       runId: "rev_run_456",
     },
   ]);
-  assert.deepEqual(invocations[9], [
+  assert.deepEqual(invocations[10], [
     "git-odyssey:api:respond-review-approval",
     {
       sessionId: "rev_sess_123",
@@ -189,11 +219,11 @@ test("preload exposes review IPC bridge methods", async () => {
       decision: "accept",
     },
   ]);
-  assert.deepEqual(invocations[10], [
+  assert.deepEqual(invocations[11], [
     "git-odyssey:settings:get-additional-review-guidelines",
     "/tmp/example-repo",
   ]);
-  assert.deepEqual(invocations[11], [
+  assert.deepEqual(invocations[12], [
     "git-odyssey:settings:save-additional-review-guidelines",
     {
       repoPath: "/tmp/example-repo",
@@ -206,32 +236,30 @@ test("preload exposes review IPC bridge methods", async () => {
       ],
     },
   ]);
-  assert.deepEqual(invocations[12], [
+  assert.deepEqual(invocations[13], [
     "git-odyssey:settings:save-review-settings",
     {
       pullRequestGuidelines: "Focus on auth",
     },
   ]);
-  assert.deepEqual(invocations[13], [
+  assert.deepEqual(invocations[14], [
     "git-odyssey:settings:save-ai-profile",
     {
       name: "Local runtime",
       config: {
-        schema_version: 1,
-        profiles: [],
+        schema_version: 2,
+        google_project_id: "git-odyssey-test",
+        google_location: "us-central1",
         capabilities: {
-          text_generation: {
-            provider_profile_id: "openai-default",
-            model_id: "gpt-5.4-mini",
-            temperature: 0.2,
-          },
+          text_generation: buildGoogleTarget(),
           embeddings: null,
+          review: buildGoogleTarget("publishers/google/models/gemini-2.5-pro"),
         },
       },
       secretValues: {},
     },
   ]);
-  assert.deepEqual(invocations[14], [
+  assert.deepEqual(invocations[15], [
     "git-odyssey:settings:delete-ai-profile",
     "profile_123",
   ]);
@@ -398,7 +426,7 @@ test("main process review handlers forward requests to the backend", async () =>
 
     async sendReviewChatMessage(input) {
       this.reviewChatCalls.push(input);
-      return { response: "Codex review chat reply" };
+      return { response: "Vertex review chat reply" };
     }
 
     async cancelRun(input) {
@@ -517,6 +545,7 @@ test("main process review handlers forward requests to the backend", async () =>
   const getSessionHandler = handlers.get("git-odyssey:api:get-review-session");
   const getHistoryHandler = handlers.get("git-odyssey:api:get-review-history");
   const startRunHandler = handlers.get("git-odyssey:api:start-review-run");
+  const chatHandler = handlers.get("git-odyssey:api:send-chat-message");
   const reviewChatHandler = handlers.get("git-odyssey:api:send-review-chat-message");
   const getRunHandler = handlers.get("git-odyssey:api:get-review-run");
   const cancelRunHandler = handlers.get("git-odyssey:api:cancel-review-run");
@@ -553,9 +582,16 @@ test("main process review handlers forward requests to the backend", async () =>
     sessionId: "rev_sess_123",
     customInstructions: "Focus on auth flows",
   });
+  await chatHandler({}, {
+    query: "Explain the repository history",
+    repoPath: "/tmp/example-repo",
+    contextShas: ["abc123"],
+    targetOverride: buildGoogleTarget("publishers/google/models/gemini-2.5-pro"),
+  });
   await reviewChatHandler({}, {
     sessionId: "rev_sess_123",
     runId: null,
+    targetOverride: buildGoogleTarget(),
     message: "Explain the review findings",
     codeContexts: [],
     findingContexts: [],
@@ -601,15 +637,13 @@ test("main process review handlers forward requests to the backend", async () =>
   await saveAiProfileHandler({}, {
     name: "Local runtime",
     config: {
-      schema_version: 1,
-      profiles: [],
+      schema_version: 2,
+      google_project_id: "git-odyssey-test",
+      google_location: "us-central1",
       capabilities: {
-        text_generation: {
-          provider_profile_id: "openai-default",
-          model_id: "gpt-5.4-mini",
-          temperature: 0.2,
-        },
+        text_generation: buildGoogleTarget(),
         embeddings: null,
+        review: buildGoogleTarget("publishers/google/models/gemini-2.5-pro"),
       },
     },
     secretValues: {},
@@ -679,10 +713,22 @@ test("main process review handlers forward requests to the backend", async () =>
     options: undefined,
   });
   assert.deepEqual(backendManagerInstance.requests[5], {
+    apiPath: "/api/chat",
+    options: {
+      method: "POST",
+      body: {
+        query: "Explain the repository history",
+        repo_path: "/tmp/example-repo",
+        context_shas: ["abc123"],
+        target_override: buildGoogleTarget("publishers/google/models/gemini-2.5-pro"),
+      },
+    },
+  });
+  assert.deepEqual(backendManagerInstance.requests[6], {
     apiPath: "/api/review/sessions/rev_sess_123/runs/rev_run_456",
     options: undefined,
   });
-  assert.deepEqual(backendManagerInstance.requests[6], {
+  assert.deepEqual(backendManagerInstance.requests[7], {
     apiPath: "/api/review/sessions/rev_sess_123/runs/rev_run_456",
     options: undefined,
   });
@@ -693,6 +739,7 @@ test("main process review handlers forward requests to the backend", async () =>
   assert.deepEqual(reviewRuntimeManagerInstance.reviewChatCalls[0], {
     sessionId: "rev_sess_123",
     runId: null,
+    targetOverride: buildGoogleTarget(),
     message: "Explain the review findings",
     codeContexts: [],
     findingContexts: [],

@@ -12,7 +12,11 @@ class ChatService:
         context, cited_commits_with_scores = self.retriever.get_context_with_citations(
             request.query, request.repo_path, request.context_shas
         )
-        response = self.ai.answer_question(request.query, context)
+        response = self.ai.answer_question(
+            request.query,
+            context,
+            target=request.target_override,
+        )
         cited_commits = [
             CitedCommit(
                 sha=commit["sha"],

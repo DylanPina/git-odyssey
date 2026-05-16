@@ -13,44 +13,57 @@ from sqlalchemy.exc import IntegrityError
 DEFAULT = object()
 
 
-def build_openai_runtime_config(
+def build_google_runtime_config(
     embeddings_binding=DEFAULT,
 ) -> str:
+    embeddings_target = {
+        "target_kind": "managed_model",
+        "resource_name": "publishers/google/models/text-embedding-005",
+        "display_name": "Text Embedding 005",
+        "publisher": "google",
+        "version": "005",
+        "location": "us-central1",
+        "capabilities": ["embeddings"],
+        "adapter_family": "text_embedding",
+        "embedding_output_dimension": 768,
+        "source": "managed_api_model",
+    }
     return json.dumps(
         {
-            "schema_version": 1,
-            "profiles": [
-                {
-                    "id": "openai-default",
-                    "provider_type": "openai",
-                    "label": "OpenAI",
-                    "auth_mode": "bearer",
-                    "api_key_secret_ref": "provider:openai-default:api-key",
-                    "supports_text_generation": True,
-                    "supports_embeddings": True,
-                }
-            ],
+            "schema_version": 2,
+            "google_project_id": "git-odyssey-test",
+            "google_location": "us-central1",
             "capabilities": {
                 "text_generation": {
-                    "provider_profile_id": "openai-default",
-                    "model_id": "gpt-5.4-mini",
-                    "temperature": 0.2,
+                    "target_kind": "managed_model",
+                    "resource_name": "publishers/google/models/gemini-2.5-flash",
+                    "display_name": "Gemini 2.5 Flash",
+                    "publisher": "google",
+                    "version": "2.5",
+                    "location": "us-central1",
+                    "capabilities": ["text_generation"],
+                    "adapter_family": "gemini",
+                    "source": "managed_api_model",
                 },
                 "embeddings": (
-                    {
-                        "provider_profile_id": "openai-default",
-                        "model_id": "text-embedding-3-small",
-                    }
+                    embeddings_target
                     if embeddings_binding is DEFAULT
                     else embeddings_binding
                 ),
+                "review": {
+                    "target_kind": "managed_model",
+                    "resource_name": "publishers/google/models/gemini-2.5-pro",
+                    "display_name": "Gemini 2.5 Pro",
+                    "publisher": "google",
+                    "version": "2.5",
+                    "location": "us-central1",
+                    "capabilities": ["review"],
+                    "adapter_family": "gemini",
+                    "source": "managed_api_model",
+                },
             },
         }
     )
-
-
-def build_openai_secret_values() -> str:
-    return json.dumps({"provider:openai-default:api-key": "sk-test"})
 
 
 def build_settings(**overrides) -> Settings:
@@ -93,8 +106,8 @@ class DesktopModeDependencyTests(unittest.TestCase):
 
     def test_desktop_health_reports_capability_status(self) -> None:
         settings = build_settings(
-            ai_runtime_config_json=build_openai_runtime_config(),
-            ai_secret_values_json=build_openai_secret_values(),
+            ai_runtime_config_json=build_google_runtime_config(),
+            ai_secret_values_json="{}",
         )
         session = Mock()
         (
@@ -105,14 +118,19 @@ class DesktopModeDependencyTests(unittest.TestCase):
 
         self.assertTrue(payload["authentication"]["desktop_backend_reachable"])
         self.assertTrue(payload["ai"]["text_generation"]["configured"])
-        self.assertTrue(payload["ai"]["text_generation"]["secret_present"])
         self.assertTrue(payload["ai"]["text_generation"]["ready"])
+        self.assertEqual(
+            payload["ai"]["text_generation"]["resource_name"],
+            "publishers/google/models/gemini-2.5-flash",
+        )
+        self.assertTrue(payload["ai"]["review"]["ready"])
+        self.assertEqual(payload["ai"]["google"]["project_id"], "git-odyssey-test")
         self.assertFalse(payload["ai"]["embeddings"]["reindex_required"])
 
     def test_desktop_health_flags_reindex_for_mismatched_embedding_profile(self) -> None:
         settings = build_settings(
-            ai_runtime_config_json=build_openai_runtime_config(),
-            ai_secret_values_json=build_openai_secret_values(),
+            ai_runtime_config_json=build_google_runtime_config(),
+            ai_secret_values_json="{}",
         )
         session = Mock()
         (
@@ -125,8 +143,8 @@ class DesktopModeDependencyTests(unittest.TestCase):
 
     def test_desktop_health_skips_reindex_query_when_embeddings_disabled(self) -> None:
         settings = build_settings(
-            ai_runtime_config_json=build_openai_runtime_config(embeddings_binding=None),
-            ai_secret_values_json=build_openai_secret_values(),
+            ai_runtime_config_json=build_google_runtime_config(embeddings_binding=None),
+            ai_secret_values_json="{}",
         )
         session = Mock()
 

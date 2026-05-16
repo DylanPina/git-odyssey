@@ -1,25 +1,28 @@
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-import json
+from __future__ import annotations
+
 from dataclasses import dataclass
 import time
 from typing import Any, Callable, Protocol
-from urllib.parse import urlparse
 
 import httpx
 
-from infrastructure.ai_runtime import AIRuntimeConfig, ProviderProfileConfig
+from infrastructure.ai_runtime import (
+    AIRuntimeConfig,
+    CapabilityName,
+    GoogleAITarget,
+)
 from infrastructure.errors import (
     AIAuthenticationError,
     AIConfigurationError,
     AIConnectionError,
     AIModelError,
-    AIRateLimitError,
     AIRequestError,
     AIUnsupportedCapabilityError,
 )
 from utils.logger import logger
-from utils.utils import redact_url_credentials
+
+GOOGLE_AUTH_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+DEFAULT_PUBLISHERS = ("google", "meta", "mistralai", "anthropic", "cohere")
 
 
 @dataclass
@@ -28,36 +31,103 @@ class EmbeddingResult:
     dimensions: int | None
 
 
-class ResponsesTextClient(Protocol):
+@dataclass
+class GoogleADCStatus:
+    ready: bool
+    project_id: str | None
+    message: str | None = None
+
+
+@dataclass
+class ModelGardenEntry:
+    id: str
+    resource_name: str
+    display_name: str
+    publisher: str | None
+    version: str | None
+    location: str
+    target_kind: str
+    source: str
+    capabilities: list[str]
+    adapter_family: str | None = None
+    deployable: bool = False
+    description: str | None = None
+
+    def as_target(self, capability: CapabilityName) -> GoogleAITarget:
+        capabilities = list(dict.fromkeys([*self.capabilities, capability]))
+        return GoogleAITarget(
+            target_kind="vertex_endpoint"
+            if self.target_kind == "vertex_endpoint"
+            else "managed_model",
+            resource_name=self.resource_name,
+            display_name=self.display_name,
+            publisher=self.publisher,
+            version=self.version,
+            location=self.location,
+            capabilities=capabilities,
+            adapter_family=self.adapter_family,
+            source=self.source,
+        )
+
+
+class TextGenerationClient(Protocol):
     def generate(
         self,
         *,
-        model: str,
+        target: GoogleAITarget,
         instructions: str,
         input_text: str,
         temperature: float,
-        reasoning_effort: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> str:
-        """Generate text using the provider's Responses-compatible endpoint."""
+        """Generate text with a validated Google AI target."""
 
 
 class EmbeddingClient(Protocol):
-    def embed(self, *, model: str, inputs: list[str]) -> EmbeddingResult:
-        """Create embeddings using the provider's embeddings endpoint."""
+    def embed(self, *, target: GoogleAITarget, inputs: list[str]) -> EmbeddingResult:
+        """Create embeddings with a validated Google AI target."""
 
 
-class ProviderRegistry(Protocol):
-    def get_profile(self, profile_id: str) -> ProviderProfileConfig:
-        """Return the configured provider profile for the given id."""
+class GoogleAIRegistry(Protocol):
+    config: AIRuntimeConfig
 
-    def get_text_client(self, profile_id: str) -> ResponsesTextClient:
-        """Return a Responses-compatible text client."""
+    def get_text_client(self) -> TextGenerationClient:
+        """Return a Google text-generation client."""
 
-    def get_embedding_client(self, profile_id: str) -> EmbeddingClient:
-        """Return an embeddings client."""
+    def get_embedding_client(self) -> EmbeddingClient:
+        """Return a Google embedding client."""
 
-    def get_secret_value(self, profile: ProviderProfileConfig) -> str | None:
-        """Return the resolved secret value for the provided profile."""
+    def list_model_garden(self) -> list[ModelGardenEntry]:
+        """Return normalized Model Garden and endpoint entries."""
+
+    def validate_target(
+        self, *, capability: CapabilityName, target: GoogleAITarget
+    ) -> dict[str, Any]:
+        """Run GitOdyssey's probe for a capability."""
+
+
+def check_adc_status() -> GoogleADCStatus:
+    try:
+        import google.auth
+        from google.auth.transport.requests import Request
+    except ImportError:
+        return GoogleADCStatus(
+            ready=False,
+            project_id=None,
+            message="Install google-auth to use Google Cloud ADC.",
+        )
+
+    try:
+        credentials, project_id = google.auth.default(scopes=[GOOGLE_AUTH_SCOPE])
+        credentials.refresh(Request())
+    except Exception as exc:  # pragma: no cover - exercised with mocked auth in tests
+        return GoogleADCStatus(
+            ready=False,
+            project_id=None,
+            message=f"Google ADC is not ready: {exc}",
+        )
+
+    return GoogleADCStatus(ready=True, project_id=project_id, message=None)
 
 
 def _extract_error_message(payload: Any, fallback: str) -> str:
@@ -73,402 +143,634 @@ def _extract_error_message(payload: Any, fallback: str) -> str:
     return fallback
 
 
-def _is_model_error(status_code: int, message: str) -> bool:
-    if status_code not in {400, 404, 422}:
-        return False
-    lowered = message.lower()
-    return "model" in lowered or "engine" in lowered
+def _infer_capabilities(resource_name: str, display_name: str) -> tuple[list[str], str | None]:
+    haystack = f"{resource_name} {display_name}".lower()
+    capabilities: list[str] = []
+    adapter_family: str | None = None
+
+    if "embedding" in haystack or "embed" in haystack:
+        capabilities.append("embeddings")
+        adapter_family = "text_embedding"
+
+    if "gemini" in haystack:
+        capabilities.extend(["text_generation", "review"])
+        adapter_family = adapter_family or "gemini"
+
+    if any(token in haystack for token in ("claude", "llama", "mistral", "command")):
+        capabilities.extend(["text_generation", "review"])
+        adapter_family = adapter_family or "vertex_predict_text"
+
+    return list(dict.fromkeys(capabilities)), adapter_family
 
 
-def _parse_sse_payload(body_text: str) -> dict[str, Any] | None:
-    if not body_text.strip():
+def _extract_prediction_text(payload: Any) -> str | None:
+    if isinstance(payload, str):
+        return payload.strip() or None
+    if not isinstance(payload, dict):
         return None
 
-    events: list[str] = []
-    current_event: list[str] = []
+    for key in ("content", "text", "output", "generated_text"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
 
-    for raw_line in body_text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            if current_event:
-                events.append("\n".join(current_event))
-                current_event = []
-            continue
-        if line.startswith(":"):
-            continue
-        if line.startswith("data:"):
-            current_event.append(line[5:].strip())
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            text = _extract_prediction_text(candidate)
+            if text:
+                return text
 
-    if current_event:
-        events.append("\n".join(current_event))
+    content = payload.get("content")
+    if isinstance(content, dict):
+        parts = content.get("parts")
+        if isinstance(parts, list):
+            texts = [
+                part.get("text")
+                for part in parts
+                if isinstance(part, dict) and isinstance(part.get("text"), str)
+            ]
+            joined = "".join(texts).strip()
+            if joined:
+                return joined
 
-    last_payload: dict[str, Any] | None = None
-    for event in events:
-        if not event or event == "[DONE]":
-            continue
-        try:
-            parsed = json.loads(event)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            last_payload = parsed
+    predictions = payload.get("predictions")
+    if isinstance(predictions, list):
+        for prediction in predictions:
+            text = _extract_prediction_text(prediction)
+            if text:
+                return text
 
-    return last_payload
+    return None
 
 
-def _parse_retry_after(headers: httpx.Headers) -> float | None:
-    raw_value = headers.get("retry-after")
-    if not raw_value:
+def _extract_embedding_values(payload: Any) -> list[float] | None:
+    if isinstance(payload, list) and all(isinstance(value, (int, float)) for value in payload):
+        return [float(value) for value in payload]
+
+    if not isinstance(payload, dict):
         return None
 
-    stripped = raw_value.strip()
-    if not stripped:
-        return None
+    embedding = payload.get("embedding")
+    if isinstance(embedding, dict):
+        values = embedding.get("values")
+        if isinstance(values, list):
+            return [float(value) for value in values]
+    if isinstance(embedding, list):
+        return [float(value) for value in embedding]
 
-    try:
-        return max(0.0, float(stripped))
-    except ValueError:
-        pass
+    embeddings = payload.get("embeddings")
+    if isinstance(embeddings, dict):
+        values = embeddings.get("values")
+        if isinstance(values, list):
+            return [float(value) for value in values]
+    if isinstance(embeddings, list):
+        return _extract_embedding_values(embeddings)
 
-    try:
-        parsed = parsedate_to_datetime(stripped)
-    except (TypeError, ValueError, IndexError, OverflowError):
-        return None
+    values = payload.get("values")
+    if isinstance(values, list) and all(isinstance(value, (int, float)) for value in values):
+        return [float(value) for value in values]
 
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-
-    return max(0.0, (parsed - datetime.now(timezone.utc)).total_seconds())
-
-
-def _summarize_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    summary: dict[str, Any] = {}
-    if "model" in payload:
-        summary["model"] = payload.get("model")
-    if "temperature" in payload:
-        summary["temperature"] = payload.get("temperature")
-    reasoning = payload.get("reasoning")
-    if isinstance(reasoning, dict) and "effort" in reasoning:
-        summary["reasoning_effort"] = reasoning.get("effort")
-
-    instructions = payload.get("instructions")
-    if isinstance(instructions, str):
-        summary["instructions_chars"] = len(instructions)
-
-    input_value = payload.get("input")
-    if isinstance(input_value, str):
-        summary["input_items"] = 1
-        summary["input_chars"] = len(input_value)
-    elif isinstance(input_value, list):
-        summary["input_items"] = len(input_value)
-        summary["input_chars"] = sum(
-            len(item) for item in input_value if isinstance(item, str)
-        )
-
-    return summary
+    return None
 
 
-def _summarize_response(path: str, body: Any) -> dict[str, Any]:
-    summary: dict[str, Any] = {"endpoint": path}
-
-    if not isinstance(body, dict):
-        summary["body_type"] = type(body).__name__
-        return summary
-
-    if path == "/v1/responses":
-        output_text = body.get("output_text")
-        if isinstance(output_text, str):
-            summary["output_chars"] = len(output_text)
-        else:
-            summary["output_items"] = len(body.get("output", []) or [])
-    elif path == "/v1/embeddings":
-        data = body.get("data", []) or []
-        if isinstance(data, list):
-            summary["embedding_count"] = len(data)
-            first_item = data[0] if data else None
-            first_embedding = (
-                first_item.get("embedding") if isinstance(first_item, dict) else None
-            )
-            if isinstance(first_embedding, list):
-                summary["embedding_dimensions"] = len(first_embedding)
-
-    return summary
-
-
-class OpenAIWireTransport:
+class GoogleVertexRestTransport:
     def __init__(
         self,
-        profile: ProviderProfileConfig,
-        api_key: str | None = None,
+        config: AIRuntimeConfig,
         client_factory: Callable[[], httpx.Client] | None = None,
+        token_provider: Callable[[], str] | None = None,
     ) -> None:
-        self.profile = profile
-        self.api_key = api_key
+        if not config.google_project_id:
+            raise AIConfigurationError("Google Cloud project ID is required.")
+        self.config = config
         self.client = (
             client_factory()
             if client_factory is not None
-            else httpx.Client(timeout=httpx.Timeout(30.0))
+            else httpx.Client(timeout=httpx.Timeout(60.0))
         )
+        self.token_provider = token_provider or self._load_adc_token
 
-    def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        if self.profile.auth_mode == "bearer":
-            if not self.api_key:
-                raise AIConfigurationError(
-                    f"Provider profile '{self.profile.id}' is missing an API key."
-                )
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        return headers
-
-    def _log_request(self, path: str, payload: dict[str, Any]) -> None:
-        url = self._resolve_url(path)
-        logger.info(
-            "AI request provider=%s type=%s url=%s endpoint=%s payload=%s",
-            self.profile.label,
-            self.profile.provider_type,
-            redact_url_credentials(url),
-            path,
-            _summarize_payload(payload),
-        )
-
-    def _log_response(
-        self,
-        path: str,
-        *,
-        status_code: int,
-        elapsed_ms: float,
-        body: Any,
-    ) -> None:
-        logger.info(
-            "AI response provider=%s endpoint=%s status=%s elapsed_ms=%.1f summary=%s",
-            self.profile.label,
-            path,
-            status_code,
-            elapsed_ms,
-            _summarize_response(path, body),
-        )
-
-    def _resolve_url(self, path: str) -> str:
-        base_url = self.profile.base_url or ""
-        if self.profile.provider_type != "openai_compatible":
-            return f"{base_url}{path}"
-
-        parsed = urlparse(base_url)
-        base_path = parsed.path.rstrip("/")
-        if base_path:
-            return base_url
-        return f"{base_url}{path}"
-
-    def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        url = self._resolve_url(path)
-        self._log_request(path, payload)
-        started_at = time.monotonic()
+    def _load_adc_token(self) -> str:
+        try:
+            import google.auth
+            from google.auth.transport.requests import Request
+        except ImportError as exc:
+            raise AIConfigurationError(
+                "Install google-auth to use Google Cloud ADC."
+            ) from exc
 
         try:
-            response = self.client.post(url, headers=self._headers(), json=payload)
-        except httpx.HTTPError as exc:
-            elapsed_ms = (time.monotonic() - started_at) * 1000
-            logger.exception(
-                "AI request failed provider=%s endpoint=%s elapsed_ms=%.1f",
-                self.profile.label,
-                path,
-                elapsed_ms,
+            credentials, _project_id = google.auth.default(scopes=[GOOGLE_AUTH_SCOPE])
+            credentials.refresh(Request())
+        except Exception as exc:  # pragma: no cover - exercised with mocked auth in tests
+            raise AIAuthenticationError(f"Google ADC is not ready: {exc}") from exc
+
+        token = getattr(credentials, "token", None)
+        if not token:
+            raise AIAuthenticationError("Google ADC did not return an access token.")
+        return str(token)
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.token_provider()}",
+            "Content-Type": "application/json",
+        }
+
+    def _api_base(self, location: str | None = None) -> str:
+        resolved_location = location or self.config.google_location
+        return f"https://{resolved_location}-aiplatform.googleapis.com/v1"
+
+    def resolve_resource(self, target: GoogleAITarget) -> str:
+        location = target.location or self.config.google_location
+        resource_name = target.resource_name.strip().lstrip("/")
+        if resource_name.startswith("projects/"):
+            return resource_name
+        if resource_name.startswith("publishers/"):
+            return (
+                f"projects/{self.config.google_project_id}/locations/{location}/"
+                f"{resource_name}"
             )
-            raise AIConnectionError(
-                f"Failed to reach provider '{self.profile.label}' at {self.profile.base_url}: {exc}"
-            ) from exc
+        if resource_name.startswith("endpoints/"):
+            return (
+                f"projects/{self.config.google_project_id}/locations/{location}/"
+                f"{resource_name}"
+            )
+        if "/models/" not in resource_name:
+            publisher = target.publisher or "google"
+            return (
+                f"projects/{self.config.google_project_id}/locations/{location}/"
+                f"publishers/{publisher}/models/{resource_name}"
+            )
+        return (
+            f"projects/{self.config.google_project_id}/locations/{location}/"
+            f"{resource_name}"
+        )
+
+    def request_json(
+        self,
+        method: str,
+        path_or_resource: str,
+        *,
+        location: str | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        url = (
+            path_or_resource
+            if path_or_resource.startswith("https://")
+            else f"{self._api_base(location)}"
+            f"/{path_or_resource.strip('/')}"
+        )
+        started_at = time.monotonic()
+        try:
+            response = self.client.request(
+                method,
+                url,
+                headers=self._headers(),
+                json=json_body,
+            )
+        except httpx.HTTPError as exc:
+            raise AIConnectionError(f"Failed to reach Google AI at {url}: {exc}") from exc
+
+        elapsed_ms = (time.monotonic() - started_at) * 1000
+        logger.info(
+            "Vertex AI request method=%s url=%s status=%s elapsed_ms=%.1f",
+            method,
+            url,
+            response.status_code,
+            elapsed_ms,
+        )
 
         body: Any = None
         if response.content:
             try:
                 body = response.json()
-            except ValueError:
-                content_type = response.headers.get("content-type", "")
-                if "text/event-stream" in content_type.lower():
-                    body = _parse_sse_payload(response.text)
-                else:
-                    body = None
-
-        elapsed_ms = (time.monotonic() - started_at) * 1000
-        self._log_response(
-            path,
-            status_code=response.status_code,
-            elapsed_ms=elapsed_ms,
-            body=body,
-        )
+            except ValueError as exc:
+                raise AIRequestError("Google AI returned a non-JSON response.") from exc
 
         if response.status_code >= 400:
-            self._raise_response_error(
-                path,
-                response.status_code,
+            message = _extract_error_message(
                 body,
-                response.headers,
+                f"Google AI returned status {response.status_code}.",
             )
+            if response.status_code in {401, 403}:
+                raise AIAuthenticationError(message)
+            if response.status_code in {400, 404, 422}:
+                raise AIModelError(message)
+            raise AIRequestError(message)
 
         if not isinstance(body, dict):
-            raise AIRequestError(
-                f"Provider '{self.profile.label}' returned a non-JSON response."
-            )
-
+            return {}
         return body
 
-    def _raise_response_error(
-        self,
-        path: str,
-        status_code: int,
-        body: Any,
-        headers: httpx.Headers | None = None,
-    ) -> None:
-        message = _extract_error_message(
-            body,
-            f"Provider '{self.profile.label}' returned status {status_code}.",
-        )
 
-        if status_code in {401, 403}:
-            raise AIAuthenticationError(message)
-        if status_code == 429:
-            raise AIRateLimitError(
-                message,
-                provider_label=self.profile.label,
-                status_code=status_code,
-                retry_after_seconds=_parse_retry_after(headers or httpx.Headers()),
-            )
-        if _is_model_error(status_code, message):
-            raise AIModelError(message)
-        if status_code == 404 and path in {"/v1/responses", "/v1/embeddings"}:
-            raise AIUnsupportedCapabilityError(message)
-        raise AIRequestError(message)
-
-
-class OpenAIWireResponsesClient:
-    def __init__(self, transport: OpenAIWireTransport) -> None:
+class GoogleVertexTextClient:
+    def __init__(self, transport: GoogleVertexRestTransport) -> None:
         self.transport = transport
 
     def generate(
         self,
         *,
-        model: str,
+        target: GoogleAITarget,
         instructions: str,
         input_text: str,
         temperature: float,
-        reasoning_effort: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> str:
+        if "text_generation" not in target.capabilities and "review" not in target.capabilities:
+            raise AIUnsupportedCapabilityError(
+                f"Target '{target.display_name}' is not validated for text generation."
+            )
+
+        adapter_family = target.adapter_family or (
+            "gemini" if target.target_kind == "managed_model" else "vertex_predict_text"
+        )
+        if adapter_family == "gemini" and target.target_kind == "managed_model":
+            return self._generate_content(
+                target=target,
+                instructions=instructions,
+                input_text=input_text,
+                temperature=temperature,
+                response_schema=response_schema,
+            )
+
+        return self._predict_text(
+            target=target,
+            instructions=instructions,
+            input_text=input_text,
+            temperature=temperature,
+        )
+
+    def _generate_content(
+        self,
+        *,
+        target: GoogleAITarget,
+        instructions: str,
+        input_text: str,
+        temperature: float,
+        response_schema: dict[str, Any] | None,
+    ) -> str:
+        resource = self.transport.resolve_resource(target)
+        generation_config: dict[str, Any] = {"temperature": temperature}
+        if response_schema is not None:
+            generation_config["responseMimeType"] = "application/json"
+            generation_config["responseSchema"] = response_schema
         payload = {
-            "model": model,
-            "instructions": instructions,
-            "input": input_text,
-            "temperature": temperature,
-            "store": False,
+            "systemInstruction": {"parts": [{"text": instructions}]},
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": input_text}],
+                }
+            ],
+            "generationConfig": generation_config,
         }
-        if reasoning_effort:
-            payload["reasoning"] = {"effort": reasoning_effort}
-        response = self.transport.post_json("/v1/responses", payload)
+        response = self.transport.request_json(
+            "POST",
+            f"{resource}:generateContent",
+            location=target.location,
+            json_body=payload,
+        )
+        text = _extract_prediction_text(response)
+        if text:
+            return text
+        raise AIRequestError("Google AI generateContent output did not include text.")
 
-        output_text = response.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            return output_text.strip()
+    def _predict_text(
+        self,
+        *,
+        target: GoogleAITarget,
+        instructions: str,
+        input_text: str,
+        temperature: float,
+    ) -> str:
+        resource = self.transport.resolve_resource(target)
+        prompt = f"{instructions.strip()}\n\n{input_text.strip()}".strip()
+        payload = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {"temperature": temperature},
+        }
+        response = self.transport.request_json(
+            "POST",
+            f"{resource}:predict",
+            location=target.location,
+            json_body=payload,
+        )
+        text = _extract_prediction_text(response)
+        if text:
+            return text
+        raise AIRequestError("Google AI prediction output did not include text.")
 
-        for item in response.get("output", []) or []:
-            if not isinstance(item, dict) or item.get("type") != "message":
-                continue
-            for content in item.get("content", []) or []:
-                if not isinstance(content, dict) or content.get("type") != "output_text":
-                    continue
-                text = content.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text.strip()
-                if isinstance(text, dict):
-                    value = text.get("value")
-                    if isinstance(value, str) and value.strip():
-                        return value.strip()
 
-        raise AIRequestError("Responses API output did not include text content.")
-
-
-class OpenAIWireEmbeddingClient:
-    def __init__(self, transport: OpenAIWireTransport) -> None:
+class GoogleVertexEmbeddingClient:
+    def __init__(self, transport: GoogleVertexRestTransport) -> None:
         self.transport = transport
 
-    def embed(self, *, model: str, inputs: list[str]) -> EmbeddingResult:
+    def embed(self, *, target: GoogleAITarget, inputs: list[str]) -> EmbeddingResult:
         if not inputs:
             return EmbeddingResult(embeddings=[], dimensions=None)
+        if "embeddings" not in target.capabilities:
+            raise AIUnsupportedCapabilityError(
+                f"Target '{target.display_name}' is not validated for embeddings."
+            )
 
-        payload = {
-            "model": model,
-            "input": inputs[0] if len(inputs) == 1 else inputs,
-        }
-        response = self.transport.post_json("/v1/embeddings", payload)
+        resource = self.transport.resolve_resource(target)
+        instances = [
+            {
+                "content": value,
+                "task_type": "RETRIEVAL_DOCUMENT",
+            }
+            for value in inputs
+        ]
+        payload: dict[str, Any] = {"instances": instances}
+        if target.embedding_output_dimension:
+            payload["parameters"] = {
+                "outputDimensionality": target.embedding_output_dimension
+            }
+        response = self.transport.request_json(
+            "POST",
+            f"{resource}:predict",
+            location=target.location,
+            json_body=payload,
+        )
+        predictions = response.get("predictions")
+        if not isinstance(predictions, list):
+            raise AIRequestError("Google AI embedding response did not include predictions.")
 
         embeddings: list[list[float]] = []
-        for item in response.get("data", []) or []:
-            if not isinstance(item, dict):
+        for prediction in predictions:
+            values = _extract_embedding_values(prediction)
+            if values is not None:
+                embeddings.append(values)
+
+        if not embeddings:
+            raise AIRequestError("Google AI embedding response did not include vectors.")
+        return EmbeddingResult(
+            embeddings=embeddings,
+            dimensions=len(embeddings[0]) if embeddings else None,
+        )
+
+
+class GoogleModelGardenCatalog:
+    def __init__(self, transport: GoogleVertexRestTransport) -> None:
+        self.transport = transport
+
+    def list(self) -> list[ModelGardenEntry]:
+        entries: list[ModelGardenEntry] = []
+        entries.extend(self._list_managed_models())
+        entries.extend(self._list_endpoints())
+
+        unique: dict[str, ModelGardenEntry] = {}
+        for entry in entries:
+            unique[entry.resource_name] = entry
+        return list(unique.values())
+
+    def _list_managed_models(self) -> list[ModelGardenEntry]:
+        entries: list[ModelGardenEntry] = []
+        for publisher in DEFAULT_PUBLISHERS:
+            try:
+                payload = self.transport.request_json(
+                    "GET",
+                    (
+                        f"projects/{self.transport.config.google_project_id}/"
+                        f"locations/{self.transport.config.google_location}/"
+                        f"publishers/{publisher}/models"
+                    ),
+                )
+            except AIRequestError:
                 continue
-            embedding = item.get("embedding")
-            if isinstance(embedding, list):
-                embeddings.append([float(value) for value in embedding])
 
-        if inputs and not embeddings:
-            raise AIRequestError("Embeddings API response did not include vectors.")
+            for item in payload.get("publisherModels", []) or payload.get("models", []) or []:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "")
+                model_id = name.split("/")[-1] if name else str(item.get("id") or "")
+                display_name = str(
+                    item.get("displayName")
+                    or item.get("display_name")
+                    or model_id
+                    or "Model Garden model"
+                )
+                capabilities, adapter_family = _infer_capabilities(name, display_name)
+                launch_stage = str(item.get("launchStage") or item.get("launch_stage") or "")
+                deployable = bool(item.get("deployable") or item.get("supportedActions"))
+                source = (
+                    "managed_api_model"
+                    if publisher == "google" and adapter_family in {"gemini", "text_embedding"}
+                    else "deployable_google_model"
+                    if publisher == "google"
+                    else "deployable_partner_model"
+                )
+                if not name and model_id:
+                    name = f"publishers/{publisher}/models/{model_id}"
+                entries.append(
+                    ModelGardenEntry(
+                        id=model_id or name,
+                        resource_name=name,
+                        display_name=display_name,
+                        publisher=publisher,
+                        version=launch_stage or None,
+                        location=self.transport.config.google_location,
+                        target_kind="managed_model",
+                        source=source,
+                        capabilities=capabilities,
+                        adapter_family=adapter_family,
+                        deployable=deployable,
+                        description=item.get("description"),
+                    )
+                )
+        return entries
 
-        dimensions = len(embeddings[0]) if embeddings else None
-        return EmbeddingResult(embeddings=embeddings, dimensions=dimensions)
+    def _list_endpoints(self) -> list[ModelGardenEntry]:
+        payload = self.transport.request_json(
+            "GET",
+            (
+                f"projects/{self.transport.config.google_project_id}/"
+                f"locations/{self.transport.config.google_location}/endpoints"
+            ),
+        )
+        entries: list[ModelGardenEntry] = []
+        for endpoint in payload.get("endpoints", []) or []:
+            if not isinstance(endpoint, dict):
+                continue
+            resource_name = str(endpoint.get("name") or "")
+            display_name = str(endpoint.get("displayName") or resource_name.split("/")[-1])
+            deployed_models = endpoint.get("deployedModels") or []
+            deployed_model_names = " ".join(
+                str(model.get("displayName") or model.get("model") or "")
+                for model in deployed_models
+                if isinstance(model, dict)
+            )
+            capabilities, adapter_family = _infer_capabilities(
+                resource_name,
+                f"{display_name} {deployed_model_names}",
+            )
+            if not capabilities:
+                capabilities = ["text_generation", "review"]
+                adapter_family = "vertex_predict_text"
+            entries.append(
+                ModelGardenEntry(
+                    id=resource_name.split("/")[-1],
+                    resource_name=resource_name,
+                    display_name=display_name,
+                    publisher=None,
+                    version=None,
+                    location=self.transport.config.google_location,
+                    target_kind="vertex_endpoint",
+                    source="vertex_endpoint",
+                    capabilities=capabilities,
+                    adapter_family=adapter_family,
+                    deployable=False,
+                    description=None,
+                )
+            )
+        return entries
 
 
-class HTTPProviderRegistry:
+class GoogleDeploymentService:
+    def __init__(self, transport: GoogleVertexRestTransport) -> None:
+        self.transport = transport
+
+    def construct_deployment_request(
+        self,
+        *,
+        model_resource_name: str,
+        endpoint_resource_name: str,
+        deployed_model_display_name: str,
+        machine_type: str,
+        accelerator_type: str | None = None,
+        accelerator_count: int | None = None,
+        min_replica_count: int = 1,
+        max_replica_count: int = 1,
+    ) -> dict[str, Any]:
+        machine_spec: dict[str, Any] = {"machineType": machine_type}
+        if accelerator_type:
+            machine_spec["acceleratorType"] = accelerator_type
+            machine_spec["acceleratorCount"] = accelerator_count or 1
+
+        return {
+            "endpoint": endpoint_resource_name,
+            "body": {
+                "deployedModel": {
+                    "model": model_resource_name,
+                    "displayName": deployed_model_display_name,
+                    "dedicatedResources": {
+                        "machineSpec": machine_spec,
+                        "minReplicaCount": min_replica_count,
+                        "maxReplicaCount": max_replica_count,
+                    },
+                },
+                "trafficSplit": {"0": 100},
+            },
+        }
+
+    def deploy(self, request: dict[str, Any]) -> dict[str, Any]:
+        endpoint = str(request["endpoint"])
+        return self.transport.request_json(
+            "POST",
+            f"{endpoint}:deployModel",
+            json_body=request["body"],
+        )
+
+    def poll_operation(self, operation_name: str) -> dict[str, Any]:
+        return self.transport.request_json("GET", operation_name)
+
+
+class GoogleVertexRegistry:
     def __init__(
         self,
         config: AIRuntimeConfig,
-        secret_values: dict[str, str],
         client_factory: Callable[[], httpx.Client] | None = None,
+        token_provider: Callable[[], str] | None = None,
     ) -> None:
         self.config = config
-        self.secret_values = secret_values
-        self.client_factory = client_factory
-        self._transports: dict[str, OpenAIWireTransport] = {}
-        self._text_clients: dict[str, OpenAIWireResponsesClient] = {}
-        self._embedding_clients: dict[str, OpenAIWireEmbeddingClient] = {}
-
-    def get_profile(self, profile_id: str) -> ProviderProfileConfig:
-        return self.config.get_profile(profile_id)
-
-    def get_secret_value(self, profile: ProviderProfileConfig) -> str | None:
-        if not profile.api_key_secret_ref:
-            return None
-        return self.secret_values.get(profile.api_key_secret_ref)
-
-    def _get_transport(self, profile_id: str) -> OpenAIWireTransport:
-        if profile_id in self._transports:
-            return self._transports[profile_id]
-
-        profile = self.get_profile(profile_id)
-        transport = OpenAIWireTransport(
-            profile=profile,
-            api_key=self.get_secret_value(profile),
-            client_factory=self.client_factory,
+        self.transport = GoogleVertexRestTransport(
+            config=config,
+            client_factory=client_factory,
+            token_provider=token_provider,
         )
-        self._transports[profile_id] = transport
-        return transport
+        self._text_client: GoogleVertexTextClient | None = None
+        self._embedding_client: GoogleVertexEmbeddingClient | None = None
+        self._catalog: GoogleModelGardenCatalog | None = None
+        self._deployment: GoogleDeploymentService | None = None
 
-    def get_text_client(self, profile_id: str) -> ResponsesTextClient:
-        profile = self.get_profile(profile_id)
-        if not profile.supports_text_generation:
-            raise AIUnsupportedCapabilityError(
-                f"Provider profile '{profile.id}' does not support text generation."
-            )
-        if profile_id not in self._text_clients:
-            self._text_clients[profile_id] = OpenAIWireResponsesClient(
-                self._get_transport(profile_id)
-            )
-        return self._text_clients[profile_id]
+    def get_text_client(self) -> TextGenerationClient:
+        if self._text_client is None:
+            self._text_client = GoogleVertexTextClient(self.transport)
+        return self._text_client
 
-    def get_embedding_client(self, profile_id: str) -> EmbeddingClient:
-        profile = self.get_profile(profile_id)
-        if not profile.supports_embeddings:
-            raise AIUnsupportedCapabilityError(
-                f"Provider profile '{profile.id}' does not support embeddings."
+    def get_embedding_client(self) -> EmbeddingClient:
+        if self._embedding_client is None:
+            self._embedding_client = GoogleVertexEmbeddingClient(self.transport)
+        return self._embedding_client
+
+    def get_deployment_service(self) -> GoogleDeploymentService:
+        if self._deployment is None:
+            self._deployment = GoogleDeploymentService(self.transport)
+        return self._deployment
+
+    def list_model_garden(self) -> list[ModelGardenEntry]:
+        if self._catalog is None:
+            self._catalog = GoogleModelGardenCatalog(self.transport)
+        return self._catalog.list()
+
+    def validate_target(
+        self, *, capability: CapabilityName, target: GoogleAITarget
+    ) -> dict[str, Any]:
+        target = target.with_location(self.config.google_location)
+        if capability in {"text_generation", "review"}:
+            instructions = (
+                "You are GitOdyssey's structured review validator. "
+                "Return JSON only."
+                if capability == "review"
+                else "You are GitOdyssey's AI endpoint validator."
             )
-        if profile_id not in self._embedding_clients:
-            self._embedding_clients[profile_id] = OpenAIWireEmbeddingClient(
-                self._get_transport(profile_id)
+            input_text = (
+                (
+                    'Return {"summary":"ready","findings":[]} as valid JSON. '
+                    "Do not add markdown."
+                )
+                if capability == "review"
+                else "Reply with READY."
             )
-        return self._embedding_clients[profile_id]
+            response_schema = (
+                {
+                    "type": "object",
+                    "required": ["summary", "findings"],
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "findings": {"type": "array"},
+                    },
+                }
+                if capability == "review"
+                else None
+            )
+            output = self.get_text_client().generate(
+                target=target,
+                instructions=instructions,
+                input_text=input_text,
+                temperature=0.0,
+                response_schema=response_schema,
+            )
+            if capability == "review":
+                import json
+
+                parsed = json.loads(output)
+                if not isinstance(parsed.get("findings"), list):
+                    raise AIRequestError("Review validation JSON did not include findings.")
+            return {
+                "ready": True,
+                "message": "Validated successfully.",
+            }
+
+        result = self.get_embedding_client().embed(
+            target=target,
+            inputs=["GitOdyssey semantic search readiness probe"],
+        )
+        if result.dimensions is None:
+            raise AIRequestError("Embedding validation did not observe vector dimensions.")
+        return {
+            "ready": True,
+            "message": f"Validated successfully (dimension {result.dimensions}).",
+            "embedding_output_dimension": result.dimensions,
+        }

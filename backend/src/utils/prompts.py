@@ -187,6 +187,7 @@ def build_review_report_prompt(
     deletions: int,
     partial: bool,
     reviewed_files: str,
+    applied_instructions: str | None = None,
 ) -> tuple[str, str]:
     review_target_lines = (
         [
@@ -217,6 +218,9 @@ Diff Stats:
 
 Context Note:
   {"This review is partial because the diff exceeded GitOdyssey's v1 review limits. Base your findings only on the included files and hunks." if partial else "This review includes the full v1 review context for the selected diff."}
+
+Review Guidance:
+{applied_instructions.strip() if applied_instructions else "Use GitOdyssey's default code-review guidance only."}
 
 Reviewed Files:
 {reviewed_files}

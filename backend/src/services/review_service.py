@@ -549,8 +549,13 @@ class ReviewGenerationService:
             deletions=compare.stats.deletions,
             partial=partial,
             reviewed_files=reviewed_files,
+            applied_instructions=request.applied_instructions,
         )
-        raw_output = self.ai_engine.generate_text(instructions, input_text)
+        raw_output = self.ai_engine.generate_structured_text(
+            instructions,
+            input_text,
+            response_schema=self._review_output_schema(),
+        )
         parsed = self._parse_review_output(raw_output)
 
         findings = [
@@ -690,6 +695,44 @@ class ReviewGenerationService:
             return candidate[start : end + 1]
 
         return candidate
+
+    def _review_output_schema(self) -> dict:
+        return {
+            "type": "object",
+            "required": ["summary", "findings"],
+            "properties": {
+                "summary": {"type": "string"},
+                "findings": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "severity",
+                            "title",
+                            "body",
+                            "file_path",
+                            "new_start",
+                            "old_start",
+                        ],
+                        "properties": {
+                            "severity": {
+                                "type": "string",
+                                "enum": ["high", "medium", "low"],
+                            },
+                            "title": {"type": "string"},
+                            "body": {"type": "string"},
+                            "file_path": {"type": "string"},
+                            "new_start": {
+                                "anyOf": [{"type": "integer"}, {"type": "null"}]
+                            },
+                            "old_start": {
+                                "anyOf": [{"type": "integer"}, {"type": "null"}]
+                            },
+                        },
+                    },
+                },
+            },
+        }
 
     def _normalize_severity(self, severity: str) -> str:
         normalized = severity.strip().lower()

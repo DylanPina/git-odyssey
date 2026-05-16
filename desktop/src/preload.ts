@@ -61,6 +61,7 @@ const bridge = {
       query: string;
       repoPath: string;
       contextShas: string[];
+      targetOverride?: ReviewChatRequestInput["targetOverride"];
     }) => invoke("git-odyssey:api:send-chat-message", input),
     sendReviewChatMessage: (input: ReviewChatRequestInput) =>
       invoke("git-odyssey:api:send-review-chat-message", input),
@@ -143,6 +144,14 @@ const bridge = {
       invoke("git-odyssey:settings:save-review-settings", input),
     validateAiConfig: (input: DesktopAiConfigInput) =>
       invoke("git-odyssey:settings:validate-ai-config", input),
+    listGoogleModelGarden: (input: {
+      googleProjectId: string;
+      googleLocation: string;
+    }) => invoke("git-odyssey:settings:list-google-model-garden", input),
+    validateGoogleTarget: (input: unknown) =>
+      invoke("git-odyssey:settings:validate-google-target", input),
+    deployGoogleModel: (input: unknown) =>
+      invoke("git-odyssey:settings:deploy-google-model", input),
     saveAiProfile: (input: DesktopAiProfileSaveInput) =>
       invoke("git-odyssey:settings:save-ai-profile", input),
     deleteAiProfile: (profileId: string) =>

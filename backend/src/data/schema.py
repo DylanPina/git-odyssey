@@ -59,6 +59,11 @@ class SQLEmbeddingProfile(Base):
     provider_type: Mapped[str] = mapped_column(String(64))
     base_url: Mapped[str] = mapped_column(Text)
     model_id: Mapped[str] = mapped_column(Text)
+    target_kind: Mapped[Optional[str]] = mapped_column(String(64))
+    resource_name: Mapped[Optional[str]] = mapped_column(Text)
+    google_project_id: Mapped[Optional[str]] = mapped_column(Text)
+    google_location: Mapped[Optional[str]] = mapped_column(String(128))
+    adapter_family: Mapped[Optional[str]] = mapped_column(String(128))
     observed_dimension: Mapped[Optional[int]]
     ast_schema_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -272,7 +277,7 @@ class SQLReviewRun(Base):
         String(64), default="default"
     )
     include_optional_retrieval: Mapped[bool] = mapped_column(Boolean, default=False)
-    mode: Mapped[str] = mapped_column(String(64), default="native_review")
+    mode: Mapped[str] = mapped_column(String(64), default="non_agentic_review")
     status: Mapped[str] = mapped_column(String(32), default="pending")
     phase: Mapped[str] = mapped_column(String(32), default="queued")
     partial: Mapped[bool] = mapped_column(Boolean, default=False)

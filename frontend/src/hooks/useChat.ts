@@ -1,18 +1,22 @@
 import { useState, useCallback, useEffect } from "react";
 import { sendChatMessage } from "@/api/api";
 import type { ChatMessage, Citation } from "@/lib/definitions/chat";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 import type { Commit } from "@/lib/definitions/repo";
 import { getRepoStableKey } from "@/lib/repoPaths";
 
 export interface UseChatProps {
 	repoPath?: string | null;
 	filteredCommits?: Commit[];
+	initialTarget?: GoogleAITarget | null;
 }
 
 export interface UseChatReturn {
 	chatMessages: ChatMessage[];
 	isChatLoading: boolean;
 	chatError: string | null;
+	selectedTarget: GoogleAITarget | null;
+	setSelectedTarget: (value: GoogleAITarget | null) => void;
 	sendMessage: (message: string) => Promise<void>;
 	clearMessages: () => void;
 	clearError: () => void;
@@ -23,11 +27,17 @@ export interface UseChatReturn {
 export const useChat = ({
 	repoPath,
 	filteredCommits = [],
+	initialTarget,
 }: UseChatProps): UseChatReturn => {
 	// Generate a unique storage key based on repository
 	const getStorageKey = useCallback(() => {
 		if (!repoPath) return null;
 		return `git-odyssey-chat-${getRepoStableKey(repoPath)}`;
+	}, [repoPath]);
+
+	const getTargetStorageKey = useCallback(() => {
+		if (!repoPath) return null;
+		return `git-odyssey-chat-target-${getRepoStableKey(repoPath)}`;
 	}, [repoPath]);
 
 	// Load messages from localStorage on initialization
@@ -90,6 +100,10 @@ export const useChat = ({
 	const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
 	const [chatError, setChatError] = useState<string | null>(null);
 	const [isInitialized, setIsInitialized] = useState<boolean>(false);
+	const [selectedTarget, setSelectedTargetState] = useState<GoogleAITarget | null>(
+		initialTarget ?? null,
+	);
+	const defaultTarget = initialTarget ?? null;
 
 	// Load messages from localStorage when the hook initializes or repository changes
 	useEffect(() => {
@@ -102,6 +116,14 @@ export const useChat = ({
 
 		const messages = loadMessagesFromStorage();
 		setChatMessages(messages);
+		try {
+			const storedTarget = localStorage.getItem(getTargetStorageKey() || "");
+			setSelectedTargetState(
+				storedTarget ? JSON.parse(storedTarget) : initialTarget ?? null,
+			);
+		} catch {
+			setSelectedTargetState(initialTarget ?? null);
+		}
 		setIsInitialized(true);
 
 		// Debug logging to confirm loading
@@ -110,7 +132,12 @@ export const useChat = ({
 				`Loaded ${messages.length} chat messages for ${repoPath}`
 			);
 		}
-	}, [loadMessagesFromStorage, repoPath]);
+	}, [
+		getTargetStorageKey,
+		initialTarget,
+		loadMessagesFromStorage,
+		repoPath,
+	]);
 
 	// Save messages to localStorage whenever chatMessages changes
 	useEffect(() => {
@@ -135,6 +162,41 @@ export const useChat = ({
 		);
 	}, [chatMessages, saveMessagesToStorage, repoPath, isInitialized]);
 
+	useEffect(() => {
+		if (!repoPath || !isInitialized) {
+			return;
+		}
+
+		const storageKey = getTargetStorageKey();
+		if (!storageKey) {
+			return;
+		}
+
+		try {
+			if (
+				JSON.stringify(selectedTarget ?? null) ===
+				JSON.stringify(defaultTarget ?? null)
+			) {
+				localStorage.removeItem(storageKey);
+				return;
+			}
+
+			localStorage.setItem(storageKey, JSON.stringify(selectedTarget));
+		} catch (error) {
+			console.error("Failed to save chat target to localStorage:", error);
+		}
+	}, [
+		defaultTarget,
+		getTargetStorageKey,
+		isInitialized,
+		repoPath,
+		selectedTarget,
+	]);
+
+	const setSelectedTarget = useCallback((value: GoogleAITarget | null) => {
+		setSelectedTargetState(value);
+	}, []);
+
 	const sendMessage = useCallback(
 		async (message: string) => {
 			if (!repoPath) return;
@@ -156,7 +218,12 @@ export const useChat = ({
 			const contextShas = filteredCommits.map((commit) => commit.sha);
 
 			try {
-				const response = await sendChatMessage(message, repoPath, contextShas);
+				const response = await sendChatMessage(
+					message,
+					repoPath,
+					contextShas,
+					selectedTarget,
+				);
 				const citedCommits = response.cited_commits || [];
 				console.log("Full API response:", response);
 				console.log("Cited commits raw data:", citedCommits);
@@ -191,7 +258,11 @@ export const useChat = ({
 				setIsChatLoading(false);
 			}
 		},
-		[repoPath, filteredCommits]
+		[
+			repoPath,
+			filteredCommits,
+			selectedTarget,
+		]
 	);
 
 	const clearMessages = useCallback(() => {
@@ -215,7 +286,10 @@ export const useChat = ({
 		try {
 			const keys = Object.keys(localStorage);
 			keys.forEach((key) => {
-				if (key.startsWith("git-odyssey-chat-")) {
+				if (
+					key.startsWith("git-odyssey-chat-") ||
+					key.startsWith("git-odyssey-chat-target-")
+				) {
 					localStorage.removeItem(key);
 				}
 			});
@@ -236,6 +310,8 @@ export const useChat = ({
 		chatMessages,
 		isChatLoading,
 		chatError,
+		selectedTarget,
+		setSelectedTarget,
 		sendMessage,
 		clearMessages,
 		clearError,

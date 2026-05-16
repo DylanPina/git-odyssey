@@ -1,4 +1,5 @@
-from infrastructure.ai_clients import ResponsesTextClient
+from infrastructure.ai_clients import TextGenerationClient
+from infrastructure.ai_runtime import GoogleAITarget
 
 from utils.prompts import (
     build_question_prompt,
@@ -13,31 +14,61 @@ from data.data_model import DiffHunk, FileChange, Commit
 class AIEngine:
     def __init__(
         self,
-        client: ResponsesTextClient,
-        model: str = "gpt-5.4-mini",
+        client: TextGenerationClient,
+        target: GoogleAITarget,
         temperature: float = 0.2,
-        reasoning_effort: str | None = None,
     ):
         self.client = client
-        self.model = model
+        self.target = target
         self.temperature = temperature
-        self.reasoning_effort = reasoning_effort
 
-    def _invoke(self, instructions: str, input_text: str) -> str:
+    def _invoke(
+        self,
+        instructions: str,
+        input_text: str,
+        target: GoogleAITarget | None = None,
+        response_schema: dict | None = None,
+    ) -> str:
         return self.client.generate(
-            model=self.model,
+            target=target or self.target,
             temperature=self.temperature,
-            reasoning_effort=self.reasoning_effort,
             instructions=instructions,
             input_text=input_text,
+            response_schema=response_schema,
         )
 
-    def generate_text(self, instructions: str, input_text: str) -> str:
-        return self._invoke(instructions, input_text)
+    def generate_text(
+        self,
+        instructions: str,
+        input_text: str,
+        target: GoogleAITarget | None = None,
+    ) -> str:
+        return self._invoke(instructions, input_text, target=target)
 
-    def answer_question(self, question: str, context: str) -> str:
+    def generate_structured_text(
+        self,
+        instructions: str,
+        input_text: str,
+        response_schema: dict | None = None,
+    ) -> str:
+        return self._invoke(
+            instructions,
+            input_text,
+            response_schema=response_schema,
+        )
+
+    def answer_question(
+        self,
+        question: str,
+        context: str,
+        target: GoogleAITarget | None = None,
+    ) -> str:
         instructions, input_text = build_question_prompt(question, context)
-        return self._invoke(instructions, input_text)
+        return self._invoke(
+            instructions,
+            input_text,
+            target=target,
+        )
 
     def summarize_hunk(self, hunk: DiffHunk) -> str:
         """Generate a summary for a diff hunk using raw content."""

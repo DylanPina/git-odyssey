@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+	ChatTargetPicker,
+} from "@/components/ui/custom/ChatTargetPicker";
 import { EmptyState } from "@/components/ui/empty-state";
 import { InlineBanner } from "@/components/ui/inline-banner";
 import { SidebarGroup } from "@/components/ui/sidebar";
@@ -9,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Citations } from "@/components/ui/custom/Citations";
 import { MarkdownRenderer } from "@/components/ui/custom/MarkdownRenderer";
 import type { ChatMessage } from "@/lib/definitions/chat";
+import type { GoogleAITarget } from "@/lib/definitions/desktop";
 
 interface ChatProps {
 	onSendMessage?: (message: string) => void;
@@ -16,6 +20,9 @@ interface ChatProps {
 	isLoading?: boolean;
 	error?: string | null;
 	onCommitClick?: (commitSha: string) => void;
+	selectedTarget?: GoogleAITarget | null;
+	configuredTarget?: GoogleAITarget | null;
+	onSelectedTargetChange?: (value: GoogleAITarget | null) => void;
 }
 
 export default function Chat({
@@ -24,6 +31,9 @@ export default function Chat({
 	isLoading = false,
 	error = null,
 	onCommitClick,
+	selectedTarget = null,
+	configuredTarget = null,
+	onSelectedTargetChange,
 }: ChatProps) {
 	const [inputMessage, setInputMessage] = useState("");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -127,18 +137,27 @@ export default function Chat({
 							onChange={(event) => setInputMessage(event.target.value)}
 							onKeyDown={handleKeyDown}
 							placeholder="Ask about this repository..."
-							className="min-h-[96px] resize-none pr-12"
+							className="min-h-[96px] resize-none pb-11 pr-[10.75rem]"
 							disabled={isLoading}
 						/>
-						<Button
-							onClick={handleSendMessage}
-							disabled={!inputMessage.trim() || isLoading}
-							variant="accent"
-							size="icon-sm"
-							className="absolute right-2 bottom-2"
-						>
-							<Send className="size-4" />
-						</Button>
+						<div className="absolute right-2 bottom-2 flex items-center gap-2">
+								<ChatTargetPicker
+									value={selectedTarget}
+									configuredTarget={configuredTarget}
+									onChange={(value) => onSelectedTargetChange?.(value)}
+								disabled={isLoading}
+								description="Per-chat target overrides must already pass validation before use."
+							/>
+							<Button
+								onClick={handleSendMessage}
+								disabled={!inputMessage.trim() || isLoading}
+								variant="accent"
+								size="icon-sm"
+								aria-label="Send message"
+							>
+								<Send className="size-4" />
+							</Button>
+						</div>
 					</div>
 					<p className="mt-2 text-xs text-text-tertiary">
 						Press Enter to send. Use Shift+Enter for a new line.

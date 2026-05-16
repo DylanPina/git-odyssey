@@ -120,15 +120,17 @@ test("backend manager reports postgres startup failures with actionable health d
                 databaseSslMode: "disable",
                 logDir,
                 dataDir,
-                aiRuntimeConfig: {
-                  schema_version: 1,
-                  profiles: [],
-                  capabilities: {
-                    text_generation: null,
-                    embeddings: null,
-                  },
-                },
-              };
+	                aiRuntimeConfig: {
+	                  schema_version: 2,
+	                  google_project_id: null,
+	                  google_location: "us-central1",
+	                  capabilities: {
+	                    text_generation: null,
+	                    embeddings: null,
+	                    review: null,
+	                  },
+	                },
+	              };
             },
             getStatus() {
               return {
@@ -137,37 +139,63 @@ test("backend manager reports postgres startup failures with actionable health d
                 dataDir,
                 logDir,
                 databaseUrlConfigured: true,
-                aiRuntimeConfig: {
-                  schema_version: 1,
-                  profiles: [],
-                  capabilities: {
-                    text_generation: null,
-                    embeddings: null,
-                  },
-                },
-                ai: {
-                  textGeneration: {
-                    configured: false,
-                    ready: false,
-                    providerType: null,
-                    modelId: null,
-                    baseUrl: null,
-                    authMode: null,
-                    secretPresent: false,
-                    message: "Disabled",
-                  },
-                  embeddings: {
-                    configured: false,
-                    ready: false,
-                    providerType: null,
-                    modelId: null,
-                    baseUrl: null,
-                    authMode: null,
-                    secretPresent: false,
-                    message: "Disabled",
-                  },
-                },
-              };
+	                aiRuntimeConfig: {
+	                  schema_version: 2,
+	                  google_project_id: null,
+	                  google_location: "us-central1",
+	                  capabilities: {
+	                    text_generation: null,
+	                    embeddings: null,
+	                    review: null,
+	                  },
+	                },
+	                ai: {
+	                  google: {
+	                    projectId: null,
+	                    location: "us-central1",
+	                    adcReady: false,
+	                    adcProjectId: null,
+	                    message: "Google Cloud project ID is required.",
+	                  },
+	                  textGeneration: {
+	                    configured: false,
+	                    ready: false,
+	                    targetKind: null,
+	                    resourceName: null,
+	                    displayName: null,
+	                    publisher: null,
+	                    version: null,
+	                    location: "us-central1",
+	                    adapterFamily: null,
+	                    message: "No Google AI target is configured for this capability.",
+	                  },
+	                  embeddings: {
+	                    configured: false,
+	                    ready: false,
+	                    targetKind: null,
+	                    resourceName: null,
+	                    displayName: null,
+	                    publisher: null,
+	                    version: null,
+	                    location: "us-central1",
+	                    adapterFamily: null,
+	                    embeddingOutputDimension: null,
+	                    message: "Semantic search is disabled.",
+	                  },
+	                  review: {
+	                    configured: false,
+	                    ready: false,
+	                    targetKind: null,
+	                    resourceName: null,
+	                    displayName: null,
+	                    publisher: null,
+	                    version: null,
+	                    location: "us-central1",
+	                    adapterFamily: null,
+	                    message: "No Google AI target is configured for this capability.",
+	                  },
+	                },
+	              };
             },
           },
           keychain: {
@@ -282,15 +310,17 @@ test("backend manager summarizes raw pgvector bootstrap SQL failures", async () 
                 databaseSslMode: "disable",
                 logDir,
                 dataDir,
-                aiRuntimeConfig: {
-                  schema_version: 1,
-                  profiles: [],
-                  capabilities: {
-                    text_generation: null,
-                    embeddings: null,
-                  },
-                },
-              };
+	                aiRuntimeConfig: {
+	                  schema_version: 2,
+	                  google_project_id: null,
+	                  google_location: "us-central1",
+	                  capabilities: {
+	                    text_generation: null,
+	                    embeddings: null,
+	                    review: null,
+	                  },
+	                },
+	              };
             },
             getStatus() {
               return {
@@ -299,37 +329,63 @@ test("backend manager summarizes raw pgvector bootstrap SQL failures", async () 
                 dataDir,
                 logDir,
                 databaseUrlConfigured: true,
-                aiRuntimeConfig: {
-                  schema_version: 1,
-                  profiles: [],
-                  capabilities: {
-                    text_generation: null,
-                    embeddings: null,
-                  },
-                },
-                ai: {
-                  textGeneration: {
-                    configured: false,
-                    ready: false,
-                    providerType: null,
-                    modelId: null,
-                    baseUrl: null,
-                    authMode: null,
-                    secretPresent: false,
-                    message: "Disabled",
-                  },
-                  embeddings: {
-                    configured: false,
-                    ready: false,
-                    providerType: null,
-                    modelId: null,
-                    baseUrl: null,
-                    authMode: null,
-                    secretPresent: false,
-                    message: "Disabled",
-                  },
-                },
-              };
+	                aiRuntimeConfig: {
+	                  schema_version: 2,
+	                  google_project_id: null,
+	                  google_location: "us-central1",
+	                  capabilities: {
+	                    text_generation: null,
+	                    embeddings: null,
+	                    review: null,
+	                  },
+	                },
+	                ai: {
+	                  google: {
+	                    projectId: null,
+	                    location: "us-central1",
+	                    adcReady: false,
+	                    adcProjectId: null,
+	                    message: "Google Cloud project ID is required.",
+	                  },
+	                  textGeneration: {
+	                    configured: false,
+	                    ready: false,
+	                    targetKind: null,
+	                    resourceName: null,
+	                    displayName: null,
+	                    publisher: null,
+	                    version: null,
+	                    location: "us-central1",
+	                    adapterFamily: null,
+	                    message: "No Google AI target is configured for this capability.",
+	                  },
+	                  embeddings: {
+	                    configured: false,
+	                    ready: false,
+	                    targetKind: null,
+	                    resourceName: null,
+	                    displayName: null,
+	                    publisher: null,
+	                    version: null,
+	                    location: "us-central1",
+	                    adapterFamily: null,
+	                    embeddingOutputDimension: null,
+	                    message: "Semantic search is disabled.",
+	                  },
+	                  review: {
+	                    configured: false,
+	                    ready: false,
+	                    targetKind: null,
+	                    resourceName: null,
+	                    displayName: null,
+	                    publisher: null,
+	                    version: null,
+	                    location: "us-central1",
+	                    adapterFamily: null,
+	                    message: "No Google AI target is configured for this capability.",
+	                  },
+	                },
+	              };
             },
           },
           keychain: {

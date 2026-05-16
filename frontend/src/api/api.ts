@@ -23,6 +23,12 @@ import type {
   DesktopAiConfigInput,
   DesktopAiProfileSaveInput,
   DesktopAiValidationResult,
+  GoogleAITarget,
+  GoogleDeploymentInput,
+  GoogleDeploymentResult,
+  GoogleModelGardenListResponse,
+  GoogleTargetValidationInput,
+  GoogleTargetValidationResult,
   DesktopReviewSettings,
   DesktopRepoSettings,
   DesktopRepoSettingsSaveInput,
@@ -113,11 +119,13 @@ export const sendChatMessage = async (
   query: string,
   repoPath: string,
   contextShas: string[],
+  targetOverride?: GoogleAITarget | null,
 ): Promise<ChatResponse> => {
   return getDesktopBridge().api.sendChatMessage({
     query,
     repoPath,
     contextShas,
+    targetOverride,
   });
 };
 
@@ -278,6 +286,25 @@ export const validateDesktopAiConfig = async (
   input: DesktopAiConfigInput,
 ): Promise<DesktopAiValidationResult> => {
   return getDesktopBridge().settings.validateAiConfig(input);
+};
+
+export const listGoogleModelGarden = async (input: {
+  googleProjectId: string;
+  googleLocation: string;
+}): Promise<GoogleModelGardenListResponse> => {
+  return getDesktopBridge().settings.listGoogleModelGarden(input);
+};
+
+export const validateGoogleTarget = async (
+  input: GoogleTargetValidationInput,
+): Promise<GoogleTargetValidationResult> => {
+  return getDesktopBridge().settings.validateGoogleTarget(input);
+};
+
+export const deployGoogleModel = async (
+  input: GoogleDeploymentInput,
+): Promise<GoogleDeploymentResult> => {
+  return getDesktopBridge().settings.deployGoogleModel(input);
 };
 
 export const saveDesktopAiProfile = async (
